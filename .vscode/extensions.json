@@ -1,0 +1,10 @@
+{
+  "recommendations": [
+    "biomejs.biome",
+    "bradlc.vscode-tailwindcss",
+    "esbenp.prettier-vscode",
+    "foxundermoon.shell-format",
+    "timonwong.shellcheck",
+    "charliermarsh.ruff"
+  ]
+}
