@@ -1,0 +1,10 @@
+resources/binaries/* binary
+resources/binaries/* -text
+*.png binary
+*.icns binary
+*.ico binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.dmg binary
+*.zip binary

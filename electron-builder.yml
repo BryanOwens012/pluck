@@ -10,8 +10,12 @@ files:
   - '!{biome.json,.prettierignore,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,yarn.lock}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
-asarUnpack:
-  - resources/**
+extraResources:
+  - from: resources/binaries
+    to: binaries
+    filter:
+      - yt-dlp
+      - ffmpeg
 mac:
   category: public.app-category.utilities
   entitlementsInherit: build/entitlements.mac.plist

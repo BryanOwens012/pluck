@@ -156,6 +156,11 @@ logs/
 # ============================================
 # PLUCK-SPECIFIC
 # ============================================
+# Bundled binaries are fetched by scripts/fetch-binaries.sh on postinstall;
+# they're too large to commit (ffmpeg universal is ~150 MB; GitHub caps at 100 MB).
+resources/binaries/yt-dlp
+resources/binaries/ffmpeg
+
 # Per-user app data and downloaded media should never end up in the repo;
 # Electron writes these to app.getPath('userData'), but guard against
 # accidental local dev paths.
