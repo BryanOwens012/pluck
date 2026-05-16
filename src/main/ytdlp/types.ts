@@ -35,9 +35,11 @@ export type RunnerDeps = {
 };
 
 /** Same shape as the renderer-facing `DownloadRequest`, plus a progress
- * callback. Keeping the wire-level type as the single source of truth means
- * the IPC handler can pass the request straight through with one extra field. */
-export type RunDownloadOptions = DownloadRequest & {
+ * callback. The IPC handler resolves the default output folder before
+ * calling the runner, so `outputFolder` is required here even though it's
+ * optional on the wire. */
+export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
+  outputFolder: string;
   onProgress?: (event: ProgressEvent) => void;
 };
 
