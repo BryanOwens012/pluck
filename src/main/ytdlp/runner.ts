@@ -18,6 +18,11 @@ const execFileAsync = promisify(execFile);
 // for a single video and below Node's default JSON parser ceiling.
 const METADATA_MAX_BUFFER = 100 * 1024 * 1024;
 
+// Cap retained non-progress stderr so a chatty failure (yt-dlp can emit
+// hundreds of lines on a broken extractor) doesn't balloon memory. The
+// last N lines are what matter for diagnosing the failure.
+const MAX_STDERR_RETENTION_LINES = 256;
+
 // Emit one JSON object per progress tick. Routed to stderr by default since
 // `--progress-template` without an explicit destination targets the progress
 // stream, and yt-dlp's progress stream is stderr. Keeping stdout free for
@@ -112,6 +117,11 @@ export const runDownload = (
       // The only `--print` is `after_move:%(filepath)s`, so any non-empty
       // stdout line is the final file path. Last one wins if yt-dlp emits
       // multiple (e.g. playlist URLs, though those aren't a v1 use case).
+      //
+      // Known edge case: if the destination file already exists, yt-dlp may
+      // skip the download and not emit after_move. The close handler rejects
+      // with a clear error in that case; the queue (PR 5) is responsible for
+      // generating non-colliding output paths.
       if (trimmed.length > 0) {
         finalFilePath = trimmed;
       }
@@ -124,10 +134,8 @@ export const runDownload = (
         opts.onProgress?.(event);
         return;
       }
-      // Retain non-progress lines for error context. Cap to last ~256 lines
-      // so a chatty failure doesn't balloon memory.
       stderrChunks.push(line);
-      if (stderrChunks.length > 256) {
+      if (stderrChunks.length > MAX_STDERR_RETENTION_LINES) {
         stderrChunks.shift();
       }
     });

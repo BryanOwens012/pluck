@@ -1,4 +1,4 @@
-import type { Format } from '../../shared/types';
+import type { DownloadRequest } from '../../shared/types';
 
 /**
  * Subset of `yt-dlp -J` metadata we actually consume. yt-dlp returns hundreds
@@ -34,11 +34,10 @@ export type RunnerDeps = {
   ffmpegPath: string;
 };
 
-export type RunDownloadOptions = {
-  url: string;
-  format: Format;
-  outputFolder: string;
-  videoPassword?: string;
+/** Same shape as the renderer-facing `DownloadRequest`, plus a progress
+ * callback. Keeping the wire-level type as the single source of truth means
+ * the IPC handler can pass the request straight through with one extra field. */
+export type RunDownloadOptions = DownloadRequest & {
   onProgress?: (event: ProgressEvent) => void;
 };
 
@@ -46,11 +45,8 @@ export type RunDownloadResult = {
   filePath: string;
 };
 
-/**
- * Sentinel error subclasses so callers can distinguish failure modes without
- * regex-matching strings. Wrap arbitrary `unknown` errors via the static
- * `from(err)` helpers when re-throwing.
- */
+/** Sentinel error subclasses so callers can distinguish failure modes without
+ * regex-matching strings. */
 export class YtDlpError extends Error {
   constructor(
     message: string,

@@ -90,10 +90,12 @@ export const parseMetadata = (json: string): VideoMetadata => {
 };
 
 /**
- * Detect Zoom's password-required error from stderr. yt-dlp surfaces this
- * with a stable substring across recent versions; pinned against yt-dlp
- * 2026.03.17 — re-verify on every yt-dlp bump.
+ * Detect Zoom's password-required error from stderr. yt-dlp's exact wording
+ * varies between extractor versions ("requires a password", "Authentication
+ * required", "passcode"), so we match on the presence of a Zoom signal plus
+ * any password/auth-related token. Pinned against yt-dlp 2026.03.17 —
+ * re-verify on every yt-dlp bump.
  */
 export const isPasswordRequiredError = (stderr: string): boolean => {
-  return /password|requires.*authentication/i.test(stderr) && /zoom/i.test(stderr);
+  return /zoom/i.test(stderr) && /(password|passcode|authentic)/i.test(stderr);
 };

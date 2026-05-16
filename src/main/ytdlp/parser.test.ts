@@ -134,6 +134,22 @@ describe('isPasswordRequiredError', () => {
     ).toBe(true);
   });
 
+  it('matches Zoom passcode wording (newer Zoom UI uses "passcode" not "password")', () => {
+    expect(
+      isPasswordRequiredError('ERROR: [Zoom] xyz: This recording is protected with a passcode'),
+    ).toBe(true);
+  });
+
+  it('matches "Authentication required" word order (regression for narrow regex)', () => {
+    expect(
+      isPasswordRequiredError('ERROR: [Zoom] xyz: Authentication required for this recording'),
+    ).toBe(true);
+  });
+
+  it('matches when "Zoom" appears anywhere in the line, including extractor key form', () => {
+    expect(isPasswordRequiredError('zoom: ERROR: Password required for recording xyz')).toBe(true);
+  });
+
   it('does not match unrelated errors', () => {
     expect(isPasswordRequiredError('ERROR: [youtube] Video unavailable')).toBe(false);
     expect(isPasswordRequiredError('ERROR: HTTP Error 403: Forbidden (no password mention)')).toBe(
@@ -141,8 +157,15 @@ describe('isPasswordRequiredError', () => {
     );
   });
 
-  it('does not match generic "password" mentions outside Zoom context', () => {
+  it('does not match password mentions outside Zoom context', () => {
     // A site with "password" in its name shouldn't false-positive without a Zoom signal.
     expect(isPasswordRequiredError('ERROR: [passwordprotect.tv] forbidden')).toBe(false);
+    // Generic auth errors without Zoom keyword.
+    expect(isPasswordRequiredError('ERROR: [vimeo] Authentication required')).toBe(false);
+  });
+
+  it('handles empty / whitespace input', () => {
+    expect(isPasswordRequiredError('')).toBe(false);
+    expect(isPasswordRequiredError('   \n  ')).toBe(false);
   });
 });
