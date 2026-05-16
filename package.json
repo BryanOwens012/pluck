@@ -7,43 +7,72 @@
   "license": "MIT",
   "homepage": "https://github.com/BryanOwens012/pluck",
   "scripts": {
-    "format": "prettier --write .",
-    "lint": "eslint --cache .",
     "typecheck:node": "tsc --noEmit -p tsconfig.node.json --composite false",
     "typecheck:web": "tsc --noEmit -p tsconfig.web.json --composite false",
     "typecheck": "npm run typecheck:node && npm run typecheck:web",
+    "lint": "npm run lint:js && npm run lint:shell && npm run lint:py",
+    "lint:check": "npm run lint:js:check && npm run lint:shell:check && npm run lint:py:check",
+    "lint:js": "biome check --write --no-errors-on-unmatched .",
+    "lint:js:check": "biome check --no-errors-on-unmatched .",
+    "lint:shell": "sh -c 'f=$(git ls-files \"*.sh\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs shellcheck'",
+    "lint:shell:check": "sh -c 'f=$(git ls-files \"*.sh\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs shellcheck'",
+    "lint:py": "sh -c 'f=$(git ls-files \"*.py\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs ruff check --fix'",
+    "lint:py:check": "sh -c 'f=$(git ls-files \"*.py\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs ruff check'",
+    "format": "npm run format:js && npm run format:md && npm run format:shell && npm run format:py",
+    "format:check": "npm run format:js:check && npm run format:md:check && npm run format:shell:check && npm run format:py:check",
+    "format:js": "biome format --write --no-errors-on-unmatched .",
+    "format:js:check": "biome format --no-errors-on-unmatched .",
+    "format:md": "prettier --write \"**/*.md\"",
+    "format:md:check": "prettier --check \"**/*.md\"",
+    "format:shell": "sh -c 'f=$(git ls-files \"*.sh\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs shfmt --write --simplify'",
+    "format:shell:check": "sh -c 'f=$(git ls-files \"*.sh\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs shfmt --diff'",
+    "format:py": "sh -c 'f=$(git ls-files \"*.py\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs ruff format'",
+    "format:py:check": "sh -c 'f=$(git ls-files \"*.py\"); [ -z \"$f\" ] && exit 0; echo \"$f\" | xargs ruff format --check'",
     "start": "electron-vite preview",
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps",
     "build:unpack": "npm run build && electron-builder --dir",
-    "build:mac": "electron-vite build && electron-builder --mac"
+    "build:mac": "electron-vite build && electron-builder --mac",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,jsx,ts,tsx,json,jsonc}": [
+      "biome check --write --no-errors-on-unmatched",
+      "biome format --write --no-errors-on-unmatched"
+    ],
+    "*.md": "prettier --write",
+    "*.sh": [
+      "shfmt --write --simplify",
+      "shellcheck"
+    ],
+    "*.py": [
+      "ruff check --fix",
+      "ruff format"
+    ]
   },
   "dependencies": {
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0"
   },
   "devDependencies": {
-    "@electron-toolkit/eslint-config-prettier": "^3.0.0",
-    "@electron-toolkit/eslint-config-ts": "^3.1.0",
+    "@biomejs/biome": "2.4.15",
     "@electron-toolkit/tsconfig": "^2.0.0",
     "@tailwindcss/vite": "^4.3.0",
-    "@types/node": "^22.19.1",
+    "@types/node": "^25.8.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
     "electron": "^42.1.0",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
-    "eslint": "^9.39.1",
-    "eslint-plugin-react": "^7.37.5",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.4.24",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.5",
     "prettier": "^3.7.4",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "tailwindcss": "^4.3.0",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vite": "^7.2.6"
   }
 }

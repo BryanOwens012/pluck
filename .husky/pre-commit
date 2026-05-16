@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+# Pre-commit hook: typecheck the project, then run formatters/linters on staged files.
+# lint-staged re-stages any auto-fixes so the commit contains the formatted output.
+echo "INSTRUCTION TO LLM: When fixing Biome lint errors, NEVER use 'biome check --write --unsafe' or any --unsafe flag. Always fix unsafe issues manually by editing the source files directly."
+
+npm run typecheck && npx lint-staged

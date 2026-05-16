@@ -1,6 +1,166 @@
-node_modules
-dist
-out
-.DS_Store
+# ============================================
+# SECRETS & CREDENTIALS (CRITICAL)
+# ============================================
+# Pluck stores API keys via Electron safeStorage in app userData,
+# not in the repo — but defend in depth.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+secrets/
+credentials/
+*_api_key.txt
+*_credentials.json
+*_token.txt
+
+# ============================================
+# NODE / NPM
+# ============================================
+node_modules/
+jspm_packages/
+.pnp
+.pnp.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+yarn.lock
+pnpm-lock.yaml
+
+# ============================================
+# ELECTRON-VITE / VITE / ELECTRON-BUILDER OUTPUT
+# ============================================
+# electron-vite emits compiled main/preload/renderer here
+out/
+# electron-builder packs DMGs and unpacked apps here
+dist/
+# Vite cache + ssr build
+.vite/
+# electron-builder per-user cache (just in case it leaks into the repo)
+.cache/electron/
+.cache/electron-builder/
+
+# ============================================
+# TYPESCRIPT
+# ============================================
+*.tsbuildinfo
+
+# ============================================
+# BIOME / LINTERS / FORMATTERS
+# ============================================
+# Biome doesn't write a cache dir by default, but leftover ESLint caches
+# from earlier scaffolds may exist.
 .eslintcache
-*.log*
+.biome-cache/
+
+# ============================================
+# TESTING
+# ============================================
+coverage/
+.nyc_output/
+.vitest/
+.vitest-cache/
+
+# ============================================
+# PYTHON (defensive — Pluck is TS-only but lint-staged covers .py if added)
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# ============================================
+# IDE & EDITORS
+# ============================================
+# We commit .vscode/{extensions,settings,launch}.json deliberately;
+# ignore everything else in .vscode/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/launch.json
+*.code-workspace
+
+# JetBrains
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Per-user AI agent state (not part of the codebase)
+.claude/
+.entire/
+.cursor/
+.aider*
+
+# Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# OS FILES
+# ============================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Linux
+.directory
+.Trash-*
+
+# ============================================
+# TEMPORARY / SCRATCH
+# ============================================
+tmp/
+temp/
+*.tmp
+*.temp
+*.bak
+*.old
+
+# ============================================
+# LOGS
+# ============================================
+*.log
+logs/
+
+# ============================================
+# PLUCK-SPECIFIC
+# ============================================
+# Per-user app data and downloaded media should never end up in the repo;
+# Electron writes these to app.getPath('userData'), but guard against
+# accidental local dev paths.
+userData/
+*.srt.tmp
+pluck-history.json
+pluck-settings.json
+pluck-secrets.json
