@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Download } from '../../../shared/types';
 import { api } from '../lib/api';
 
@@ -64,61 +65,90 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
   const startingLabel = isFetchingMetadata ? 'Reading video info…' : 'Starting download…';
 
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="break-words text-sm font-medium text-neutral-100">{headerTitle}</div>
-          {download.sourceSite ? (
-            <div className="mt-0.5 text-xs text-neutral-500">{download.sourceSite}</div>
-          ) : null}
+    <div className="flex gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+      {download.thumbnailUrl ? <Thumbnail url={download.thumbnailUrl} /> : null}
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="break-words text-sm font-medium text-neutral-100">{headerTitle}</div>
+            {download.sourceSite ? (
+              <div className="mt-0.5 text-xs text-neutral-500">{download.sourceSite}</div>
+            ) : null}
+          </div>
+          <div className={`shrink-0 text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
+            {STATUS_LABEL[download.status]}
+          </div>
         </div>
-        <div className={`shrink-0 text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
-          {STATUS_LABEL[download.status]}
-        </div>
-      </div>
 
-      {download.status === 'downloading' ? (
-        <div className="mt-3 space-y-1.5">
-          <div className="relative h-1.5 overflow-hidden rounded-full bg-neutral-800">
+        {download.status === 'downloading' ? (
+          <div className="mt-3 space-y-1.5">
+            <div className="relative h-1.5 overflow-hidden rounded-full bg-neutral-800">
+              {hasDeterminateProgress ? (
+                <div
+                  className="h-full bg-neutral-100 transition-all"
+                  style={{ width: `${percent}%` }}
+                />
+              ) : (
+                <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-neutral-100" />
+              )}
+            </div>
             {hasDeterminateProgress ? (
-              <div
-                className="h-full bg-neutral-100 transition-all"
-                style={{ width: `${percent}%` }}
-              />
+              <div className="flex justify-between text-xs text-neutral-500">
+                <span>{formatPercent(download.progress)}</span>
+                <span>
+                  {download.speed ?? '—'} · ETA {download.eta ?? '—'}
+                </span>
+              </div>
             ) : (
-              <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-neutral-100" />
+              <div className="text-xs text-neutral-500">{startingLabel}</div>
             )}
           </div>
-          {hasDeterminateProgress ? (
-            <div className="flex justify-between text-xs text-neutral-500">
-              <span>{formatPercent(download.progress)}</span>
-              <span>
-                {download.speed ?? '—'} · ETA {download.eta ?? '—'}
-              </span>
+        ) : null}
+
+        {download.status === 'completed' && download.filePath ? (
+          <CompletedFooter filePath={download.filePath} />
+        ) : null}
+
+        {/* Failed-state error block; always shown regardless of debug mode. */}
+        {download.status === 'failed' && download.error ? (
+          <div className="mt-3 flex gap-2 rounded-md border border-red-900/70 bg-red-950/40 p-2.5">
+            <span aria-hidden="true" className="select-none text-sm leading-none text-red-400">
+              ⚠
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-xs font-medium text-red-300">Download failed</div>
+              <div className="mt-0.5 break-words text-xs text-red-300/90">{download.error}</div>
             </div>
-          ) : (
-            <div className="text-xs text-neutral-500">{startingLabel}</div>
-          )}
-        </div>
-      ) : null}
-
-      {download.status === 'completed' && download.filePath ? (
-        <CompletedFooter filePath={download.filePath} />
-      ) : null}
-
-      {/* Failed-state error block; always shown regardless of debug mode. */}
-      {download.status === 'failed' && download.error ? (
-        <div className="mt-3 flex gap-2 rounded-md border border-red-900/70 bg-red-950/40 p-2.5">
-          <span aria-hidden="true" className="select-none text-sm leading-none text-red-400">
-            ⚠
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium text-red-300">Download failed</div>
-            <div className="mt-0.5 break-words text-xs text-red-300/90">{download.error}</div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
     </div>
+  );
+};
+
+// Shared classes for the thumbnail's visible box. h-12 w-20 keeps a 16:9
+// aspect ratio at small size; bg-neutral-800 is the placeholder colour that
+// shows while loading and again if the image fails. Pulled out so the <img>
+// and its fallback placeholder can't drift apart.
+const THUMBNAIL_BOX_CLASS = 'h-12 w-20 shrink-0 rounded bg-neutral-800';
+
+/** Preview thumbnail rendered to the left of the row body. Fixed 16:9 box so
+ * rows stay vertically aligned regardless of which thumbnails happen to load.
+ * `onError` flips to the placeholder so a CDN miss falls back to the empty
+ * box instead of a broken-image icon. */
+const Thumbnail = ({ url }: { url: string }): React.JSX.Element => {
+  const [failed, setFailed] = useState(false);
+  if (failed) {
+    return <div className={THUMBNAIL_BOX_CLASS} aria-hidden="true" />;
+  }
+  return (
+    <img
+      src={url}
+      alt=""
+      loading="lazy"
+      onError={() => setFailed(true)}
+      className={`${THUMBNAIL_BOX_CLASS} object-cover`}
+    />
   );
 };
 

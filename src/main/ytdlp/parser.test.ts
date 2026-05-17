@@ -83,7 +83,7 @@ describe('parseMetadata', () => {
       extractor: 'youtube',
       durationSec: 327.5,
       uploader: 'Some Channel',
-      thumbnail: 'https://example.com/thumb.jpg',
+      thumbnailUrl: 'https://example.com/thumb.jpg',
     });
   });
 
@@ -95,8 +95,25 @@ describe('parseMetadata', () => {
       extractor: 'generic',
       durationSec: undefined,
       uploader: undefined,
-      thumbnail: undefined,
+      thumbnailUrl: undefined,
     });
+  });
+
+  it('renames yt-dlp `thumbnail` field to `thumbnailUrl` in the output', () => {
+    const json = JSON.stringify({
+      id: 'x',
+      title: 't',
+      extractor: 'e',
+      thumbnail: 'https://i.ytimg.com/vi/x/hqdefault.jpg',
+    });
+    const result = parseMetadata(json);
+    expect(result.thumbnailUrl).toBe('https://i.ytimg.com/vi/x/hqdefault.jpg');
+    expect((result as unknown as { thumbnail?: string }).thumbnail).toBeUndefined();
+  });
+
+  it('drops non-string thumbnail values silently', () => {
+    const json = JSON.stringify({ id: 'x', title: 't', extractor: 'e', thumbnail: 42 });
+    expect(parseMetadata(json).thumbnailUrl).toBeUndefined();
   });
 
   it('throws when required fields are missing', () => {

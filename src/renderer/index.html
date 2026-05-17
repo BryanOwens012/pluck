@@ -3,9 +3,18 @@
   <head>
     <meta charset="UTF-8" />
     <title>Pluck</title>
+    <!--
+      CSP notes:
+      - script-src stays strict ('self') — no remote JS is ever loaded.
+      - style-src needs 'unsafe-inline' for the dev-mode HMR CSS injection;
+        production bundle inlines the Tailwind output the same way.
+      - img-src allows https: so DownloadRow can render YouTube / Vimeo / Zoom
+        preview thumbnails directly from each site's CDN. The thumbnail URL
+        comes straight from yt-dlp's metadata; we never run remote scripts.
+    -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:"
     />
   </head>
   <body>
