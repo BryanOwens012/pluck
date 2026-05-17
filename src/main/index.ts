@@ -36,14 +36,32 @@ const createWindow = (): void => {
   }
 };
 
-/** Spawn `yt-dlp --version` in the background so PyInstaller unpacks the
- * bundled Python runtime + extractors ahead of the user's first real
- * invocation. Saves roughly 200 ms on the cold-path metadata fetch. Pure
- * local work — no network, no privacy leak. Errors are intentionally
- * swallowed; if it fails the real download will surface the same problem. */
+// "Me at the zoo" — the first video ever uploaded to YouTube (2005), 19s,
+// guaranteed available, billions of views. Used to warm yt-dlp's player-JS
+// cache so the user's first real YouTube download skips the slow
+// JS-challenge step. Indistinguishable in YouTube's logs from anyone
+// opening this URL in a browser.
+const PREWARM_URL = 'https://www.youtube.com/watch?v=jNQXAC9IVRw';
+
+/** Two prewarm spawns at app launch:
+ *
+ * 1. `yt-dlp --version` — PyInstaller unpacks the bundled Python runtime
+ *    + extractors. Saves ~200 ms of process-startup overhead on the cold
+ *    metadata fetch. Pure local work.
+ * 2. `yt-dlp -J --no-download <Me at the zoo>` — populates yt-dlp's
+ *    per-player-version JS cache. Skips the ~1-2 s deno-based signature
+ *    deobfuscation step on every subsequent YouTube download for the next
+ *    ~24 h (yt-dlp's cache TTL). ~50 KB outbound; one page-view to a
+ *    public URL with no user identity attached.
+ *
+ * Both fire and forget — errors swallowed because the real download would
+ * surface the same problem. */
 const prewarmYtDlp = (): void => {
   execFile(binPath('yt-dlp'), ['--version'], () => {
-    // Intentionally empty — fire and forget.
+    // Intentionally empty.
+  });
+  execFile(binPath('yt-dlp'), ['-J', '--no-download', PREWARM_URL], () => {
+    // Intentionally empty.
   });
 };
 
