@@ -1,4 +1,4 @@
-import { mkdirSync } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { app, ipcMain, type WebContents } from 'electron';
@@ -62,6 +62,18 @@ export const generateDownloadId = (url: string, now: Date = new Date()): string 
   return `${slug}-${stamp}-${rand}`;
 };
 
+/** Plain-English mapping for common filesystem errno codes thrown by the
+ * staging step (mkdir, rename, copyFile). Keeps absolute paths from leaking
+ * into user-facing strings — Node's default error message format is
+ * `EXXX: description, syscall '/absolute/path/...'`. */
+const FS_ERRNO_MESSAGES: Record<string, string> = {
+  ENOSPC: 'No space left on the destination disk.',
+  EACCES: 'Permission denied when saving the download.',
+  EPERM: 'Permission denied when saving the download.',
+  EROFS: 'The destination is read-only.',
+  ENOENT: 'The destination folder no longer exists.',
+};
+
 /** Translate a thrown error into a user-facing message. Stderr is never sent
  * to the renderer — it's noisy and can leak filesystem paths. Exported for
  * testing. */
@@ -73,6 +85,13 @@ export const friendlyErrorMessage = (err: unknown): string => {
     return 'Download failed. The site may be unsupported or the URL may be invalid.';
   }
   if (err instanceof Error) {
+    // NodeJS.ErrnoException — fs ops at the staging/move step. Map to a
+    // safe message; never echo err.message verbatim because it includes
+    // the absolute path of the failing operation.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (typeof code === 'string') {
+      return FS_ERRNO_MESSAGES[code] ?? 'Could not save the download.';
+    }
     return err.message;
   }
   return 'Download failed.';
@@ -84,7 +103,6 @@ const handleStartDownload = (
 ): { id: string } => {
   const id = generateDownloadId(request.url);
   const outputFolder = request.outputFolder ?? DEFAULT_OUTPUT_FOLDER;
-  mkdirSync(outputFolder, { recursive: true });
   const deps = buildRunnerDeps();
 
   // Per-download mutable snapshot. Each update emits a full Download object
@@ -120,6 +138,10 @@ const handleStartDownload = (
     // sees partial files.
     const tempFolder = await createTempFolder(app.getPath('temp'), id);
     try {
+      // Ensure the user-visible output folder exists. Async so the IPC
+      // handler's event loop isn't blocked on filesystem.
+      await fs.mkdir(outputFolder, { recursive: true });
+
       const meta = await fetchMetadata(request.url, deps);
       emit({
         title: meta.title,

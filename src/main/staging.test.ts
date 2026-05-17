@@ -120,4 +120,24 @@ describe('moveFile', () => {
     // fallback ran to completion.
     expect(await fs.readFile(src, 'utf-8')).toBe('data');
   });
+
+  it('still considers the move successful when the post-EXDEV rm fails', async () => {
+    // Edge case: cross-volume case where the temp gets unmounted between
+    // copyFile completing and us trying to unlink the source. The bytes
+    // are at the destination — that's what matters — so we shouldn't
+    // surface a failure to the user. The leftover src will be reaped by
+    // the caller's removeTempFolder() in its `finally`.
+    const src = join(workspace, 'race.bin');
+    const dst = join(workspace, 'race-dst.bin');
+    await fs.writeFile(src, 'survives');
+
+    const exdev = Object.assign(new Error('cross-device'), { code: 'EXDEV' });
+    vi.spyOn(fs, 'rename').mockRejectedValueOnce(exdev);
+    vi.spyOn(fs, 'rm').mockRejectedValueOnce(
+      Object.assign(new Error('ENOENT: gone'), { code: 'ENOENT' }),
+    );
+
+    await expect(moveFile(src, dst)).resolves.toBeUndefined();
+    expect(await fs.readFile(dst, 'utf-8')).toBe('survives');
+  });
 });

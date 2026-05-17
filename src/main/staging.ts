@@ -68,16 +68,26 @@ const pathExists = async (path: string): Promise<boolean> => {
  * → ~/Downloads/Pluck/) both paths live on the same APFS container, so
  * we only ever hit the EXDEV branch if the user picks an output folder
  * on an external drive.
+ *
+ * If the copyFile succeeds but the post-copy rm fails (e.g. temp dir was
+ * already unmounted), the move is still logically complete — the file is
+ * at the destination. The leftover src will be reaped by the caller's
+ * removeTempFolder() in its `finally`, so we swallow the rm error.
  */
 export const moveFile = async (src: string, dst: string): Promise<void> => {
   try {
     await fs.rename(src, dst);
+    return;
   } catch (err) {
     if (!isExdev(err)) {
       throw err;
     }
-    await fs.copyFile(src, dst);
+  }
+  await fs.copyFile(src, dst);
+  try {
     await fs.rm(src);
+  } catch {
+    // Intentionally swallowed — see docstring.
   }
 };
 
