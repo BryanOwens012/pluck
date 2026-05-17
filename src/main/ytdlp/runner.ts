@@ -1,4 +1,6 @@
 import { execFile, spawn } from 'node:child_process';
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { Format } from '../../shared/types';
@@ -32,11 +34,11 @@ const MAX_STDERR_RETENTION_LINES = 256;
 // well under any consumer machine's limit.
 const DOWNLOAD_CONCURRENCY = 14;
 
-// Emit one JSON object per progress tick. Routed to stderr by default since
-// `--progress-template` without an explicit destination targets the progress
-// stream, and yt-dlp's progress stream is stderr. Keeping stdout free for
-// `--print` output (the final file path) means the two streams parse cleanly
-// without disambiguation logic.
+// Emit one JSON object per progress tick. yt-dlp writes both its info chatter
+// (`[youtube] Extracting URL: ...`) and the progress-template output to
+// STDOUT; nothing useful goes to stderr unless something actually breaks.
+// Our stdout reader passes every line through parseProgressLine — non-JSON
+// lines return null and we drop them.
 const PROGRESS_TEMPLATE = [
   '{',
   '"status":"%(progress.status)s",',
@@ -45,6 +47,13 @@ const PROGRESS_TEMPLATE = [
   '"eta":"%(progress._eta_str)s"',
   '}',
 ].join('');
+
+// yt-dlp writes the final post-move filepath here via --print-to-file. We
+// can't use plain --print because it activates implicit quiet mode and
+// silences both the info chatter and the --progress-template output. The
+// marker file lives inside the per-download tempFolder so removeTempFolder()
+// reaps it automatically. The leading "." keeps it out of Finder by default.
+const FINAL_PATH_MARKER_FILENAME = '.pluck-final-path';
 
 const formatFlags = (format: Format): string[] => {
   switch (format) {
@@ -96,6 +105,7 @@ export const runDownload = (
   deps: RunnerDeps,
 ): Promise<RunDownloadResult> => {
   return new Promise<RunDownloadResult>((resolve, reject) => {
+    const markerPath = join(opts.tempFolder, FINAL_PATH_MARKER_FILENAME);
     const args = [
       '--newline',
       '--no-mtime',
@@ -109,8 +119,9 @@ export const runDownload = (
       '%(title)s.%(ext)s',
       '--progress-template',
       PROGRESS_TEMPLATE,
-      '--print',
+      '--print-to-file',
       'after_move:%(filepath)s',
+      markerPath,
       ...formatFlags(opts.format),
     ];
 
@@ -122,33 +133,24 @@ export const runDownload = (
 
     const child = spawn(deps.ytDlpPath, args, { stdio: ['ignore', 'pipe', 'pipe'] });
 
-    let finalFilePath: string | undefined;
     const stderrChunks: string[] = [];
 
+    // yt-dlp progress + chatter both come on stdout. parseProgressLine
+    // returns null for the non-JSON noise (`[youtube] ...`, `[download]
+    // Destination: ...`, etc.) so we don't need to pre-filter.
     const stdoutReader = createInterface({ input: child.stdout });
     stdoutReader.on('line', (line) => {
-      const trimmed = line.trim();
-      // The only `--print` is `after_move:%(filepath)s`, so any non-empty
-      // stdout line is the final file path inside the temp folder. Last
-      // one wins if yt-dlp ever emits multiple (e.g. playlist URLs —
-      // not a v1 use case).
-      //
-      // The temp folder is unique per download (named by downloadId), so
-      // the file-exists collision yt-dlp would skip on can't happen here.
-      // The caller resolves collisions when moving into the user's
-      // visible output folder.
-      if (trimmed.length > 0) {
-        finalFilePath = trimmed;
-      }
-    });
-
-    const stderrReader = createInterface({ input: child.stderr });
-    stderrReader.on('line', (line) => {
       const event = parseProgressLine(line);
       if (event) {
         opts.onProgress?.(event);
-        return;
       }
+    });
+
+    // stderr is reserved for actual errors (rare; yt-dlp tends to send
+    // even errors to stdout). Keep a bounded ring buffer for diagnostics
+    // on a non-zero exit.
+    const stderrReader = createInterface({ input: child.stderr });
+    stderrReader.on('line', (line) => {
       stderrChunks.push(line);
       if (stderrChunks.length > MAX_STDERR_RETENTION_LINES) {
         stderrChunks.shift();
@@ -160,20 +162,37 @@ export const runDownload = (
     });
 
     child.on('close', (code) => {
-      const stderr = stderrChunks.join('\n');
-      if (code !== 0) {
-        if (isPasswordRequiredError(stderr)) {
-          reject(new YtDlpPasswordRequiredError(stderr));
+      void (async (): Promise<void> => {
+        const stderr = stderrChunks.join('\n');
+        if (code !== 0) {
+          if (isPasswordRequiredError(stderr)) {
+            reject(new YtDlpPasswordRequiredError(stderr));
+            return;
+          }
+          reject(new YtDlpError(`yt-dlp exited with code ${code}`, stderr));
           return;
         }
-        reject(new YtDlpError(`yt-dlp exited with code ${code}`, stderr));
-        return;
-      }
-      if (!finalFilePath) {
-        reject(new YtDlpError('yt-dlp completed but did not report a file path', stderr));
-        return;
-      }
-      resolve({ filePath: finalFilePath });
+        // Read the after_move marker file yt-dlp wrote via --print-to-file.
+        // Last line wins (the file uses append mode; in practice only one
+        // line is ever written for our single-URL invocations).
+        let markerContent: string;
+        try {
+          markerContent = await fs.readFile(markerPath, 'utf-8');
+        } catch {
+          reject(new YtDlpError('yt-dlp completed but did not report a file path', stderr));
+          return;
+        }
+        const finalFilePath = markerContent
+          .split('\n')
+          .map((line) => line.trim())
+          .filter(Boolean)
+          .at(-1);
+        if (!finalFilePath) {
+          reject(new YtDlpError('yt-dlp wrote an empty after_move marker file', stderr));
+          return;
+        }
+        resolve({ filePath: finalFilePath });
+      })();
     });
   });
 };

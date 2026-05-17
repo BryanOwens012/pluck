@@ -16,9 +16,9 @@ afterEach(async () => {
 });
 
 describe('createTempFolder', () => {
-  it('creates <base>/pluck/<id>/ and returns its path', async () => {
+  it('creates <base>/<id>/ and returns its path', async () => {
     const dir = await createTempFolder(workspace, 'youtube-abc-20260516-204530-x7n4ab');
-    expect(dir).toBe(join(workspace, 'pluck', 'youtube-abc-20260516-204530-x7n4ab'));
+    expect(dir).toBe(join(workspace, 'youtube-abc-20260516-204530-x7n4ab'));
     const stat = await fs.stat(dir);
     expect(stat.isDirectory()).toBe(true);
   });

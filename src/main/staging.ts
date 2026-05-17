@@ -7,11 +7,13 @@ import { extname, join } from 'node:path';
  * `os.tmpdir()` and from the IPC handler against `app.getPath('temp')`.
  */
 
-/** Per-download workspace under `<base>/pluck/<downloadId>/`. yt-dlp writes
- * fragments and the merged output here; we atomically move the final file
- * to the user's output folder once it's done. */
+/** Per-download workspace at `<base>/<downloadId>/`. yt-dlp writes fragments
+ * and the merged output here; we atomically move the final file to the user's
+ * output folder once it's done. Caller chooses the base — see ipc.ts for the
+ * production path (`~/Library/Caches/video.pluck.app/`) and test-runner.ts
+ * for the smoke-harness path (under `os.tmpdir()`). */
 export const createTempFolder = async (base: string, downloadId: string): Promise<string> => {
-  const dir = join(base, 'pluck', downloadId);
+  const dir = join(base, downloadId);
   await fs.mkdir(dir, { recursive: true });
   return dir;
 };

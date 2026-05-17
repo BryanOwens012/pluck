@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { app, ipcMain, type WebContents } from 'electron';
+import { ipcMain, type WebContents } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
 import { binPath } from './paths';
@@ -10,6 +10,15 @@ import { fetchMetadata, runDownload } from './ytdlp/runner';
 import { type RunnerDeps, YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
 
 const DEFAULT_OUTPUT_FOLDER = join(homedir(), 'Downloads', 'Pluck');
+
+/** Per-download workspaces live under `~/Library/Caches/video.pluck.app/`.
+ * Predictable path (vs Electron's randomized `app.getPath('temp')`), same
+ * APFS volume as ~/Downloads so the move-out stays atomic, and macOS may
+ * auto-purge under "Optimize Storage" pressure — free hygiene on top of
+ * our own try/finally cleanup. The literal `video.pluck.app` matches the
+ * electron-builder appId so it remains stable across dev and packaged
+ * builds. */
+const PLUCK_CACHE_DIR = join(homedir(), 'Library', 'Caches', 'video.pluck.app');
 
 /** Minimum time the row stays in the `downloading` state on the renderer.
  * Tiny videos (YouTube Shorts at -N 14) finish in well under a frame, which
@@ -149,12 +158,12 @@ const handleStartDownload = (
   // Fire and forget: the IPC contract only requires that the id come back
   // synchronously; everything else streams through DownloadUpdate.
   void (async (): Promise<void> => {
-    // Per-download workspace inside the OS temp dir. yt-dlp downloads
-    // fragments and writes the merged output here; on success we move the
-    // final file into outputFolder and rm the workspace. On any failure
-    // the `finally` rm still fires, so user-visible Downloads/Pluck never
-    // sees partial files.
-    const tempFolder = await createTempFolder(app.getPath('temp'), id);
+    // Per-download workspace inside ~/Library/Caches/video.pluck.app/.
+    // yt-dlp downloads fragments and writes the merged output here; on
+    // success we move the final file into outputFolder and rm the
+    // workspace. On any failure the `finally` rm still fires, so
+    // user-visible Downloads/Pluck never sees partial files.
+    const tempFolder = await createTempFolder(PLUCK_CACHE_DIR, id);
     try {
       // Ensure the user-visible output folder exists. Async so the IPC
       // handler's event loop isn't blocked on filesystem.
