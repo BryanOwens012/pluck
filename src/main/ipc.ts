@@ -4,6 +4,8 @@ import { basename, join } from 'node:path';
 import { ipcMain, shell, type WebContents } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
+import { isHttpUrl } from '../shared/url';
+import { createMetadataCache, type MetadataCache } from './metadata-cache';
 import { binPath } from './paths';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
@@ -33,6 +35,18 @@ const buildRunnerDeps = (): RunnerDeps => ({
   ytDlpPath: binPath('yt-dlp'),
   ffmpegPath: binPath('ffmpeg'),
 });
+
+// Shared metadata cache. Constructed lazily on first access so importing
+// this module doesn't immediately probe binPath. The fetcher closure builds
+// fresh deps per call — cheap and lets a future binPath tweak take effect
+// without rebuilding the cache.
+let cachedMetadataCache: MetadataCache | undefined;
+const getMetadataCache = (): MetadataCache => {
+  if (cachedMetadataCache === undefined) {
+    cachedMetadataCache = createMetadataCache((url) => fetchMetadata(url, buildRunnerDeps()));
+  }
+  return cachedMetadataCache;
+};
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -170,7 +184,10 @@ const handleStartDownload = (
       // handler's event loop isn't blocked on filesystem.
       await fs.mkdir(outputFolder, { recursive: true });
 
-      const meta = await fetchMetadata(request.url, deps);
+      // Cache hit when the renderer prefetched this URL (typed and waited
+      // a tick before clicking Download). Otherwise it's an in-flight or
+      // miss and we wait on the fresh fetch.
+      const meta = await getMetadataCache().get(request.url);
       emit({
         title: meta.title,
         sourceSite: meta.extractor,
@@ -246,13 +263,23 @@ export const registerIpcHandlers = (): void => {
     // to do about it).
     shell.showItemInFolder(filePath);
   });
-  ipcMain.handle(IpcChannels.OpenExternal, async (_event, url: string) => {
-    // Guard rail: only allow https / http URLs. Without this, a compromised
-    // renderer could pass a `file://` URL and trick the OS into opening
-    // arbitrary local files in their default app.
-    if (!/^https?:\/\//i.test(url)) {
+  ipcMain.handle(IpcChannels.OpenExternal, async (_event, url: unknown) => {
+    // Guard rail via isHttpUrl: a compromised renderer could otherwise pass
+    // `file://` and trick the OS into opening arbitrary local files in
+    // their default app.
+    if (!isHttpUrl(url)) {
       return;
     }
     await shell.openExternal(url);
+  });
+  ipcMain.handle(IpcChannels.PrefetchMetadata, (_event, url: unknown) => {
+    // Fire-and-forget warmer. The cache de-dups concurrent gets, so calling
+    // this and then start-download moments later only spawns one yt-dlp.
+    // Same isHttpUrl guard as OpenExternal — never invoke yt-dlp on
+    // arbitrary schemes.
+    if (!isHttpUrl(url)) {
+      return;
+    }
+    getMetadataCache().prefetch(url);
   });
 };

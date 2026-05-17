@@ -1,11 +1,39 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
+import { isHttpUrl } from '../../../shared/url';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { api } from '../lib/api';
 
 type Props = {
   onSubmit: (url: string) => void;
 };
 
+// Wait this long after the user stops typing before firing the speculative
+// metadata prefetch. Long enough that we don't spam yt-dlp while the user
+// is mid-paste / mid-edit; short enough that by the time they reach for the
+// Download button the cache has already started warming.
+const PREFETCH_DEBOUNCE_MS = 400;
+
+// Minimum URL length before we consider warming the cache. Avoids firing
+// prefetch on a half-pasted URL like "h" or "https://" that yt-dlp couldn't
+// resolve anyway.
+const MIN_PREFETCH_URL_LENGTH = 12;
+
 export const UrlInput = ({ onSubmit }: Props): React.JSX.Element => {
   const [url, setUrl] = useState('');
+
+  // Drive the prefetch off a debounced copy of the URL. The effect runs at
+  // most once per stability window because `debouncedUrl` only flips after
+  // the user stops typing.
+  const debouncedUrl = useDebouncedValue(url.trim(), PREFETCH_DEBOUNCE_MS);
+  useEffect(() => {
+    if (debouncedUrl.length < MIN_PREFETCH_URL_LENGTH || !isHttpUrl(debouncedUrl)) {
+      return;
+    }
+    api.prefetchMetadata(debouncedUrl).catch(() => {
+      // Prefetch failures are silent — the actual download attempt will
+      // surface them via the friendly-error path.
+    });
+  }, [debouncedUrl]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
