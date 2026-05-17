@@ -12,6 +12,18 @@ const STATUS_LABEL: Record<Download['status'], string> = {
   transcribing: 'Transcribing',
 };
 
+// Tailwind classes for the small status badge in the row header. Failed gets
+// red so the row reads as broken at a glance even before the user reads the
+// error message below. Error display is always on — never gated on debug
+// mode.
+const STATUS_BADGE_CLASS: Record<Download['status'], string> = {
+  queued: 'text-neutral-400',
+  downloading: 'text-neutral-400',
+  completed: 'text-neutral-400',
+  failed: 'text-red-400',
+  transcribing: 'text-neutral-400',
+};
+
 const formatPercent = (value: number): string =>
   Number.isFinite(value) ? `${value.toFixed(1)}%` : '—';
 
@@ -35,7 +47,9 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
             <div className="mt-0.5 text-xs text-neutral-500">{download.sourceSite}</div>
           ) : null}
         </div>
-        <div className="shrink-0 text-xs text-neutral-400">{STATUS_LABEL[download.status]}</div>
+        <div className={`shrink-0 text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
+          {STATUS_LABEL[download.status]}
+        </div>
       </div>
 
       {download.status === 'downloading' ? (
@@ -68,7 +82,15 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
       ) : null}
 
       {download.status === 'failed' && download.error ? (
-        <div className="mt-2 text-xs text-red-400">{download.error}</div>
+        <div className="mt-3 flex gap-2 rounded-md border border-red-900/70 bg-red-950/40 p-2.5">
+          <span aria-hidden="true" className="select-none text-sm leading-none text-red-400">
+            ⚠
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-medium text-red-300">Download failed</div>
+            <div className="mt-0.5 break-words text-xs text-red-300/90">{download.error}</div>
+          </div>
+        </div>
       ) : null}
     </div>
   );
