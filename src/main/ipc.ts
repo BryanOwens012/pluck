@@ -175,6 +175,7 @@ const handleStartDownload = (
         title: meta.title,
         sourceSite: meta.extractor,
         durationSec: meta.durationSec,
+        thumbnailUrl: meta.thumbnailUrl,
       });
 
       // Two-second smoother for speed + ETA. yt-dlp fires progress multiple

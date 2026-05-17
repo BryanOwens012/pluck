@@ -23,6 +23,9 @@ export type Download = {
   title?: string;
   sourceSite?: string;
   durationSec?: number;
+  /** Remote https URL for a preview thumbnail, populated after the metadata
+   * pre-pass. Renderer loads it directly; CSP permits `img-src https:`. */
+  thumbnailUrl?: string;
   format: Format;
   outputFolder: string;
   filePath?: string;

@@ -77,7 +77,7 @@ export const parseMetadata = (json: string): VideoMetadata => {
 
   const duration = typeof parsed.duration === 'number' ? parsed.duration : undefined;
   const uploader = typeof parsed.uploader === 'string' ? parsed.uploader : undefined;
-  const thumbnail = typeof parsed.thumbnail === 'string' ? parsed.thumbnail : undefined;
+  const thumbnailUrl = typeof parsed.thumbnail === 'string' ? parsed.thumbnail : undefined;
 
   return {
     id,
@@ -85,7 +85,7 @@ export const parseMetadata = (json: string): VideoMetadata => {
     extractor,
     durationSec: duration,
     uploader,
-    thumbnail,
+    thumbnailUrl,
   };
 };
 

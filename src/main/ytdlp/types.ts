@@ -11,7 +11,9 @@ export type VideoMetadata = {
   extractor: string;
   durationSec?: number;
   uploader?: string;
-  thumbnail?: string;
+  /** Absolute https URL of a preview thumbnail. yt-dlp picks one of several
+   * resolutions; we just use whatever it gives us. */
+  thumbnailUrl?: string;
 };
 
 /**
