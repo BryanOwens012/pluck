@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Download } from '../../../shared/types';
 import { api } from '../lib/api';
-import { SourceSiteIcon } from './SourceSiteIcon';
+import { resolveSiteGlyph, SourceSiteIcon } from './SourceSiteIcon';
 
 type Props = {
   download: Download;
@@ -163,11 +163,14 @@ const SourceSiteBadge = ({ siteKey, url }: { siteKey: string; url: string }): Re
       console.error('openExternal rejected:', err);
     });
   };
+  // Tooltip uses the resolved label ("YouTube" not "youtube:tab") so it reads
+  // cleanly when yt-dlp's extractor key carries a colon-suffix.
+  const tooltipLabel = resolveSiteGlyph(siteKey).label;
   return (
     <button
       type="button"
       onClick={handleOpen}
-      title={`Open on ${siteKey} in your browser`}
+      title={`Open on ${tooltipLabel} in your browser`}
       className="mt-0.5 inline-flex items-center gap-1.5 rounded text-xs text-neutral-500 transition hover:text-neutral-300 focus:outline-none focus-visible:text-neutral-300"
     >
       <SourceSiteIcon siteKey={siteKey} />

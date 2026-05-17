@@ -6,8 +6,8 @@
  * without relying on trademarked artwork.
  *
  * `siteKey` is yt-dlp's extractor key (the same string we store in
- * `Download.sourceSite`). Unknown keys get the generic globe so the icon is
- * always present and never breaks the row layout.
+ * `Download.sourceSite`). Unknown keys get the generic "↗" glyph so the icon
+ * is always present and never breaks the row layout.
  */
 
 type SiteGlyph = {
@@ -19,14 +19,18 @@ type SiteGlyph = {
   label: string;
 };
 
+const GENERIC_GLYPH: SiteGlyph = {
+  letter: '↗',
+  bgClass: 'bg-neutral-700',
+  label: 'External site',
+};
+
 const SITE_GLYPHS: Record<string, SiteGlyph> = {
   youtube: { letter: 'Y', bgClass: 'bg-red-600', label: 'YouTube' },
   vimeo: { letter: 'V', bgClass: 'bg-sky-500', label: 'Vimeo' },
   zoom: { letter: 'Z', bgClass: 'bg-blue-600', label: 'Zoom' },
   tiktok: { letter: 'T', bgClass: 'bg-neutral-100 text-neutral-900', label: 'TikTok' },
   twitter: { letter: 'X', bgClass: 'bg-neutral-100 text-neutral-900', label: 'X' },
-  // Fallback used when the extractor key isn't in this table — see resolveGlyph.
-  generic: { letter: '↗', bgClass: 'bg-neutral-700', label: 'External site' },
 };
 
 /** Resolve a yt-dlp extractor key to one of our known glyphs. Exported so the
@@ -34,11 +38,16 @@ const SITE_GLYPHS: Record<string, SiteGlyph> = {
  * trims any suffix yt-dlp appends (e.g. `youtube:tab`, `youtube:playlist`). */
 export const resolveSiteGlyph = (siteKey: string | undefined): SiteGlyph => {
   if (!siteKey) {
-    return SITE_GLYPHS.generic as SiteGlyph;
+    return GENERIC_GLYPH;
   }
   const normalized = siteKey.toLowerCase().split(':')[0] ?? '';
-  return SITE_GLYPHS[normalized] ?? (SITE_GLYPHS.generic as SiteGlyph);
+  return SITE_GLYPHS[normalized] ?? GENERIC_GLYPH;
 };
+
+// Hoisted out of the component so we don't reallocate the template literal on
+// every render. Tailwind classes are static.
+const ICON_BASE_CLASS =
+  'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none text-white';
 
 type Props = {
   /** yt-dlp extractor key, e.g. "youtube" / "vimeo" / "zoom". */
@@ -47,14 +56,12 @@ type Props = {
 
 export const SourceSiteIcon = ({ siteKey }: Props): React.JSX.Element => {
   const glyph = resolveSiteGlyph(siteKey);
-  const baseClass =
-    'inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold leading-none text-white';
   return (
     <span
       role="img"
       aria-label={glyph.label}
       title={glyph.label}
-      className={`${baseClass} ${glyph.bgClass}`}
+      className={`${ICON_BASE_CLASS} ${glyph.bgClass}`}
     >
       {glyph.letter}
     </span>
