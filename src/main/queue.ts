@@ -5,7 +5,7 @@ import type { MetadataCache } from './metadata-cache';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
 import type { RunDownloadOptions, RunDownloadResult, RunnerDeps } from './ytdlp/types';
-import { YtDlpCancelledError } from './ytdlp/types';
+import { YtDlpCancelledError, YtDlpPasswordRequiredError } from './ytdlp/types';
 
 /** Spec: max 3 concurrent downloads. Above this every additional URL waits
  * in 'queued' until a slot opens. Inter-download parallelism — separate
@@ -36,6 +36,11 @@ export const friendlyErrorMessage = (err: unknown): string => {
     // 'cancelled' status path, never here. If something accidentally
     // does, at least produce a non-scary string.
     return 'Download cancelled.';
+  }
+  if (err instanceof YtDlpPasswordRequiredError) {
+    // Stays user-friendly until PR 7 wires the actual password modal —
+    // until then we at least tell the user *why* the row failed.
+    return 'This recording requires a password.';
   }
   if (err instanceof Error) {
     const code = (err as NodeJS.ErrnoException).code;

@@ -46,9 +46,12 @@ describe('friendlyErrorMessage', () => {
     expect(msg).not.toContain('/Users/');
   });
 
-  it('maps YtDlpPasswordRequiredError via the YtDlpError branch (still generic)', () => {
+  it('maps YtDlpPasswordRequiredError to a password-specific hint', () => {
+    // The full Zoom password modal lands in PR 7. Until then, the row's
+    // error block at least tells the user *why* it failed instead of
+    // blaming yt-dlp or the URL.
     expect(friendlyErrorMessage(new YtDlpPasswordRequiredError())).toBe(
-      'Download failed. The site may be unsupported or the URL may be invalid.',
+      'This recording requires a password.',
     );
   });
 

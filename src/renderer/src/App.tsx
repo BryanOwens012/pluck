@@ -11,11 +11,10 @@ const App = (): React.JSX.Element => {
   const upsert = useDownloadsStore((s) => s.upsert);
   const [format, setFormat] = useState<Format>('best');
 
-  // Boot: pull the full snapshot from main (persisted history + any live
-  // in-flight rows) and seed the store. Subscribe to push updates first so
-  // any update emitted while getInitialState is in-flight still lands.
-  // upsert overwrites by id, so a later seed() including the same row is
-  // harmless; if the live update is newer, the next push will correct it.
+  // Boot: subscribe to push updates first so any update emitted while
+  // getInitialState is in-flight still lands. Then seed with the snapshot
+  // from main — seed merges (existing wins on id), so a newer pushed row
+  // isn't clobbered by the older snapshot.
   useEffect(() => {
     let cancelled = false;
     const unsubscribe = api.onDownloadUpdate(upsert);

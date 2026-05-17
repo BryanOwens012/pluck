@@ -5,8 +5,10 @@ type DownloadsState = {
   /** Keyed by Download.id so update events replace by id without a list scan.
    * Rendered as a sorted array via the selectors below. */
   downloads: Map<string, Download>;
-  /** Replace the entire store. Used once on mount with the initial snapshot
-   * from main (history + any live rows). */
+  /** Seed the store with the initial snapshot from main (history + any
+   * live rows). Existing rows win on id collision — protects against a
+   * push-update landing between subscribe and seed: that row is already
+   * the newer truth, so we keep it and only fill in ids we hadn't seen. */
   seed: (downloads: Download[]) => void;
   /** Insert or replace one row. Main pushes a full Download per update; we
    * never merge partials renderer-side. */
@@ -16,9 +18,15 @@ type DownloadsState = {
 export const useDownloadsStore = create<DownloadsState>((set) => ({
   downloads: new Map(),
   seed: (downloads) =>
-    set(() => ({
-      downloads: new Map(downloads.map((d) => [d.id, d])),
-    })),
+    set((state) => {
+      const next = new Map(state.downloads);
+      for (const d of downloads) {
+        if (!next.has(d.id)) {
+          next.set(d.id, d);
+        }
+      }
+      return { downloads: next };
+    }),
   upsert: (download) =>
     set((state) => {
       // New Map per update so React + Zustand's shallow equality treat it as
