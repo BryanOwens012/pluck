@@ -10,6 +10,7 @@ import {
   type RunDownloadResult,
   type RunnerDeps,
   type VideoMetadata,
+  YtDlpCancelledError,
   YtDlpError,
   YtDlpPasswordRequiredError,
 } from './types';
@@ -54,6 +55,12 @@ const PROGRESS_TEMPLATE = [
 // marker file lives inside the per-download tempFolder so removeTempFolder()
 // reaps it automatically. The leading "." keeps it out of Finder by default.
 const FINAL_PATH_MARKER_FILENAME = '.pluck-final-path';
+
+// Grace period between SIGTERM and SIGKILL on cancellation. SIGTERM lets
+// yt-dlp clean up its temp fragments and child ffmpeg process; SIGKILL is
+// the unconditional fallback if it ignores SIGTERM. 2 s matches the macOS
+// `kill` man page recommendation for non-essential daemons.
+const CANCEL_FORCE_KILL_AFTER_MS = 2000;
 
 const formatFlags = (format: Format): string[] => {
   switch (format) {
@@ -137,6 +144,34 @@ export const runDownload = (
 
     const stderrChunks: string[] = [];
 
+    // Tracks whether cancellation has been requested. The close handler
+    // distinguishes "yt-dlp exited because the user cancelled" (reject
+    // with YtDlpCancelledError) from "yt-dlp exited because something went
+    // wrong" (reject with YtDlpError).
+    let cancelled = false;
+    let forceKillTimer: NodeJS.Timeout | undefined;
+
+    const handleAbort = (): void => {
+      cancelled = true;
+      // SIGTERM first so yt-dlp can wind down its child ffmpeg cleanly.
+      // If the process is still alive after the grace period, SIGKILL
+      // unconditionally. `kill()` is a no-op if the process is already
+      // dead — safe to call from both paths.
+      child.kill('SIGTERM');
+      forceKillTimer = setTimeout(() => {
+        child.kill('SIGKILL');
+      }, CANCEL_FORCE_KILL_AFTER_MS);
+    };
+
+    // If the caller pre-aborted, kick the abort path immediately. Otherwise
+    // listen for abort events. Cleanup of the listener happens in the close
+    // handler so we don't leak AbortSignal listeners across many downloads.
+    if (opts.cancelSignal?.aborted) {
+      handleAbort();
+    } else {
+      opts.cancelSignal?.addEventListener('abort', handleAbort, { once: true });
+    }
+
     // yt-dlp progress + chatter both come on stdout. parseProgressLine
     // returns null for the non-JSON noise (`[youtube] ...`, `[download]
     // Destination: ...`, etc.) so we don't need to pre-filter.
@@ -164,8 +199,23 @@ export const runDownload = (
     });
 
     child.on('close', (code) => {
+      // Drop the force-kill timer + abort listener regardless of how we
+      // got here. Without this the AbortSignal would keep our handler
+      // alive across the lifetime of the cancelSignal (which the IPC
+      // handler owns).
+      if (forceKillTimer !== undefined) {
+        clearTimeout(forceKillTimer);
+      }
+      opts.cancelSignal?.removeEventListener('abort', handleAbort);
+
       void (async (): Promise<void> => {
         const stderr = stderrChunks.join('\n');
+        // Cancellation wins over any other exit reason — yt-dlp killed by
+        // SIGTERM/SIGKILL exits with a non-zero code, but we know why.
+        if (cancelled) {
+          reject(new YtDlpCancelledError());
+          return;
+        }
         if (code !== 0) {
           if (isPasswordRequiredError(stderr)) {
             reject(new YtDlpPasswordRequiredError(stderr));

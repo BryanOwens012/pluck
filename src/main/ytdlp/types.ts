@@ -43,10 +43,15 @@ export type RunnerDeps = {
  * script) moves the final file into the user-visible output folder once
  * yt-dlp completes. Keeping the runner ignorant of the final destination
  * keeps yt-dlp orchestration and filesystem staging cleanly separated and
- * means a failed download leaves nothing in the user's Downloads folder. */
+ * means a failed download leaves nothing in the user's Downloads folder.
+ *
+ * `cancelSignal` is the standard DOM AbortSignal. When it aborts mid-run,
+ * the runner sends SIGTERM to the yt-dlp child, schedules SIGKILL after a
+ * grace period, and rejects with YtDlpCancelledError. */
 export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
   tempFolder: string;
   onProgress?: (event: ProgressEvent) => void;
+  cancelSignal?: AbortSignal;
 };
 
 export type RunDownloadResult = {
@@ -70,5 +75,16 @@ export class YtDlpPasswordRequiredError extends YtDlpError {
   constructor(stderr?: string) {
     super('yt-dlp requires a video password for this URL', stderr);
     this.name = 'YtDlpPasswordRequiredError';
+  }
+}
+
+/** Thrown when the IPC layer aborts a download via AbortSignal (user clicked
+ * Cancel). Distinct from YtDlpError so the IPC handler can emit
+ * `status: 'cancelled'` instead of the user-scary `status: 'failed'` —
+ * cancellation isn't a failure, it's a deliberate choice. */
+export class YtDlpCancelledError extends YtDlpError {
+  constructor() {
+    super('Download cancelled by user.');
+    this.name = 'YtDlpCancelledError';
   }
 }

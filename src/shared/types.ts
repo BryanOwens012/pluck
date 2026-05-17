@@ -15,7 +15,13 @@ export type DownloadRequest = {
   videoPassword?: string;
 };
 
-export type DownloadStatus = 'queued' | 'downloading' | 'completed' | 'failed' | 'transcribing';
+export type DownloadStatus =
+  | 'queued'
+  | 'downloading'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+  | 'transcribing';
 
 export type Download = {
   id: string;
