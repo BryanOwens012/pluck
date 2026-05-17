@@ -1,9 +1,10 @@
-import { ipcMain, shell } from 'electron';
+import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { DownloadRequest } from '../shared/types';
 import { isHttpUrl } from '../shared/url';
 import type { MetadataCache } from './metadata-cache';
 import type { DownloadQueue } from './queue';
+import type { Settings, SettingsStore } from './settings';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -54,6 +55,7 @@ export const generateDownloadId = (url: string, now: Date = new Date()): string 
 export type IpcDeps = {
   queue: DownloadQueue;
   metadataCache: MetadataCache;
+  settings: SettingsStore;
 };
 
 /** Wire all renderer→main and main→renderer IPC. Pure delegation to the
@@ -91,5 +93,59 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       return;
     }
     deps.metadataCache.prefetch(url);
+  });
+  ipcMain.handle(IpcChannels.GetSettings, () => deps.settings.get());
+  ipcMain.handle(IpcChannels.UpdateSettings, (_event, patch: unknown) => {
+    // Only `outputFolder` is settable from the renderer today. Reject any
+    // other keys defensively — a compromised renderer shouldn't be able
+    // to write arbitrary properties to settings.json.
+    if (typeof patch !== 'object' || patch === null) {
+      return deps.settings.get();
+    }
+    const folder = (patch as Partial<Settings>).outputFolder;
+    if (typeof folder !== 'string' || folder.length === 0) {
+      return deps.settings.get();
+    }
+    return deps.settings.update({ outputFolder: folder });
+  });
+  ipcMain.handle(IpcChannels.ChooseOutputFolder, async (event) => {
+    // Anchor the dialog to the window that invoked us so it behaves as a
+    // sheet on macOS rather than a free-floating window. Falling back
+    // to the modeless overload when we can't find an owning window keeps
+    // the dialog usable in edge cases (renderer reload races).
+    const owner = BrowserWindow.fromWebContents(event.sender);
+    const current = deps.settings.get().outputFolder;
+    const dialogOptions = {
+      title: 'Choose download folder',
+      defaultPath: current,
+      properties: ['openDirectory', 'createDirectory'] as Array<
+        'openDirectory' | 'createDirectory'
+      >,
+      buttonLabel: 'Use this folder',
+    };
+    const result = await (owner
+      ? dialog.showOpenDialog(owner, dialogOptions)
+      : dialog.showOpenDialog(dialogOptions));
+    const picked = result.filePaths[0];
+    if (result.canceled || !picked) {
+      return undefined;
+    }
+    await deps.settings.update({ outputFolder: picked });
+    return picked;
+  });
+  ipcMain.handle(IpcChannels.RetryDownload, (_event, id: unknown) => {
+    if (typeof id !== 'string') {
+      return { id: undefined };
+    }
+    const original = deps.queue.getAll().find((d) => d.id === id);
+    if (!original) {
+      return { id: undefined };
+    }
+    // Build a fresh request from the original row's URL+format. Don't
+    // carry the original's outputFolder forward — the user may have
+    // changed the default in settings since the first attempt, and
+    // re-using the old folder would be confusing.
+    const newId = deps.queue.enqueue({ url: original.url, format: original.format });
+    return { id: newId };
   });
 };

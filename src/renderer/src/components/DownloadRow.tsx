@@ -128,6 +128,7 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
               <div className="text-xs font-medium text-red-300">Download failed</div>
               <div className="mt-0.5 break-words text-xs text-red-300/90">{download.error}</div>
             </div>
+            <RetryButton id={download.id} />
           </div>
         ) : null}
       </div>
@@ -183,6 +184,28 @@ const SourceSiteBadge = ({ siteKey, url }: { siteKey: string; url: string }): Re
     >
       <SourceSiteIcon siteKey={siteKey} />
       <span>{siteKey}</span>
+    </button>
+  );
+};
+
+/** Re-runs a failed download with the same URL + format, creating a new
+ * row (fresh id, fresh createdAt). The original failed row stays in the
+ * list so the user can see they tried before. */
+const RetryButton = ({ id }: { id: string }): React.JSX.Element => {
+  const handleRetry = (): void => {
+    api.retryDownload(id).catch((err: unknown) => {
+      console.error('retryDownload rejected:', err);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleRetry}
+      title="Retry download"
+      aria-label="Retry download"
+      className="shrink-0 self-start rounded-md border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-300 transition hover:bg-red-900/50 hover:text-red-200 focus:outline-none focus-visible:bg-red-900/50"
+    >
+      Retry
     </button>
   );
 };

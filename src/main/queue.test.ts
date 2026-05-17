@@ -155,7 +155,7 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
       });
     });
   return {
-    defaultOutputFolder: outputDir,
+    getDefaultOutputFolder: (): string => outputDir,
     tempBaseDir,
     runnerDeps,
     runDownload,
