@@ -1,10 +1,17 @@
 import { execFile } from 'node:child_process';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { electronApp, is, optimizer } from '@electron-toolkit/utils';
 import { app, BrowserWindow, shell } from 'electron';
 import icon from '../../resources/icon.png?asset';
-import { registerIpcHandlers } from './ipc';
+import { IpcChannels } from '../shared/ipc-channels';
+import type { Download } from '../shared/types';
+import { createHistoryStore } from './history';
+import { generateDownloadId, registerIpcHandlers } from './ipc';
+import { createMetadataCache } from './metadata-cache';
 import { binPath } from './paths';
+import { createDownloadQueue } from './queue';
+import { fetchMetadata, runDownload } from './ytdlp/runner';
 
 const createWindow = (): void => {
   const mainWindow = new BrowserWindow({
@@ -65,14 +72,68 @@ const prewarmYtDlp = (): void => {
   });
 };
 
-app.whenReady().then(() => {
+/** Default user-visible output folder. Per-request `outputFolder` overrides
+ * this; PR 6 will add a settings-driven path. */
+const DEFAULT_OUTPUT_FOLDER = join(homedir(), 'Downloads', 'Pluck');
+
+/** Per-download workspaces live under `~/Library/Caches/video.pluck.app/`.
+ * Same APFS volume as ~/Downloads so the move-out is an atomic rename;
+ * predictable path (vs Electron's randomized temp dir); macOS may purge it
+ * under "Optimize Storage" pressure — free hygiene on top of our own
+ * try/finally cleanup. Stable across dev and packaged builds. */
+const PLUCK_CACHE_DIR = join(homedir(), 'Library', 'Caches', 'video.pluck.app');
+
+/** Fan a queue update out to every live window. Multiple BrowserWindows
+ * aren't created today, but the broadcast is the cheap correct default —
+ * isolating to "the originating window" would be wrong if the user opens
+ * a second window later. */
+const broadcastDownloadUpdate = (download: Download): void => {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (!window.webContents.isDestroyed()) {
+      window.webContents.send(IpcChannels.DownloadUpdate, download);
+    }
+  }
+};
+
+app.whenReady().then(async () => {
   electronApp.setAppUserModelId('video.pluck.app');
 
   app.on('browser-window-created', (_, window) => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  registerIpcHandlers();
+  // Persisted history lives under app.getPath('userData') — Electron's
+  // per-user, per-app config dir. Survives reinstalls (until the user
+  // explicitly nukes Application Support).
+  const history = createHistoryStore(app.getPath('userData'));
+  const persistedDownloads = await history.load();
+
+  const runnerDeps = { ytDlpPath: binPath('yt-dlp'), ffmpegPath: binPath('ffmpeg') };
+  const metadataCache = createMetadataCache((url) => fetchMetadata(url, runnerDeps));
+
+  const queue = createDownloadQueue({
+    defaultOutputFolder: DEFAULT_OUTPUT_FOLDER,
+    tempBaseDir: PLUCK_CACHE_DIR,
+    runnerDeps,
+    runDownload,
+    metadataCache,
+    generateId: generateDownloadId,
+    onUpdate: broadcastDownloadUpdate,
+    onTerminalChange: (downloads) => {
+      // Fire-and-forget. A write failure logs but doesn't crash the app
+      // — the user's downloads still completed; history is best-effort.
+      history.save(downloads).catch((err: unknown) => {
+        console.error('history: save failed', err);
+      });
+    },
+  });
+
+  // Seed the queue with persisted rows so the renderer's GetInitialState
+  // call returns them. history.load already rewrote any 'downloading' /
+  // 'queued' from the prior session to 'failed' (interrupted).
+  queue.rehydrate(persistedDownloads);
+
+  registerIpcHandlers({ queue, metadataCache });
   prewarmYtDlp();
   createWindow();
 
