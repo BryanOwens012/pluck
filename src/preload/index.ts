@@ -29,6 +29,10 @@ const api = {
    * selected. Fire and forget — main process handles the open. */
   showInFinder: (filePath: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.ShowInFinder, filePath),
+
+  /** Open an http/https URL in the user's default browser. Main process
+   * rejects non-http(s) schemes for safety. */
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IpcChannels.OpenExternal, url),
 };
 
 export type PluckAPI = typeof api;
