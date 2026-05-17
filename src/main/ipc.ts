@@ -15,10 +15,51 @@ const buildRunnerDeps = (): RunnerDeps => ({
   ffmpegPath: binPath('ffmpeg'),
 });
 
-/** Short, unique-per-process id. Not a UUID — we don't need collision-proof
- * across machines, only within a session. Exported for testing. */
-export const generateDownloadId = (): string =>
-  `dl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+/** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
+ * identifier first: a `?v=` param (YouTube watch URLs), then the last path
+ * segment (Vimeo `/12345`, Zoom `/rec/play/xyz`), then just the hostname.
+ * The full ID always includes a timestamp + random tail, so we don't need
+ * the slug to be unique on its own — it's purely for human legibility. */
+const urlSlug = (url: string): string => {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, '').split('.')[0] ?? 'download';
+    const vParam = parsed.searchParams.get('v');
+    if (vParam) {
+      return `${host}-${sanitizeSegment(vParam)}`;
+    }
+    const lastSegment = parsed.pathname.split('/').filter(Boolean).pop();
+    if (lastSegment) {
+      return `${host}-${sanitizeSegment(lastSegment)}`;
+    }
+    return host;
+  } catch {
+    return 'download';
+  }
+};
+
+const sanitizeSegment = (segment: string): string =>
+  segment.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+
+/** Local-time stamp: YYYYMMDD-HHMMSS. Sortable as a string and readable at
+ * a glance ("dl from this morning vs. last week"). */
+const formatTimestamp = (date: Date): string => {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const ymd = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`;
+  const hms = `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  return `${ymd}-${hms}`;
+};
+
+/** Legible download id: `<url-slug>-<YYYYMMDD-HHMMSS>-<rand6>`. The slug and
+ * timestamp make logs / React keys / future history-file entries scannable;
+ * the random tail guarantees uniqueness within the same second. Exported
+ * for testing. */
+export const generateDownloadId = (url: string, now: Date = new Date()): string => {
+  const slug = urlSlug(url);
+  const stamp = formatTimestamp(now);
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `${slug}-${stamp}-${rand}`;
+};
 
 /** Translate a thrown error into a user-facing message. Stderr is never sent
  * to the renderer — it's noisy and can leak filesystem paths. Exported for
@@ -40,7 +81,7 @@ const handleStartDownload = (
   webContents: WebContents,
   request: DownloadRequest,
 ): { id: string } => {
-  const id = generateDownloadId();
+  const id = generateDownloadId(request.url);
   const outputFolder = request.outputFolder ?? DEFAULT_OUTPUT_FOLDER;
   mkdirSync(outputFolder, { recursive: true });
   const deps = buildRunnerDeps();
