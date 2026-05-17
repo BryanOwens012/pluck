@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { ipcMain, shell, type WebContents } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
+import { isHttpUrl } from '../shared/url';
 import { createMetadataCache, type MetadataCache } from './metadata-cache';
 import { binPath } from './paths';
 import { createProgressSmoother } from './progress-smoother';
@@ -262,21 +263,21 @@ export const registerIpcHandlers = (): void => {
     // to do about it).
     shell.showItemInFolder(filePath);
   });
-  ipcMain.handle(IpcChannels.OpenExternal, async (_event, url: string) => {
-    // Guard rail: only allow https / http URLs. Without this, a compromised
-    // renderer could pass a `file://` URL and trick the OS into opening
-    // arbitrary local files in their default app.
-    if (!/^https?:\/\//i.test(url)) {
+  ipcMain.handle(IpcChannels.OpenExternal, async (_event, url: unknown) => {
+    // Guard rail via isHttpUrl: a compromised renderer could otherwise pass
+    // `file://` and trick the OS into opening arbitrary local files in
+    // their default app.
+    if (!isHttpUrl(url)) {
       return;
     }
     await shell.openExternal(url);
   });
-  ipcMain.handle(IpcChannels.PrefetchMetadata, (_event, url: string) => {
+  ipcMain.handle(IpcChannels.PrefetchMetadata, (_event, url: unknown) => {
     // Fire-and-forget warmer. The cache de-dups concurrent gets, so calling
     // this and then start-download moments later only spawns one yt-dlp.
-    // Same http(s) guard as OpenExternal — we don't want to invoke yt-dlp
-    // on arbitrary schemes.
-    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+    // Same isHttpUrl guard as OpenExternal — never invoke yt-dlp on
+    // arbitrary schemes.
+    if (!isHttpUrl(url)) {
       return;
     }
     getMetadataCache().prefetch(url);

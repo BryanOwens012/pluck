@@ -1,4 +1,6 @@
 import { type FormEvent, useEffect, useState } from 'react';
+import { isHttpUrl } from '../../../shared/url';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { api } from '../lib/api';
 
 type Props = {
@@ -19,25 +21,19 @@ const MIN_PREFETCH_URL_LENGTH = 12;
 export const UrlInput = ({ onSubmit }: Props): React.JSX.Element => {
   const [url, setUrl] = useState('');
 
-  // Debounced metadata prefetch. Every keystroke clears the prior timer and
-  // schedules a new one; only the last keystroke's timer actually fires.
-  // Empty deps would be wrong here — we need to react to `url` changing —
-  // but the cleanup is what keeps us from queuing up dozens of fetches.
+  // Drive the prefetch off a debounced copy of the URL. The effect runs at
+  // most once per stability window because `debouncedUrl` only flips after
+  // the user stops typing.
+  const debouncedUrl = useDebouncedValue(url.trim(), PREFETCH_DEBOUNCE_MS);
   useEffect(() => {
-    const trimmed = url.trim();
-    if (trimmed.length < MIN_PREFETCH_URL_LENGTH || !/^https?:\/\//i.test(trimmed)) {
+    if (debouncedUrl.length < MIN_PREFETCH_URL_LENGTH || !isHttpUrl(debouncedUrl)) {
       return;
     }
-    const handle = setTimeout(() => {
-      api.prefetchMetadata(trimmed).catch(() => {
-        // Prefetch failures are silent — the actual download attempt will
-        // surface them via the friendly-error path.
-      });
-    }, PREFETCH_DEBOUNCE_MS);
-    return (): void => {
-      clearTimeout(handle);
-    };
-  }, [url]);
+    api.prefetchMetadata(debouncedUrl).catch(() => {
+      // Prefetch failures are silent — the actual download attempt will
+      // surface them via the friendly-error path.
+    });
+  }, [debouncedUrl]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
