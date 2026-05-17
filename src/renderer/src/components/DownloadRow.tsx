@@ -28,6 +28,7 @@ const FolderIcon = (): React.JSX.Element => (
 const STATUS_LABEL: Record<Download['status'], string> = {
   queued: 'Queued',
   downloading: 'Downloading',
+  canceling: 'Canceling…',
   completed: 'Completed',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -36,11 +37,13 @@ const STATUS_LABEL: Record<Download['status'], string> = {
 
 // Tailwind classes for the small status badge in the row header. Failed gets
 // red so the row reads as broken at a glance even before the user reads the
-// error message below. Cancelled stays neutral — it was the user's choice,
-// not an error. Error display is always on — never gated on debug mode.
+// error message below. Canceling/cancelled stay neutral — both are the
+// user's choice, not an error. Error display is always on — never gated
+// on debug mode.
 const STATUS_BADGE_CLASS: Record<Download['status'], string> = {
   queued: 'text-neutral-400',
   downloading: 'text-neutral-400',
+  canceling: 'text-neutral-500',
   completed: 'text-neutral-400',
   failed: 'text-red-400',
   cancelled: 'text-neutral-500',
@@ -86,7 +89,7 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
           </div>
         </div>
 
-        {download.status === 'downloading' ? (
+        {download.status === 'downloading' || download.status === 'canceling' ? (
           <div className="mt-3 space-y-1.5">
             <div className="relative h-1.5 overflow-hidden rounded-full bg-neutral-800">
               {hasDeterminateProgress ? (

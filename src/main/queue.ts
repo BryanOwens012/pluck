@@ -267,7 +267,7 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
 
   const cancel = (id: string): void => {
     const download = state.get(id);
-    if (!download || isTerminal(download.status)) {
+    if (!download || isTerminal(download.status) || download.status === 'canceling') {
       return;
     }
     if (download.status === 'queued') {
@@ -278,9 +278,12 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       onTerminal();
       return;
     }
-    // Active download — the abort signal does the rest; the close handler
-    // in the runner will reject with YtDlpCancelledError and the catch
-    // branch above emits 'cancelled'.
+    // Active download — emit 'canceling' optimistically so the row reflects
+    // the click immediately (yt-dlp may take up to the 2 s SIGKILL grace
+    // to actually exit). The abort signal does the rest; runner rejects
+    // with YtDlpCancelledError and runOne's catch emits the terminal
+    // 'cancelled'.
+    emit(id, { status: 'canceling', speed: undefined, eta: undefined });
     abortControllers.get(id)?.abort();
   };
 

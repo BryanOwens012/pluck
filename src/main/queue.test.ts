@@ -254,14 +254,38 @@ describe('DownloadQueue', () => {
     }
   });
 
-  it('cancel on an active row aborts the runner → flips to cancelled', async () => {
+  it('cancel on an active row emits canceling synchronously then cancelled', async () => {
     const queue = createDownloadQueue(buildQueueDeps(() => {}));
     const id = queue.enqueue(makeRequest());
 
     await waitFor(() => fakeRuns.length === 1);
 
     queue.cancel(id);
+    // Optimistic: status flips before the runner has finished tearing
+    // down the yt-dlp child. Speed/ETA cleared so the row reads as
+    // "stopping" rather than "still going".
+    expect(queue.getAll().find((d) => d.id === id)?.status).toBe('canceling');
+    expect(queue.getAll().find((d) => d.id === id)?.speed).toBeUndefined();
+
     await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'cancelled');
+  });
+
+  it('double-cancel on an active row only aborts once (idempotent)', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+
+    const abortSpy = vi.fn();
+    fakeRuns[0]?.opts.cancelSignal?.addEventListener('abort', abortSpy);
+
+    queue.cancel(id);
+    queue.cancel(id); // Second click during the canceling window.
+
+    expect(queue.getAll().find((d) => d.id === id)?.status).toBe('canceling');
+    // Only one abort fired — the second cancel saw status='canceling'
+    // and bailed out of the guard.
+    expect(abortSpy).toHaveBeenCalledOnce();
   });
 
   it('cancel on an unknown id is a no-op (does not throw)', () => {
