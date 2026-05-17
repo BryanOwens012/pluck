@@ -72,8 +72,12 @@ export type RunDownloadFn = (
 ) => Promise<RunDownloadResult>;
 
 export type QueueOptions = {
-  /** ~/Downloads/Pluck/ by default; overridden per-request by DownloadRequest.outputFolder. */
-  defaultOutputFolder: string;
+  /** Read on every enqueue so a settings change takes effect on the
+   * next new download without rebuilding the queue. In-flight rows
+   * keep the folder they started with (snapshotted in their Download
+   * struct at enqueue time). Overridden per-request by
+   * DownloadRequest.outputFolder when present. */
+  getDefaultOutputFolder: () => string;
   /** Base dir for per-download workspaces (~/Library/Caches/video.pluck.app/). */
   tempBaseDir: string;
   /** Path to yt-dlp + ffmpeg, passed through to the runner. */
@@ -261,7 +265,7 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       id,
       url: request.url,
       format: request.format,
-      outputFolder: request.outputFolder ?? opts.defaultOutputFolder,
+      outputFolder: request.outputFolder ?? opts.getDefaultOutputFolder(),
       status: 'queued',
       progress: 0,
       createdAt: Date.now(),

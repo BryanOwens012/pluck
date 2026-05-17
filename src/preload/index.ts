@@ -1,4 +1,5 @@
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
+import type { Settings } from '../main/settings';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
 
@@ -51,6 +52,27 @@ const api = {
    * in-flight. Without this the renderer would miss updates emitted
    * before its DownloadUpdate listener attached. */
   getInitialState: (): Promise<Download[]> => ipcRenderer.invoke(IpcChannels.GetInitialState),
+
+  /** Current persisted settings (output folder, etc.). Called once on
+   * mount to populate the picker; refreshed after any update. */
+  getSettings: (): Promise<Settings> => ipcRenderer.invoke(IpcChannels.GetSettings),
+
+  /** Merge-patch settings. Today only `outputFolder` is writable; main
+   * defensively ignores other keys. Returns the post-update snapshot. */
+  updateSettings: (patch: Partial<Settings>): Promise<Settings> =>
+    ipcRenderer.invoke(IpcChannels.UpdateSettings, patch),
+
+  /** Opens the native folder picker (sheet-anchored on macOS). On accept,
+   * persists the choice and resolves with the path. Resolves undefined
+   * if the user cancelled — settings untouched. */
+  chooseOutputFolder: (): Promise<string | undefined> =>
+    ipcRenderer.invoke(IpcChannels.ChooseOutputFolder),
+
+  /** Re-enqueue a failed / cancelled row with its original URL + format.
+   * Creates a new row (fresh id, fresh createdAt); the original stays
+   * in history. Resolves { id: undefined } if the source id is unknown. */
+  retryDownload: (id: string): Promise<{ id: string | undefined }> =>
+    ipcRenderer.invoke(IpcChannels.RetryDownload, id),
 };
 
 export type PluckAPI = typeof api;

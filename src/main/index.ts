@@ -11,6 +11,7 @@ import { generateDownloadId, registerIpcHandlers } from './ipc';
 import { createMetadataCache } from './metadata-cache';
 import { binPath } from './paths';
 import { createDownloadQueue } from './queue';
+import { createSettingsStore } from './settings';
 import { fetchMetadata, runDownload } from './ytdlp/runner';
 
 const createWindow = (): void => {
@@ -72,10 +73,6 @@ const prewarmYtDlp = (): void => {
   });
 };
 
-/** Default user-visible output folder. Per-request `outputFolder` overrides
- * this; PR 6 will add a settings-driven path. */
-const DEFAULT_OUTPUT_FOLDER = join(homedir(), 'Downloads', 'Pluck');
-
 /** Per-download workspaces live under `~/Library/Caches/video.pluck.app/`.
  * Same APFS volume as ~/Downloads so the move-out is an atomic rename;
  * predictable path (vs Electron's randomized temp dir); macOS may purge it
@@ -102,17 +99,23 @@ app.whenReady().then(async () => {
     optimizer.watchWindowShortcuts(window);
   });
 
-  // Persisted history lives under app.getPath('userData') — Electron's
+  // Persisted state lives under app.getPath('userData') — Electron's
   // per-user, per-app config dir. Survives reinstalls (until the user
-  // explicitly nukes Application Support).
-  const history = createHistoryStore(app.getPath('userData'));
+  // explicitly nukes Application Support). Settings + history share
+  // the directory but live in separate files.
+  const userDataDir = app.getPath('userData');
+  const settings = await createSettingsStore(userDataDir);
+  const history = createHistoryStore(userDataDir);
   const persistedDownloads = await history.load();
 
   const runnerDeps = { ytDlpPath: binPath('yt-dlp'), ffmpegPath: binPath('ffmpeg') };
   const metadataCache = createMetadataCache((url) => fetchMetadata(url, runnerDeps));
 
   const queue = createDownloadQueue({
-    defaultOutputFolder: DEFAULT_OUTPUT_FOLDER,
+    // Callable so a settings update takes effect on the next enqueue
+    // without rebuilding the queue. In-flight rows keep the folder
+    // snapshotted in their Download struct.
+    getDefaultOutputFolder: () => settings.get().outputFolder,
     tempBaseDir: PLUCK_CACHE_DIR,
     runnerDeps,
     runDownload,
@@ -135,7 +138,7 @@ app.whenReady().then(async () => {
   // 'queued' from the prior session to 'failed' (interrupted).
   queue.rehydrate(persistedDownloads);
 
-  registerIpcHandlers({ queue, metadataCache });
+  registerIpcHandlers({ queue, metadataCache, settings });
   prewarmYtDlp();
   createWindow();
 

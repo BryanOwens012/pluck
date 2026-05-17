@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { Download, Format } from '../../shared/types';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
+import { OutputFolderPicker } from './components/OutputFolderPicker';
 import { UrlInput } from './components/UrlInput';
 import { api } from './lib/api';
 
@@ -11,6 +12,10 @@ const App = (): React.JSX.Element => {
   // consumer (DownloadQueue) — no need for a global store yet.
   const [downloads, setDownloads] = useState<Map<string, Download>>(() => new Map());
   const [format, setFormat] = useState<Format>('best');
+  // Settings snapshot. Loaded once on mount, updated optimistically when
+  // the picker accepts a new folder (main has already persisted by the
+  // time it resolves with the path).
+  const [outputFolder, setOutputFolder] = useState<string | undefined>(undefined);
 
   // Boot: subscribe to push updates first so any update emitted while
   // getInitialState is in-flight still lands. Seed merges with existing-
@@ -44,6 +49,16 @@ const App = (): React.JSX.Element => {
       .catch((err: unknown) => {
         console.error('getInitialState rejected:', err);
       });
+    api
+      .getSettings()
+      .then((settings) => {
+        if (!cancelled) {
+          setOutputFolder(settings.outputFolder);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('getSettings rejected:', err);
+      });
     return () => {
       cancelled = true;
       unsubscribe();
@@ -66,6 +81,9 @@ const App = (): React.JSX.Element => {
           <UrlInput onSubmit={handleSubmit} />
           <FormatSelector value={format} onChange={setFormat} />
         </div>
+        {outputFolder !== undefined ? (
+          <OutputFolderPicker outputFolder={outputFolder} onChange={setOutputFolder} />
+        ) : null}
         <DownloadQueue rows={rows} />
       </div>
     </main>

@@ -28,6 +28,21 @@ export const IpcChannels = {
    * + any live in-flight rows) so the renderer can seed its store on
    * mount without missing updates emitted before the listener attached. */
   GetInitialState: 'pluck:get-initial-state',
+  /** Renderer -> main, invoke. Returns the current persisted settings
+   * (output folder, etc.). Synchronous to the renderer since main holds
+   * an in-memory snapshot. */
+  GetSettings: 'pluck:get-settings',
+  /** Renderer -> main, invoke. Merge-update settings on disk. Returns
+   * the post-update snapshot so the renderer can refresh its UI. */
+  UpdateSettings: 'pluck:update-settings',
+  /** Renderer -> main, invoke. Opens the native folder picker. On accept,
+   * also persists the choice via UpdateSettings and returns the new path;
+   * on cancel, returns undefined and settings are untouched. */
+  ChooseOutputFolder: 'pluck:choose-output-folder',
+  /** Renderer -> main, invoke. Re-enqueues a failed/cancelled row with
+   * its original URL + format, creating a new Download row (fresh id,
+   * fresh createdAt). The original row stays in history as-is. */
+  RetryDownload: 'pluck:retry-download',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

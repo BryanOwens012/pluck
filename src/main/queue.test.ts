@@ -155,7 +155,7 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
       });
     });
   return {
-    defaultOutputFolder: outputDir,
+    getDefaultOutputFolder: (): string => outputDir,
     tempBaseDir,
     runnerDeps,
     runDownload,
@@ -310,6 +310,26 @@ describe('DownloadQueue', () => {
     for (const id of activeIds) {
       queue.cancel(id);
     }
+  });
+
+  it('reads getDefaultOutputFolder on every enqueue (live-read semantics)', () => {
+    // Folder change between two enqueues should land each row in the
+    // right folder — first uses A, second uses B. In-flight rows are
+    // unaffected because Download.outputFolder is snapshotted at enqueue.
+    let folder = '/tmp/folder-a';
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getDefaultOutputFolder: () => folder,
+    });
+    const idA = queue.enqueue(makeRequest('https://example.com/a'));
+    folder = '/tmp/folder-b';
+    const idB = queue.enqueue(makeRequest('https://example.com/b'));
+
+    expect(queue.getAll().find((d) => d.id === idA)?.outputFolder).toBe('/tmp/folder-a');
+    expect(queue.getAll().find((d) => d.id === idB)?.outputFolder).toBe('/tmp/folder-b');
+
+    queue.cancel(idA);
+    queue.cancel(idB);
   });
 
   it('rehydrate seeds state and does NOT start any downloads', () => {
