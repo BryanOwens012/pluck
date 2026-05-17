@@ -2,10 +2,9 @@ import { type FormEvent, useState } from 'react';
 
 type Props = {
   onSubmit: (url: string) => void;
-  disabled?: boolean;
 };
 
-export const UrlInput = ({ onSubmit, disabled }: Props): React.JSX.Element => {
+export const UrlInput = ({ onSubmit }: Props): React.JSX.Element => {
   const [url, setUrl] = useState('');
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
@@ -18,7 +17,7 @@ export const UrlInput = ({ onSubmit, disabled }: Props): React.JSX.Element => {
     setUrl('');
   };
 
-  const isReady = url.trim().length > 0 && !disabled;
+  const isReady = url.trim().length > 0;
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-1 gap-2">
@@ -27,11 +26,10 @@ export const UrlInput = ({ onSubmit, disabled }: Props): React.JSX.Element => {
         value={url}
         onChange={(event) => setUrl(event.target.value)}
         placeholder="Paste a YouTube, Vimeo, or Zoom URL"
-        disabled={disabled}
         spellCheck={false}
         autoCapitalize="off"
         autoCorrect="off"
-        className="flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none disabled:opacity-50"
+        className="flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none"
       />
       <button
         type="submit"

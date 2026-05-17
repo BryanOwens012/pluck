@@ -24,7 +24,13 @@ const App = (): React.JSX.Element => {
   }, []);
 
   const handleSubmit = (url: string): void => {
-    void api.startDownload({ url, format });
+    // Main returns the id synchronously and streams the rest via
+    // DownloadUpdate. The only way invoke rejects is if the handler itself
+    // throws (e.g. mkdirSync fails); surface that to the console rather
+    // than silently swallowing it.
+    api.startDownload({ url, format }).catch((err: unknown) => {
+      console.error('startDownload rejected:', err);
+    });
   };
 
   const rows = Array.from(downloads.values()).sort((a, b) => b.createdAt - a.createdAt);
