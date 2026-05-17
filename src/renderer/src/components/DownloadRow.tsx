@@ -126,14 +126,20 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
   );
 };
 
+// Shared classes for the thumbnail's visible box. h-12 w-20 keeps a 16:9
+// aspect ratio at small size; bg-neutral-800 is the placeholder colour that
+// shows while loading and again if the image fails. Pulled out so the <img>
+// and its fallback placeholder can't drift apart.
+const THUMBNAIL_BOX_CLASS = 'h-12 w-20 shrink-0 rounded bg-neutral-800';
+
 /** Preview thumbnail rendered to the left of the row body. Fixed 16:9 box so
  * rows stay vertically aligned regardless of which thumbnails happen to load.
- * `onError` clears the URL so a CDN miss falls back to the empty placeholder
- * instead of a broken-image icon. */
+ * `onError` flips to the placeholder so a CDN miss falls back to the empty
+ * box instead of a broken-image icon. */
 const Thumbnail = ({ url }: { url: string }): React.JSX.Element => {
   const [failed, setFailed] = useState(false);
   if (failed) {
-    return <div className="h-12 w-20 shrink-0 rounded bg-neutral-800" aria-hidden="true" />;
+    return <div className={THUMBNAIL_BOX_CLASS} aria-hidden="true" />;
   }
   return (
     <img
@@ -141,7 +147,7 @@ const Thumbnail = ({ url }: { url: string }): React.JSX.Element => {
       alt=""
       loading="lazy"
       onError={() => setFailed(true)}
-      className="h-12 w-20 shrink-0 rounded bg-neutral-800 object-cover"
+      className={`${THUMBNAIL_BOX_CLASS} object-cover`}
     />
   );
 };
