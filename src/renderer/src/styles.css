@@ -1,1 +1,19 @@
 @import "tailwindcss";
+
+/* Indeterminate progress bar — used by DownloadRow while a download is
+ * active but yt-dlp hasn't reported a percent yet (small files with
+ * `-N 14` parallel chunks can complete without emitting an intermediate
+ * progress event). Switches to a determinate fill once any percent > 0
+ * arrives. Pure CSS so it animates regardless of React render cadence. */
+@keyframes pluck-progress-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(400%);
+  }
+}
+
+.pluck-progress-indeterminate {
+  animation: pluck-progress-slide 1.2s linear infinite;
+}
