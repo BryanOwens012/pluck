@@ -7,7 +7,7 @@ describe('generateDownloadId', () => {
 
   it('uses the YouTube ?v= param as the slug', () => {
     const id = generateDownloadId('https://www.youtube.com/watch?v=jNQXAC9IVRw', FIXED_NOW);
-    expect(id).toBe('youtube-jNQXAC9IVRw-20260516-204530-' + id.split('-').at(-1));
+    expect(id).toBe(`youtube-jNQXAC9IVRw-20260516-204530-${id.split('-').at(-1)}`);
     expect(id).toMatch(/^youtube-jNQXAC9IVRw-20260516-204530-[a-z0-9]{1,6}$/);
   });
 

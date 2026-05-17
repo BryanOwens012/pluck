@@ -13,6 +13,9 @@ export const IpcChannels = {
   /** Renderer -> main, invoke. Opens Finder showing the parent folder of the
    * given file with the file selected. macOS "Reveal in Finder" semantics. */
   ShowInFinder: 'pluck:show-in-finder',
+  /** Renderer -> main, invoke. Opens an https URL in the user's default
+   * browser via shell.openExternal. Used by the source-site icon. */
+  OpenExternal: 'pluck:open-external',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

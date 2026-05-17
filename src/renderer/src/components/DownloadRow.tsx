@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Download } from '../../../shared/types';
 import { api } from '../lib/api';
+import { SourceSiteIcon } from './SourceSiteIcon';
 
 type Props = {
   download: Download;
@@ -72,7 +73,7 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
           <div className="min-w-0 flex-1">
             <div className="break-words text-sm font-medium text-neutral-100">{headerTitle}</div>
             {download.sourceSite ? (
-              <div className="mt-0.5 text-xs text-neutral-500">{download.sourceSite}</div>
+              <SourceSiteBadge siteKey={download.sourceSite} url={download.url} />
             ) : null}
           </div>
           <div className={`shrink-0 text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
@@ -149,6 +150,29 @@ const Thumbnail = ({ url }: { url: string }): React.JSX.Element => {
       onError={() => setFailed(true)}
       className={`${THUMBNAIL_BOX_CLASS} object-cover`}
     />
+  );
+};
+
+/** Clickable site-badge: extractor monogram + plain-text label. Click opens
+ * the original URL in the user's default browser. The whole thing is one
+ * button so the hit target is generous; styled subtly so it reads as a hint
+ * rather than a CTA. */
+const SourceSiteBadge = ({ siteKey, url }: { siteKey: string; url: string }): React.JSX.Element => {
+  const handleOpen = (): void => {
+    api.openExternal(url).catch((err: unknown) => {
+      console.error('openExternal rejected:', err);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleOpen}
+      title={`Open on ${siteKey} in your browser`}
+      className="mt-0.5 inline-flex items-center gap-1.5 rounded text-xs text-neutral-500 transition hover:text-neutral-300 focus:outline-none focus-visible:text-neutral-300"
+    >
+      <SourceSiteIcon siteKey={siteKey} />
+      <span>{siteKey}</span>
+    </button>
   );
 };
 

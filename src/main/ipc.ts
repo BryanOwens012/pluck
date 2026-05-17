@@ -246,4 +246,13 @@ export const registerIpcHandlers = (): void => {
     // to do about it).
     shell.showItemInFolder(filePath);
   });
+  ipcMain.handle(IpcChannels.OpenExternal, async (_event, url: string) => {
+    // Guard rail: only allow https / http URLs. Without this, a compromised
+    // renderer could pass a `file://` URL and trick the OS into opening
+    // arbitrary local files in their default app.
+    if (!/^https?:\/\//i.test(url)) {
+      return;
+    }
+    await shell.openExternal(url);
+  });
 };
