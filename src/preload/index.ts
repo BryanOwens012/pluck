@@ -73,6 +73,12 @@ const api = {
    * in history. Resolves { id: undefined } if the source id is unknown. */
   retryDownload: (id: string): Promise<{ id: string | undefined }> =>
     ipcRenderer.invoke(IpcChannels.RetryDownload, id),
+
+  /** Deliver a password for a row that's waiting in 'needs_password'.
+   * Main re-runs the download with the password as `--video-password`.
+   * Empty passwords are silently ignored (no attempt is consumed). */
+  submitPassword: (id: string, password: string): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.SubmitPassword, id, password),
 };
 
 export type PluckAPI = typeof api;

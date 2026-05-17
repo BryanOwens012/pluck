@@ -146,4 +146,13 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     const newId = deps.queue.enqueue({ url: original.url, format: original.format });
     return { id: newId };
   });
+  ipcMain.handle(IpcChannels.SubmitPassword, (_event, id: unknown, password: unknown) => {
+    // Both shape-check and length-check. An empty password is meaningless
+    // and would just waste an attempt; silently ignore. Same race-tolerant
+    // pattern as Cancel — unknown ids are no-ops.
+    if (typeof id !== 'string' || typeof password !== 'string' || password.length === 0) {
+      return;
+    }
+    deps.queue.submitPassword(id, password);
+  });
 };

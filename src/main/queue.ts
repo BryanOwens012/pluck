@@ -17,6 +17,10 @@ const MAX_CONCURRENT = 3;
  * row jumps straight to 'completed'. Failure paths are not padded. */
 const MIN_VISIBLE_DOWNLOADING_MS = 500;
 
+/** After this many wrong password submissions on the same row, give up
+ * and mark the row 'failed'. Matches the spec's 3-attempt cap. */
+const MAX_PASSWORD_ATTEMPTS = 3;
+
 /** Filesystem errno → user-facing message. Stderr / absolute paths never
  * reach the renderer; this lookup is what stays safe. */
 const FS_ERRNO_MESSAGES: Record<string, string> = {
@@ -38,8 +42,10 @@ export const friendlyErrorMessage = (err: unknown): string => {
     return 'Download cancelled.';
   }
   if (err instanceof YtDlpPasswordRequiredError) {
-    // Stays user-friendly until PR 7 wires the actual password modal —
-    // until then we at least tell the user *why* the row failed.
+    // Defense in depth: the queue catches this error and routes it
+    // through the 'needs_password' status path, never here. If somehow
+    // it reaches this branch (e.g. a non-queue caller), at least
+    // produce a useful message rather than the generic one.
     return 'This recording requires a password.';
   }
   if (err instanceof Error) {
@@ -108,6 +114,12 @@ export type DownloadQueue = {
    * the queue if still 'queued' (no process to kill). No-op if the id is
    * already in a terminal state or unknown. */
   cancel(id: string): void;
+  /** Deliver a password for a row that's waiting in 'needs_password'.
+   * Re-runs the download with the supplied password as `--video-password`.
+   * After MAX_PASSWORD_ATTEMPTS failures the row terminates as 'failed'
+   * instead of asking again. No-op if the id isn't currently in
+   * 'needs_password' (renderer / IPC race). */
+  submitPassword(id: string, password: string): void;
   /** All known downloads, oldest-first by createdAt. */
   getAll(): Download[];
   /** Boot path: seed the queue with persisted history. Does NOT start any
@@ -239,6 +251,23 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
           speed: undefined,
           eta: undefined,
         });
+      } else if (err instanceof YtDlpPasswordRequiredError) {
+        // Row waits in 'needs_password' until the renderer submits one
+        // (or the user gives up). Once MAX attempts are spent we stop
+        // asking and terminate — otherwise a wrong-password loop has no
+        // exit. attempts counts *submitted* passwords that were wrong;
+        // the first natural prompt (no submission yet) doesn't count.
+        const attempts = state.get(id)?.passwordAttempts ?? 0;
+        if (attempts >= MAX_PASSWORD_ATTEMPTS) {
+          emit(id, {
+            status: 'failed',
+            error: `Incorrect password (${MAX_PASSWORD_ATTEMPTS} attempts).`,
+            speed: undefined,
+            eta: undefined,
+          });
+        } else {
+          emit(id, { status: 'needs_password', speed: undefined, eta: undefined });
+        }
       } else {
         emit(id, {
           status: 'failed',
@@ -249,9 +278,16 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       }
     } finally {
       abortControllers.delete(id);
-      secrets.delete(id);
       activeCount -= 1;
       await removeTempFolder(tempFolder);
+      // Don't drop the password yet when the row is waiting for one —
+      // the user may resubmit the same string (e.g. they re-confirmed
+      // it elsewhere) and we'd lose it between attempts. On any terminal
+      // state, the secret is no longer needed; drop it now.
+      const finalStatus = state.get(id)?.status;
+      if (finalStatus !== 'needs_password') {
+        secrets.delete(id);
+      }
       // Terminal status was already persisted via the emit() above;
       // no extra save needed here.
       // Slot opened up — see if another queued row can now start.
@@ -288,6 +324,13 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     if (!download || isTerminal(download.status) || download.status === 'canceling') {
       return;
     }
+    if (download.status === 'needs_password') {
+      // Waiting on the user; no process to kill, just terminate. The
+      // password (if any was set) gets dropped along with the row.
+      secrets.delete(id);
+      emit(id, { status: 'cancelled', completedAt: Date.now() });
+      return;
+    }
     if (download.status === 'queued') {
       // Never spawned a process; just flip the state. No abort controller,
       // no temp folder, no slot to release. emit() will persist via the
@@ -305,6 +348,24 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     abortControllers.get(id)?.abort();
   };
 
+  const submitPassword = (id: string, password: string): void => {
+    const download = state.get(id);
+    // Only a row in 'needs_password' is waiting on us. Races (user
+    // submits twice / submits after retry already kicked off) are
+    // ignored rather than queueing duplicate runs.
+    if (!download || download.status !== 'needs_password') {
+      return;
+    }
+    secrets.set(id, password);
+    // Bump the attempt counter and flip back to 'queued'; tryStartNext
+    // will promote it through runOne with the fresh secret.
+    emit(id, {
+      status: 'queued',
+      passwordAttempts: (download.passwordAttempts ?? 0) + 1,
+    });
+    tryStartNext();
+  };
+
   const getAll = (): Download[] => [...state.values()];
 
   const rehydrate = (downloads: Download[]): void => {
@@ -313,5 +374,5 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     }
   };
 
-  return { enqueue, cancel, getAll, rehydrate };
+  return { enqueue, cancel, submitPassword, getAll, rehydrate };
 };

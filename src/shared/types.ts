@@ -20,6 +20,7 @@ export const DOWNLOAD_STATUSES = [
   'queued',
   'downloading',
   'canceling',
+  'needs_password',
   'completed',
   'failed',
   'cancelled',
@@ -45,6 +46,11 @@ export type Download = {
   speed?: string;
   eta?: string;
   error?: string;
+  /** Count of password submissions that failed for this row. Capped at
+   * MAX_PASSWORD_ATTEMPTS in the queue (3); past that the row terminates
+   * as 'failed' rather than re-prompting. Undefined on rows that never
+   * needed a password. */
+  passwordAttempts?: number;
   createdAt: number;
   completedAt?: number;
   /** Path to .srt if transcribed. */
