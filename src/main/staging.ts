@@ -4,7 +4,8 @@ import { extname, join } from 'node:path';
 /**
  * Filesystem staging helpers used by the IPC download handler. Pure of
  * Electron so the same flow can run from `scripts/test-runner.ts` against
- * `os.tmpdir()` and from the IPC handler against `app.getPath('temp')`.
+ * `os.tmpdir()` and from the IPC handler against `~/Library/Caches/
+ * video.pluck.app/`. Caller picks the base path.
  */
 
 /** Per-download workspace at `<base>/<downloadId>/`. yt-dlp writes fragments
@@ -66,10 +67,10 @@ const pathExists = async (path: string): Promise<boolean> => {
  * forces a `copyFile + rm` fallback that's not atomic but is unavoidable
  * because POSIX `rename(2)` can't cross filesystem boundaries.
  *
- * For Pluck's default setup (~/Library/Caches/TemporaryItems/Pluck/...
- * → ~/Downloads/Pluck/) both paths live on the same APFS container, so
- * we only ever hit the EXDEV branch if the user picks an output folder
- * on an external drive.
+ * For Pluck's default setup (~/Library/Caches/video.pluck.app/<id>/ →
+ * ~/Downloads/Pluck/) both paths live on the same APFS container, so we
+ * only ever hit the EXDEV branch if the user picks an output folder on an
+ * external drive.
  *
  * If the copyFile succeeds but the post-copy rm fails (e.g. temp dir was
  * already unmounted), the move is still logically complete — the file is

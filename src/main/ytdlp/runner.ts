@@ -97,8 +97,10 @@ export const fetchMetadata = async (url: string, deps: RunnerDeps): Promise<Vide
  * smoke harness) is responsible for moving that file into the user-visible
  * output folder and cleaning up the temp folder.
  *
- * Progress is streamed via `onProgress`; the parent should debounce on its
- * side if it's pushing into UI state.
+ * Progress is streamed via `onProgress` on every yt-dlp event — multiple
+ * times per second. The IPC handler runs each callback through
+ * `progress-smoother` before pushing to the renderer; standalone callers
+ * (smoke harness) can take the raw stream as-is.
  */
 export const runDownload = (
   opts: RunDownloadOptions,
