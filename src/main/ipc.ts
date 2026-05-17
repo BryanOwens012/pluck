@@ -4,6 +4,7 @@ import { basename, join } from 'node:path';
 import { ipcMain, shell, type WebContents } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
+import { createMetadataCache, type MetadataCache } from './metadata-cache';
 import { binPath } from './paths';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
@@ -33,6 +34,18 @@ const buildRunnerDeps = (): RunnerDeps => ({
   ytDlpPath: binPath('yt-dlp'),
   ffmpegPath: binPath('ffmpeg'),
 });
+
+// Shared metadata cache. Constructed lazily on first access so importing
+// this module doesn't immediately probe binPath. The fetcher closure builds
+// fresh deps per call — cheap and lets a future binPath tweak take effect
+// without rebuilding the cache.
+let cachedMetadataCache: MetadataCache | undefined;
+const getMetadataCache = (): MetadataCache => {
+  if (cachedMetadataCache === undefined) {
+    cachedMetadataCache = createMetadataCache((url) => fetchMetadata(url, buildRunnerDeps()));
+  }
+  return cachedMetadataCache;
+};
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -170,7 +183,10 @@ const handleStartDownload = (
       // handler's event loop isn't blocked on filesystem.
       await fs.mkdir(outputFolder, { recursive: true });
 
-      const meta = await fetchMetadata(request.url, deps);
+      // Cache hit when the renderer prefetched this URL (typed and waited
+      // a tick before clicking Download). Otherwise it's an in-flight or
+      // miss and we wait on the fresh fetch.
+      const meta = await getMetadataCache().get(request.url);
       emit({
         title: meta.title,
         sourceSite: meta.extractor,
@@ -254,5 +270,15 @@ export const registerIpcHandlers = (): void => {
       return;
     }
     await shell.openExternal(url);
+  });
+  ipcMain.handle(IpcChannels.PrefetchMetadata, (_event, url: string) => {
+    // Fire-and-forget warmer. The cache de-dups concurrent gets, so calling
+    // this and then start-download moments later only spawns one yt-dlp.
+    // Same http(s) guard as OpenExternal — we don't want to invoke yt-dlp
+    // on arbitrary schemes.
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+      return;
+    }
+    getMetadataCache().prefetch(url);
   });
 };

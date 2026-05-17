@@ -33,6 +33,12 @@ const api = {
   /** Open an http/https URL in the user's default browser. Main process
    * rejects non-http(s) schemes for safety. */
   openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IpcChannels.OpenExternal, url),
+
+  /** Speculative cache warmer. The UrlInput debounces typing and calls this
+   * so the eventual Download click can skip the 2-4 s yt-dlp cold-start
+   * metadata fetch. Fire-and-forget; main process never rejects. */
+  prefetchMetadata: (url: string): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.PrefetchMetadata, url),
 };
 
 export type PluckAPI = typeof api;

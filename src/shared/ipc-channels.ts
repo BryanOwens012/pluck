@@ -16,6 +16,10 @@ export const IpcChannels = {
   /** Renderer -> main, invoke. Opens an https URL in the user's default
    * browser via shell.openExternal. Used by the source-site icon. */
   OpenExternal: 'pluck:open-external',
+  /** Renderer -> main, invoke. Speculative warm of the metadata cache;
+   * fire-and-forget. The UrlInput debounces and calls this so a subsequent
+   * Download click can skip the 2-4 s yt-dlp cold-start fetch. */
+  PrefetchMetadata: 'pluck:prefetch-metadata',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

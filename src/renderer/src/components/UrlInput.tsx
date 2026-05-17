@@ -1,11 +1,43 @@
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useState } from 'react';
+import { api } from '../lib/api';
 
 type Props = {
   onSubmit: (url: string) => void;
 };
 
+// Wait this long after the user stops typing before firing the speculative
+// metadata prefetch. Long enough that we don't spam yt-dlp while the user
+// is mid-paste / mid-edit; short enough that by the time they reach for the
+// Download button the cache has already started warming.
+const PREFETCH_DEBOUNCE_MS = 400;
+
+// Minimum URL length before we consider warming the cache. Avoids firing
+// prefetch on a half-pasted URL like "h" or "https://" that yt-dlp couldn't
+// resolve anyway.
+const MIN_PREFETCH_URL_LENGTH = 12;
+
 export const UrlInput = ({ onSubmit }: Props): React.JSX.Element => {
   const [url, setUrl] = useState('');
+
+  // Debounced metadata prefetch. Every keystroke clears the prior timer and
+  // schedules a new one; only the last keystroke's timer actually fires.
+  // Empty deps would be wrong here — we need to react to `url` changing —
+  // but the cleanup is what keeps us from queuing up dozens of fetches.
+  useEffect(() => {
+    const trimmed = url.trim();
+    if (trimmed.length < MIN_PREFETCH_URL_LENGTH || !/^https?:\/\//i.test(trimmed)) {
+      return;
+    }
+    const handle = setTimeout(() => {
+      api.prefetchMetadata(trimmed).catch(() => {
+        // Prefetch failures are silent — the actual download attempt will
+        // surface them via the friendly-error path.
+      });
+    }, PREFETCH_DEBOUNCE_MS);
+    return (): void => {
+      clearTimeout(handle);
+    };
+  }, [url]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
