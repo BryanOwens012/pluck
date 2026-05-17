@@ -17,9 +17,10 @@ export type VideoMetadata = {
 };
 
 /**
- * One progress emission parsed off yt-dlp's stderr stream, line by line.
- * yt-dlp's `--progress-template` is configured to print JSON on stderr; this
- * is the typed shape of those lines.
+ * One progress emission parsed off yt-dlp's stdout stream, line by line.
+ * yt-dlp writes both its info chatter and `--progress-template` JSON to
+ * stdout (despite the conventional split); this is the typed shape of the
+ * JSON lines. parseProgressLine drops the non-JSON noise.
  */
 export type ProgressEvent = {
   status: 'downloading' | 'finished' | 'error';
