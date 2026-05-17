@@ -1,68 +1,15 @@
-import { promises as fs } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
-import { ipcMain, shell, type WebContents } from 'electron';
+import { ipcMain, shell } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
-import type { Download, DownloadRequest } from '../shared/types';
+import type { DownloadRequest } from '../shared/types';
 import { isHttpUrl } from '../shared/url';
-import { createMetadataCache, type MetadataCache } from './metadata-cache';
-import { binPath } from './paths';
-import { createProgressSmoother } from './progress-smoother';
-import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
-import { fetchMetadata, runDownload } from './ytdlp/runner';
-import {
-  type RunnerDeps,
-  YtDlpCancelledError,
-  YtDlpError,
-  YtDlpPasswordRequiredError,
-} from './ytdlp/types';
-
-const DEFAULT_OUTPUT_FOLDER = join(homedir(), 'Downloads', 'Pluck');
-
-/** Per-download workspaces live under `~/Library/Caches/video.pluck.app/`.
- * Predictable path (vs Electron's randomized `app.getPath('temp')`), same
- * APFS volume as ~/Downloads so the move-out stays atomic, and macOS may
- * auto-purge under "Optimize Storage" pressure — free hygiene on top of
- * our own try/finally cleanup. The literal `video.pluck.app` matches the
- * electron-builder appId so it remains stable across dev and packaged
- * builds. */
-const PLUCK_CACHE_DIR = join(homedir(), 'Library', 'Caches', 'video.pluck.app');
-
-/** Minimum time the row stays in the `downloading` state on the renderer.
- * Tiny videos (YouTube Shorts at -N 14) finish in well under a frame, which
- * makes the row flash straight to `completed` — the progress bar never
- * renders. Padding the transition guarantees the user sees the bar at
- * least briefly, regardless of file size. Failure paths are NOT padded —
- * errors should surface immediately. */
-const MIN_VISIBLE_DOWNLOADING_MS = 500;
-
-const buildRunnerDeps = (): RunnerDeps => ({
-  ytDlpPath: binPath('yt-dlp'),
-  ffmpegPath: binPath('ffmpeg'),
-});
-
-// Shared metadata cache. Constructed lazily on first access so importing
-// this module doesn't immediately probe binPath. The fetcher closure builds
-// fresh deps per call — cheap and lets a future binPath tweak take effect
-// without rebuilding the cache.
-let cachedMetadataCache: MetadataCache | undefined;
-const getMetadataCache = (): MetadataCache => {
-  if (cachedMetadataCache === undefined) {
-    cachedMetadataCache = createMetadataCache((url) => fetchMetadata(url, buildRunnerDeps()));
-  }
-  return cachedMetadataCache;
-};
-
-// AbortController per in-flight download keyed by download id. The Cancel
-// IPC looks up the controller and aborts; handleStartDownload registers on
-// entry and removes on exit so the map only ever holds active rows.
-const activeAbortControllers = new Map<string, AbortController>();
+import type { MetadataCache } from './metadata-cache';
+import type { DownloadQueue } from './queue';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
  * segment (Vimeo `/12345`, Zoom `/rec/play/xyz`), then just the hostname.
- * The full ID always includes a timestamp + random tail, so we don't need
- * the slug to be unique on its own — it's purely for human legibility. */
+ * The full ID always includes a timestamp + random tail, so the slug
+ * doesn't need to be unique on its own — it's purely for legibility. */
 const urlSlug = (url: string): string => {
   try {
     const parsed = new URL(url);
@@ -104,224 +51,45 @@ export const generateDownloadId = (url: string, now: Date = new Date()): string 
   return `${slug}-${stamp}-${rand}`;
 };
 
-/** Plain-English mapping for common filesystem errno codes thrown by the
- * staging step (mkdir, rename, copyFile). Keeps absolute paths from leaking
- * into user-facing strings — Node's default error message format is
- * `EXXX: description, syscall '/absolute/path/...'`. */
-const FS_ERRNO_MESSAGES: Record<string, string> = {
-  ENOSPC: 'No space left on the destination disk.',
-  EACCES: 'Permission denied when saving the download.',
-  EPERM: 'Permission denied when saving the download.',
-  EROFS: 'The destination is read-only.',
-  ENOENT: 'The destination folder no longer exists.',
+export type IpcDeps = {
+  queue: DownloadQueue;
+  metadataCache: MetadataCache;
 };
 
-/** Sleep until `minMs` has elapsed since `startMs`. No-op if already past.
- * Exported for testing. */
-export const padToMinDuration = async (startMs: number, minMs: number): Promise<void> => {
-  const elapsed = Date.now() - startMs;
-  if (elapsed >= minMs) {
-    return;
-  }
-  await new Promise((resolve) => setTimeout(resolve, minMs - elapsed));
-};
-
-/** Translate a thrown error into a user-facing message. Stderr is never sent
- * to the renderer — it's noisy and can leak filesystem paths. Exported for
- * testing.
- *
- * Cancellation is handled by the caller via the YtDlpCancelledError sentinel
- * — the row flips to `status: 'cancelled'` and never invokes this function,
- * so we don't need a "Cancelled" branch here. */
-export const friendlyErrorMessage = (err: unknown): string => {
-  if (err instanceof YtDlpPasswordRequiredError) {
-    return 'This recording requires a password.';
-  }
-  if (err instanceof YtDlpError) {
-    return 'Download failed. The site may be unsupported or the URL may be invalid.';
-  }
-  if (err instanceof Error) {
-    // NodeJS.ErrnoException — fs ops at the staging/move step. Map to a
-    // safe message; never echo err.message verbatim because it includes
-    // the absolute path of the failing operation.
-    const code = (err as NodeJS.ErrnoException).code;
-    if (typeof code === 'string') {
-      return FS_ERRNO_MESSAGES[code] ?? 'Could not save the download.';
+/** Wire all renderer→main and main→renderer IPC. Pure delegation to the
+ * queue/cache; this module owns no download lifecycle itself anymore. */
+export const registerIpcHandlers = (deps: IpcDeps): void => {
+  ipcMain.handle(IpcChannels.StartDownload, (_event, request: DownloadRequest) => {
+    return { id: deps.queue.enqueue(request) };
+  });
+  ipcMain.handle(IpcChannels.CancelDownload, (_event, id: unknown) => {
+    // Unknown / wrong-type ids are silently ignored — the renderer can
+    // race the IPC against a row completing, and we don't want to error
+    // on the loser of that race.
+    if (typeof id !== 'string') {
+      return;
     }
-    return err.message;
-  }
-  return 'Download failed.';
-};
-
-const handleStartDownload = (
-  webContents: WebContents,
-  request: DownloadRequest,
-): { id: string } => {
-  const id = generateDownloadId(request.url);
-  const outputFolder = request.outputFolder ?? DEFAULT_OUTPUT_FOLDER;
-  const deps = buildRunnerDeps();
-  const abortController = new AbortController();
-  activeAbortControllers.set(id, abortController);
-
-  // Per-download mutable snapshot. Each update emits a full Download object
-  // so the renderer can replace by id without merging partials.
-  let snapshot: Download = {
-    id,
-    url: request.url,
-    format: request.format,
-    outputFolder,
-    status: 'downloading',
-    progress: 0,
-    createdAt: Date.now(),
-  };
-
-  const emit = (patch: Partial<Download> = {}): void => {
-    snapshot = { ...snapshot, ...patch };
-    if (!webContents.isDestroyed()) {
-      webContents.send(IpcChannels.DownloadUpdate, snapshot);
-    }
-  };
-
-  // Initial emission so the renderer can show the row immediately, before
-  // the metadata pre-pass completes.
-  emit();
-
-  // Fire and forget: the IPC contract only requires that the id come back
-  // synchronously; everything else streams through DownloadUpdate.
-  void (async (): Promise<void> => {
-    // Per-download workspace inside ~/Library/Caches/video.pluck.app/.
-    // yt-dlp downloads fragments and writes the merged output here; on
-    // success we move the final file into outputFolder and rm the
-    // workspace. On any failure the `finally` rm still fires, so
-    // user-visible Downloads/Pluck never sees partial files.
-    const tempFolder = await createTempFolder(PLUCK_CACHE_DIR, id);
-    try {
-      // Ensure the user-visible output folder exists. Async so the IPC
-      // handler's event loop isn't blocked on filesystem.
-      await fs.mkdir(outputFolder, { recursive: true });
-
-      // Cache hit when the renderer prefetched this URL (typed and waited
-      // a tick before clicking Download). Otherwise it's an in-flight or
-      // miss and we wait on the fresh fetch.
-      const meta = await getMetadataCache().get(request.url);
-      emit({
-        title: meta.title,
-        sourceSite: meta.extractor,
-        durationSec: meta.durationSec,
-        thumbnailUrl: meta.thumbnailUrl,
-      });
-
-      // Two-second smoother for speed + ETA. yt-dlp fires progress multiple
-      // times per second; raw values flicker too fast to read. Percent is
-      // NOT smoothed — bar should fill continuously.
-      const smoother = createProgressSmoother();
-      const result = await runDownload(
-        {
-          url: request.url,
-          format: request.format,
-          tempFolder,
-          videoPassword: request.videoPassword,
-          cancelSignal: abortController.signal,
-          onProgress: (event) => {
-            smoother.sample(event.speed, event.eta);
-            const smoothed = smoother.current();
-            emit({
-              progress: Number.isFinite(event.percent) ? event.percent : snapshot.progress,
-              speed: smoothed.speed,
-              eta: smoothed.eta,
-            });
-          },
-        },
-        deps,
-      );
-
-      // Move the merged file out of temp into the user-visible folder.
-      // Same-volume case (default): atomic rename. Cross-volume (external
-      // drive): staging.ts falls back to copyFile + rm via EXDEV branch.
-      const finalPath = await resolveAvailablePath(outputFolder, basename(result.filePath));
-      await moveFile(result.filePath, finalPath);
-
-      // Guarantee the row was visible in the `downloading` state long
-      // enough for at least one progress-bar paint, even for sub-second
-      // downloads (YouTube Shorts at -N 14 finish in a single frame).
-      await padToMinDuration(snapshot.createdAt, MIN_VISIBLE_DOWNLOADING_MS);
-
-      emit({
-        status: 'completed',
-        progress: 100,
-        filePath: finalPath,
-        completedAt: Date.now(),
-        speed: undefined,
-        eta: undefined,
-      });
-    } catch (err) {
-      if (err instanceof YtDlpCancelledError) {
-        // Distinct from the failure path: cancellation is intentional, so
-        // no error message + status flips to 'cancelled' (not 'failed').
-        // DownloadRow renders 'cancelled' neutrally rather than with the
-        // scary red error block.
-        emit({
-          status: 'cancelled',
-          completedAt: Date.now(),
-          speed: undefined,
-          eta: undefined,
-        });
-      } else {
-        emit({
-          status: 'failed',
-          error: friendlyErrorMessage(err),
-          speed: undefined,
-          eta: undefined,
-        });
-      }
-    } finally {
-      // Drop the controller from the registry regardless of outcome — the
-      // row's no longer cancellable once it's reached a terminal state.
-      activeAbortControllers.delete(id);
-      await removeTempFolder(tempFolder);
-    }
-  })();
-
-  return { id };
-};
-
-export const registerIpcHandlers = (): void => {
-  ipcMain.handle(IpcChannels.StartDownload, (event, request: DownloadRequest) =>
-    handleStartDownload(event.sender, request),
-  );
+    deps.queue.cancel(id);
+  });
+  ipcMain.handle(IpcChannels.GetInitialState, () => deps.queue.getAll());
   ipcMain.handle(IpcChannels.ShowInFinder, (_event, filePath: string) => {
-    // shell.showItemInFolder opens Finder showing the parent folder with the
-    // file selected — the macOS "Reveal in Finder" gesture. No-op on a
-    // missing path (Electron logs internally; nothing useful for renderer
-    // to do about it).
+    // macOS "Reveal in Finder" — opens the parent folder with the file
+    // selected. No-op on a missing path (Electron handles internally).
     shell.showItemInFolder(filePath);
   });
   ipcMain.handle(IpcChannels.OpenExternal, async (_event, url: unknown) => {
-    // Guard rail via isHttpUrl: a compromised renderer could otherwise pass
-    // `file://` and trick the OS into opening arbitrary local files in
-    // their default app.
+    // isHttpUrl gate: a compromised renderer could otherwise pass `file://`
+    // and trick the OS into opening arbitrary local files.
     if (!isHttpUrl(url)) {
       return;
     }
     await shell.openExternal(url);
   });
   ipcMain.handle(IpcChannels.PrefetchMetadata, (_event, url: unknown) => {
-    // Fire-and-forget warmer. The cache de-dups concurrent gets, so calling
-    // this and then start-download moments later only spawns one yt-dlp.
-    // Same isHttpUrl guard as OpenExternal — never invoke yt-dlp on
-    // arbitrary schemes.
+    // Same gate as OpenExternal — never invoke yt-dlp on arbitrary schemes.
     if (!isHttpUrl(url)) {
       return;
     }
-    getMetadataCache().prefetch(url);
-  });
-  ipcMain.handle(IpcChannels.CancelDownload, (_event, id: unknown) => {
-    // No-op for unknown ids (the download may have finished between the
-    // user clicking Cancel and the IPC arriving). The runner handles the
-    // race on its side via the AbortSignal listener cleanup.
-    if (typeof id !== 'string') {
-      return;
-    }
-    activeAbortControllers.get(id)?.abort();
+    deps.metadataCache.prefetch(url);
   });
 };

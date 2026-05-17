@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { friendlyErrorMessage, generateDownloadId, padToMinDuration } from './ipc';
-import { YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
+import { generateDownloadId } from './ipc';
 
 describe('generateDownloadId', () => {
   const FIXED_NOW = new Date('2026-05-16T20:45:30');
@@ -63,8 +62,6 @@ describe('generateDownloadId', () => {
     const before = Date.now();
     const id = generateDownloadId('https://youtube.com/watch?v=x');
     const after = Date.now();
-    // Extract the YYYYMMDD-HHMMSS portion and confirm it round-trips into
-    // a Date inside [before, after] +/- 1s.
     const stampMatch = id.match(/-(\d{8})-(\d{6})-/);
     expect(stampMatch).not.toBeNull();
     if (stampMatch) {
@@ -79,112 +76,5 @@ describe('generateDownloadId', () => {
       expect(parsed).toBeGreaterThanOrEqual(before - 1000);
       expect(parsed).toBeLessThanOrEqual(after + 1000);
     }
-  });
-});
-
-describe('padToMinDuration', () => {
-  // 50ms tolerance — setTimeout isn't precise on a loaded machine but we
-  // only care that it doesn't return early and isn't grossly long.
-  const TOLERANCE_MS = 50;
-
-  it('returns immediately when min has already elapsed', async () => {
-    const start = Date.now() - 1000;
-    const t0 = Date.now();
-    await padToMinDuration(start, 500);
-    expect(Date.now() - t0).toBeLessThan(TOLERANCE_MS);
-  });
-
-  it('sleeps the remainder when min has not elapsed', async () => {
-    const start = Date.now();
-    await padToMinDuration(start, 200);
-    const elapsed = Date.now() - start;
-    expect(elapsed).toBeGreaterThanOrEqual(200);
-    expect(elapsed).toBeLessThan(200 + TOLERANCE_MS);
-  });
-
-  it('treats minMs <= 0 as a no-op', async () => {
-    const t0 = Date.now();
-    await padToMinDuration(Date.now(), 0);
-    await padToMinDuration(Date.now(), -100);
-    expect(Date.now() - t0).toBeLessThan(TOLERANCE_MS);
-  });
-});
-
-describe('friendlyErrorMessage', () => {
-  it('maps YtDlpPasswordRequiredError to a password prompt hint', () => {
-    expect(friendlyErrorMessage(new YtDlpPasswordRequiredError('zoom auth required'))).toBe(
-      'This recording requires a password.',
-    );
-  });
-
-  it('maps generic YtDlpError to a safe generic message (no stderr leak)', () => {
-    const stderr = 'ERROR: /Users/me/secret/path/foo.mp4: Permission denied';
-    const message = friendlyErrorMessage(new YtDlpError('boom', stderr));
-    expect(message).toBe('Download failed. The site may be unsupported or the URL may be invalid.');
-    // Guard against accidental stderr leak via the user-facing message.
-    expect(message).not.toContain('Permission');
-    expect(message).not.toContain('/Users/');
-  });
-
-  it('preserves the message for unknown Error instances (no errno code)', () => {
-    expect(friendlyErrorMessage(new Error('disk full'))).toBe('disk full');
-  });
-
-  it('maps NodeJS.ErrnoException codes to safe strings without leaking paths', () => {
-    // Real-shape Node fs error: includes the failing path in the message,
-    // which we must NOT echo back to the renderer.
-    const enospc = Object.assign(
-      new Error("ENOSPC: no space left on device, rename '/Users/me/Downloads/Pluck/foo.mp4'"),
-      { code: 'ENOSPC' },
-    );
-    expect(friendlyErrorMessage(enospc)).toBe('No space left on the destination disk.');
-
-    const eacces = Object.assign(new Error("EACCES: permission denied, mkdir '/locked'"), {
-      code: 'EACCES',
-    });
-    expect(friendlyErrorMessage(eacces)).toBe('Permission denied when saving the download.');
-
-    const eperm = Object.assign(new Error("EPERM: operation not permitted, rename '/x'"), {
-      code: 'EPERM',
-    });
-    expect(friendlyErrorMessage(eperm)).toBe('Permission denied when saving the download.');
-
-    const erofs = Object.assign(new Error("EROFS: read-only file system, rename '/x'"), {
-      code: 'EROFS',
-    });
-    expect(friendlyErrorMessage(erofs)).toBe('The destination is read-only.');
-
-    const enoent = Object.assign(new Error("ENOENT: no such file or directory, rename '/x'"), {
-      code: 'ENOENT',
-    });
-    expect(friendlyErrorMessage(enoent)).toBe('The destination folder no longer exists.');
-  });
-
-  it('maps unknown errno codes to a generic save error (still no path leak)', () => {
-    const eunknown = Object.assign(
-      new Error("EWHATEVER: surprise, rename '/Users/me/private.mp4'"),
-      { code: 'EWHATEVER' },
-    );
-    const msg = friendlyErrorMessage(eunknown);
-    expect(msg).toBe('Could not save the download.');
-    expect(msg).not.toContain('/Users/');
-    expect(msg).not.toContain('EWHATEVER');
-  });
-
-  it('falls back to a generic message for non-Error throws', () => {
-    expect(friendlyErrorMessage('a string was thrown')).toBe('Download failed.');
-    expect(friendlyErrorMessage(null)).toBe('Download failed.');
-    expect(friendlyErrorMessage(undefined)).toBe('Download failed.');
-    expect(friendlyErrorMessage(42)).toBe('Download failed.');
-    expect(friendlyErrorMessage({ message: 'plain object' })).toBe('Download failed.');
-  });
-
-  it('preserves error type hierarchy: PasswordRequired wins over generic YtDlpError', () => {
-    const err = new YtDlpPasswordRequiredError();
-    // Sanity: the password-required error extends YtDlpError, so instanceof
-    // order in friendlyErrorMessage matters. Verify the more specific
-    // branch fires first.
-    expect(err).toBeInstanceOf(YtDlpError);
-    expect(friendlyErrorMessage(err)).toBe('This recording requires a password.');
   });
 });

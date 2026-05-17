@@ -1,33 +1,56 @@
 import { useEffect, useState } from 'react';
 import type { Download, Format } from '../../shared/types';
-import { DownloadRow } from './components/DownloadRow';
+import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { UrlInput } from './components/UrlInput';
 import { api } from './lib/api';
 
 const App = (): React.JSX.Element => {
-  // Map keyed by Download.id so push updates from the main process replace
-  // by id; rendered as a list sorted by createdAt descending (newest first).
+  // Keyed by Download.id so push updates replace by id; rendered as a list
+  // sorted by createdAt descending (newest first). One state owner, one
+  // consumer (DownloadQueue) — no need for a global store yet.
   const [downloads, setDownloads] = useState<Map<string, Download>>(() => new Map());
   const [format, setFormat] = useState<Format>('best');
 
+  // Boot: subscribe to push updates first so any update emitted while
+  // getInitialState is in-flight still lands. Seed merges with existing-
+  // wins semantics — a newer pushed row isn't clobbered by the older
+  // snapshot from main.
   useEffect(() => {
-    // api.onDownloadUpdate is a module-stable function exposed via
-    // contextBridge; subscribe once on mount and unsubscribe on unmount.
-    return api.onDownloadUpdate((download) => {
+    let cancelled = false;
+    const unsubscribe = api.onDownloadUpdate((download) => {
       setDownloads((prev) => {
         const next = new Map(prev);
         next.set(download.id, download);
         return next;
       });
     });
+    api
+      .getInitialState()
+      .then((initial) => {
+        if (cancelled) {
+          return;
+        }
+        setDownloads((prev) => {
+          const next = new Map(prev);
+          for (const d of initial) {
+            if (!next.has(d.id)) {
+              next.set(d.id, d);
+            }
+          }
+          return next;
+        });
+      })
+      .catch((err: unknown) => {
+        console.error('getInitialState rejected:', err);
+      });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, []);
 
   const handleSubmit = (url: string): void => {
-    // Main returns the id synchronously and streams the rest via
-    // DownloadUpdate. The only way invoke rejects is if the handler itself
-    // throws (e.g. mkdirSync fails); surface that to the console rather
-    // than silently swallowing it.
     api.startDownload({ url, format }).catch((err: unknown) => {
       console.error('startDownload rejected:', err);
     });
@@ -43,13 +66,7 @@ const App = (): React.JSX.Element => {
           <UrlInput onSubmit={handleSubmit} />
           <FormatSelector value={format} onChange={setFormat} />
         </div>
-        <div className="space-y-2">
-          {rows.length === 0 ? (
-            <p className="text-sm text-neutral-500">Paste a video URL above to start a download.</p>
-          ) : (
-            rows.map((download) => <DownloadRow key={download.id} download={download} />)
-          )}
-        </div>
+        <DownloadQueue rows={rows} />
       </div>
     </main>
   );

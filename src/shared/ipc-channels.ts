@@ -24,6 +24,10 @@ export const IpcChannels = {
    * aborts the in-flight yt-dlp process; the download's status flips to
    * 'cancelled' (not 'failed') via the existing DownloadUpdate channel. */
   CancelDownload: 'pluck:cancel-download',
+  /** Renderer -> main, invoke. Returns the current full snapshot (history
+   * + any live in-flight rows) so the renderer can seed its store on
+   * mount without missing updates emitted before the listener attached. */
+  GetInitialState: 'pluck:get-initial-state',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

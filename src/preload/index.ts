@@ -45,6 +45,12 @@ const api = {
    * channel. No-op if the id isn't currently downloading (e.g. it just
    * finished). */
   cancelDownload: (id: string): Promise<void> => ipcRenderer.invoke(IpcChannels.CancelDownload, id),
+
+  /** Seed the renderer store on mount with everything main currently
+   * knows about — persisted history plus any rows that are still
+   * in-flight. Without this the renderer would miss updates emitted
+   * before its DownloadUpdate listener attached. */
+  getInitialState: (): Promise<Download[]> => ipcRenderer.invoke(IpcChannels.GetInitialState),
 };
 
 export type PluckAPI = typeof api;

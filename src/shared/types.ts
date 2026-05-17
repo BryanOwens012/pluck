@@ -19,6 +19,7 @@ export type DownloadRequest = {
 export const DOWNLOAD_STATUSES = [
   'queued',
   'downloading',
+  'canceling',
   'completed',
   'failed',
   'cancelled',
