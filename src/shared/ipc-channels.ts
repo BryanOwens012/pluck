@@ -10,6 +10,9 @@ export const IpcChannels = {
   StartDownload: 'pluck:start-download',
   /** Main -> renderer, send. Pushes the latest Download state for any id. */
   DownloadUpdate: 'pluck:download-update',
+  /** Renderer -> main, invoke. Opens Finder showing the parent folder of the
+   * given file with the file selected. macOS "Reveal in Finder" semantics. */
+  ShowInFinder: 'pluck:show-in-finder',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

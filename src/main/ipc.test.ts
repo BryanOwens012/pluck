@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { friendlyErrorMessage, generateDownloadId } from './ipc';
+import { friendlyErrorMessage, generateDownloadId, padToMinDuration } from './ipc';
 import { YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
 
 describe('generateDownloadId', () => {
@@ -82,6 +82,34 @@ describe('generateDownloadId', () => {
   });
 });
 
+describe('padToMinDuration', () => {
+  // 50ms tolerance — setTimeout isn't precise on a loaded machine but we
+  // only care that it doesn't return early and isn't grossly long.
+  const TOLERANCE_MS = 50;
+
+  it('returns immediately when min has already elapsed', async () => {
+    const start = Date.now() - 1000;
+    const t0 = Date.now();
+    await padToMinDuration(start, 500);
+    expect(Date.now() - t0).toBeLessThan(TOLERANCE_MS);
+  });
+
+  it('sleeps the remainder when min has not elapsed', async () => {
+    const start = Date.now();
+    await padToMinDuration(start, 200);
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(200);
+    expect(elapsed).toBeLessThan(200 + TOLERANCE_MS);
+  });
+
+  it('treats minMs <= 0 as a no-op', async () => {
+    const t0 = Date.now();
+    await padToMinDuration(Date.now(), 0);
+    await padToMinDuration(Date.now(), -100);
+    expect(Date.now() - t0).toBeLessThan(TOLERANCE_MS);
+  });
+});
+
 describe('friendlyErrorMessage', () => {
   it('maps YtDlpPasswordRequiredError to a password prompt hint', () => {
     expect(friendlyErrorMessage(new YtDlpPasswordRequiredError('zoom auth required'))).toBe(
@@ -98,8 +126,49 @@ describe('friendlyErrorMessage', () => {
     expect(message).not.toContain('/Users/');
   });
 
-  it('preserves the message for unknown Error instances', () => {
+  it('preserves the message for unknown Error instances (no errno code)', () => {
     expect(friendlyErrorMessage(new Error('disk full'))).toBe('disk full');
+  });
+
+  it('maps NodeJS.ErrnoException codes to safe strings without leaking paths', () => {
+    // Real-shape Node fs error: includes the failing path in the message,
+    // which we must NOT echo back to the renderer.
+    const enospc = Object.assign(
+      new Error("ENOSPC: no space left on device, rename '/Users/me/Downloads/Pluck/foo.mp4'"),
+      { code: 'ENOSPC' },
+    );
+    expect(friendlyErrorMessage(enospc)).toBe('No space left on the destination disk.');
+
+    const eacces = Object.assign(new Error("EACCES: permission denied, mkdir '/locked'"), {
+      code: 'EACCES',
+    });
+    expect(friendlyErrorMessage(eacces)).toBe('Permission denied when saving the download.');
+
+    const eperm = Object.assign(new Error("EPERM: operation not permitted, rename '/x'"), {
+      code: 'EPERM',
+    });
+    expect(friendlyErrorMessage(eperm)).toBe('Permission denied when saving the download.');
+
+    const erofs = Object.assign(new Error("EROFS: read-only file system, rename '/x'"), {
+      code: 'EROFS',
+    });
+    expect(friendlyErrorMessage(erofs)).toBe('The destination is read-only.');
+
+    const enoent = Object.assign(new Error("ENOENT: no such file or directory, rename '/x'"), {
+      code: 'ENOENT',
+    });
+    expect(friendlyErrorMessage(enoent)).toBe('The destination folder no longer exists.');
+  });
+
+  it('maps unknown errno codes to a generic save error (still no path leak)', () => {
+    const eunknown = Object.assign(
+      new Error("EWHATEVER: surprise, rename '/Users/me/private.mp4'"),
+      { code: 'EWHATEVER' },
+    );
+    const msg = friendlyErrorMessage(eunknown);
+    expect(msg).toBe('Could not save the download.');
+    expect(msg).not.toContain('/Users/');
+    expect(msg).not.toContain('EWHATEVER');
   });
 
   it('falls back to a generic message for non-Error throws', () => {
