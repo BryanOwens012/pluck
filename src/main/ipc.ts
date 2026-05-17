@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { DownloadRequest } from '../shared/types';
 import { isHttpUrl } from '../shared/url';
@@ -115,12 +115,10 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     // the dialog usable in edge cases (renderer reload races).
     const owner = BrowserWindow.fromWebContents(event.sender);
     const current = deps.settings.get().outputFolder;
-    const dialogOptions = {
+    const dialogOptions: OpenDialogOptions = {
       title: 'Choose download folder',
       defaultPath: current,
-      properties: ['openDirectory', 'createDirectory'] as Array<
-        'openDirectory' | 'createDirectory'
-      >,
+      properties: ['openDirectory', 'createDirectory'],
       buttonLabel: 'Use this folder',
     };
     const result = await (owner
