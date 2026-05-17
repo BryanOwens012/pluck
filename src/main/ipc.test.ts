@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { friendlyErrorMessage, generateDownloadId } from './ipc';
+import { friendlyErrorMessage, generateDownloadId, padToMinDuration } from './ipc';
 import { YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
 
 describe('generateDownloadId', () => {
@@ -79,6 +79,34 @@ describe('generateDownloadId', () => {
       expect(parsed).toBeGreaterThanOrEqual(before - 1000);
       expect(parsed).toBeLessThanOrEqual(after + 1000);
     }
+  });
+});
+
+describe('padToMinDuration', () => {
+  // 50ms tolerance — setTimeout isn't precise on a loaded machine but we
+  // only care that it doesn't return early and isn't grossly long.
+  const TOLERANCE_MS = 50;
+
+  it('returns immediately when min has already elapsed', async () => {
+    const start = Date.now() - 1000;
+    const t0 = Date.now();
+    await padToMinDuration(start, 500);
+    expect(Date.now() - t0).toBeLessThan(TOLERANCE_MS);
+  });
+
+  it('sleeps the remainder when min has not elapsed', async () => {
+    const start = Date.now();
+    await padToMinDuration(start, 200);
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(200);
+    expect(elapsed).toBeLessThan(200 + TOLERANCE_MS);
+  });
+
+  it('treats minMs <= 0 as a no-op', async () => {
+    const t0 = Date.now();
+    await padToMinDuration(Date.now(), 0);
+    await padToMinDuration(Date.now(), -100);
+    expect(Date.now() - t0).toBeLessThan(TOLERANCE_MS);
   });
 });
 

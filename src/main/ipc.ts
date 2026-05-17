@@ -11,6 +11,14 @@ import { type RunnerDeps, YtDlpError, YtDlpPasswordRequiredError } from './ytdlp
 
 const DEFAULT_OUTPUT_FOLDER = join(homedir(), 'Downloads', 'Pluck');
 
+/** Minimum time the row stays in the `downloading` state on the renderer.
+ * Tiny videos (YouTube Shorts at -N 14) finish in well under a frame, which
+ * makes the row flash straight to `completed` — the progress bar never
+ * renders. Padding the transition guarantees the user sees the bar at
+ * least briefly, regardless of file size. Failure paths are NOT padded —
+ * errors should surface immediately. */
+const MIN_VISIBLE_DOWNLOADING_MS = 500;
+
 const buildRunnerDeps = (): RunnerDeps => ({
   ytDlpPath: binPath('yt-dlp'),
   ffmpegPath: binPath('ffmpeg'),
@@ -72,6 +80,16 @@ const FS_ERRNO_MESSAGES: Record<string, string> = {
   EPERM: 'Permission denied when saving the download.',
   EROFS: 'The destination is read-only.',
   ENOENT: 'The destination folder no longer exists.',
+};
+
+/** Sleep until `minMs` has elapsed since `startMs`. No-op if already past.
+ * Exported for testing. */
+export const padToMinDuration = async (startMs: number, minMs: number): Promise<void> => {
+  const elapsed = Date.now() - startMs;
+  if (elapsed >= minMs) {
+    return;
+  }
+  await new Promise((resolve) => setTimeout(resolve, minMs - elapsed));
 };
 
 /** Translate a thrown error into a user-facing message. Stderr is never sent
@@ -171,6 +189,11 @@ const handleStartDownload = (
       // drive): staging.ts falls back to copyFile + rm via EXDEV branch.
       const finalPath = await resolveAvailablePath(outputFolder, basename(result.filePath));
       await moveFile(result.filePath, finalPath);
+
+      // Guarantee the row was visible in the `downloading` state long
+      // enough for at least one progress-bar paint, even for sub-second
+      // downloads (YouTube Shorts at -N 14 finish in a single frame).
+      await padToMinDuration(snapshot.createdAt, MIN_VISIBLE_DOWNLOADING_MS);
 
       emit({
         status: 'completed',
