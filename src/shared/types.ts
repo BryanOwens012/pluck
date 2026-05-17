@@ -9,7 +9,9 @@ export type Format = 'best' | '1080p' | '720p' | 'audio_mp3';
 export type DownloadRequest = {
   url: string;
   format: Format;
-  outputFolder: string;
+  /** Optional. If omitted, main process falls back to its configured default
+   * (~/Downloads/Pluck until PR 6 introduces the settings-driven path). */
+  outputFolder?: string;
   videoPassword?: string;
 };
 
