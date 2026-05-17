@@ -1,8 +1,27 @@
 import type { Download } from '../../../shared/types';
+import { api } from '../lib/api';
 
 type Props = {
   download: Download;
 };
+
+/** Lucide-style folder icon, inlined to avoid pulling in an icon dep just
+ * for this. 16×16 at 2px stroke renders crisply against the dark theme. */
+const FolderIcon = (): React.JSX.Element => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    className="h-4 w-4"
+  >
+    <path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z" />
+  </svg>
+);
 
 const STATUS_LABEL: Record<Download['status'], string> = {
   queued: 'Queued',
@@ -41,8 +60,8 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-medium text-neutral-100">{headerTitle}</div>
+        <div className="min-w-0 flex-1">
+          <div className="break-words text-sm font-medium text-neutral-100">{headerTitle}</div>
           {download.sourceSite ? (
             <div className="mt-0.5 text-xs text-neutral-500">{download.sourceSite}</div>
           ) : null}
@@ -78,9 +97,10 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
       ) : null}
 
       {download.status === 'completed' && download.filePath ? (
-        <div className="mt-2 truncate text-xs text-emerald-400">Saved to {download.filePath}</div>
+        <CompletedFooter filePath={download.filePath} />
       ) : null}
 
+      {/* Failed-state error block; always shown regardless of debug mode. */}
       {download.status === 'failed' && download.error ? (
         <div className="mt-3 flex gap-2 rounded-md border border-red-900/70 bg-red-950/40 p-2.5">
           <span aria-hidden="true" className="select-none text-sm leading-none text-red-400">
@@ -92,6 +112,32 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+};
+
+/** Saved-to line plus a folder-icon button that reveals the file in Finder.
+ * Extracted so the narrowed `filePath: string` (vs the parent's optional)
+ * stays clean inside the button's click handler. */
+const CompletedFooter = ({ filePath }: { filePath: string }): React.JSX.Element => {
+  const handleReveal = (): void => {
+    api.showInFinder(filePath).catch((err: unknown) => {
+      console.error('showInFinder rejected:', err);
+    });
+  };
+
+  return (
+    <div className="mt-2 flex items-start gap-2">
+      <div className="min-w-0 flex-1 break-words text-xs text-emerald-400">Saved to {filePath}</div>
+      <button
+        type="button"
+        onClick={handleReveal}
+        title="Show in Finder"
+        aria-label="Show in Finder"
+        className="shrink-0 rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
+      >
+        <FolderIcon />
+      </button>
     </div>
   );
 };

@@ -1,7 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
-import { ipcMain, type WebContents } from 'electron';
+import { ipcMain, shell, type WebContents } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
 import { binPath } from './paths';
@@ -231,4 +231,11 @@ export const registerIpcHandlers = (): void => {
   ipcMain.handle(IpcChannels.StartDownload, (event, request: DownloadRequest) =>
     handleStartDownload(event.sender, request),
   );
+  ipcMain.handle(IpcChannels.ShowInFinder, (_event, filePath: string) => {
+    // shell.showItemInFolder opens Finder showing the parent folder with the
+    // file selected — the macOS "Reveal in Finder" gesture. No-op on a
+    // missing path (Electron logs internally; nothing useful for renderer
+    // to do about it).
+    shell.showItemInFolder(filePath);
+  });
 };

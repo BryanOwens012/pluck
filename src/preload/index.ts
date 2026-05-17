@@ -24,6 +24,11 @@ const api = {
       ipcRenderer.removeListener(IpcChannels.DownloadUpdate, listener);
     };
   },
+
+  /** Open Finder showing the enclosing folder of `filePath`, with the file
+   * selected. Fire and forget — main process handles the open. */
+  showInFinder: (filePath: string): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.ShowInFinder, filePath),
 };
 
 export type PluckAPI = typeof api;
