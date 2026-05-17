@@ -16,13 +16,17 @@ export type VideoMetadata = {
   thumbnailUrl?: string;
 };
 
+export const PROGRESS_STATUSES = ['downloading', 'finished', 'error'] as const;
+export type ProgressStatus = (typeof PROGRESS_STATUSES)[number];
+
 /**
- * One progress emission parsed off yt-dlp's stderr stream, line by line.
- * yt-dlp's `--progress-template` is configured to print JSON on stderr; this
- * is the typed shape of those lines.
+ * One progress emission parsed off yt-dlp's stdout stream, line by line.
+ * yt-dlp writes both its info chatter and `--progress-template` JSON to
+ * stdout (despite the conventional split); this is the typed shape of the
+ * JSON lines. parseProgressLine drops the non-JSON noise.
  */
 export type ProgressEvent = {
-  status: 'downloading' | 'finished' | 'error';
+  status: ProgressStatus;
   /** 0–100. May be NaN for unknown duration; callers should clamp/ignore. */
   percent: number;
   speed?: string;
@@ -43,10 +47,15 @@ export type RunnerDeps = {
  * script) moves the final file into the user-visible output folder once
  * yt-dlp completes. Keeping the runner ignorant of the final destination
  * keeps yt-dlp orchestration and filesystem staging cleanly separated and
- * means a failed download leaves nothing in the user's Downloads folder. */
+ * means a failed download leaves nothing in the user's Downloads folder.
+ *
+ * `cancelSignal` is the standard DOM AbortSignal. When it aborts mid-run,
+ * the runner sends SIGTERM to the yt-dlp child, schedules SIGKILL after a
+ * grace period, and rejects with YtDlpCancelledError. */
 export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
   tempFolder: string;
   onProgress?: (event: ProgressEvent) => void;
+  cancelSignal?: AbortSignal;
 };
 
 export type RunDownloadResult = {
@@ -70,5 +79,16 @@ export class YtDlpPasswordRequiredError extends YtDlpError {
   constructor(stderr?: string) {
     super('yt-dlp requires a video password for this URL', stderr);
     this.name = 'YtDlpPasswordRequiredError';
+  }
+}
+
+/** Thrown when the IPC layer aborts a download via AbortSignal (user clicked
+ * Cancel). Distinct from YtDlpError so the IPC handler can emit
+ * `status: 'cancelled'` instead of the user-scary `status: 'failed'` —
+ * cancellation isn't a failure, it's a deliberate choice. */
+export class YtDlpCancelledError extends YtDlpError {
+  constructor() {
+    super('Download cancelled by user.');
+    this.name = 'YtDlpCancelledError';
   }
 }

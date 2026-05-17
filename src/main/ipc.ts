@@ -10,7 +10,12 @@ import { binPath } from './paths';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
 import { fetchMetadata, runDownload } from './ytdlp/runner';
-import { type RunnerDeps, YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
+import {
+  type RunnerDeps,
+  YtDlpCancelledError,
+  YtDlpError,
+  YtDlpPasswordRequiredError,
+} from './ytdlp/types';
 
 const DEFAULT_OUTPUT_FOLDER = join(homedir(), 'Downloads', 'Pluck');
 
@@ -47,6 +52,11 @@ const getMetadataCache = (): MetadataCache => {
   }
   return cachedMetadataCache;
 };
+
+// AbortController per in-flight download keyed by download id. The Cancel
+// IPC looks up the controller and aborts; handleStartDownload registers on
+// entry and removes on exit so the map only ever holds active rows.
+const activeAbortControllers = new Map<string, AbortController>();
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -118,7 +128,11 @@ export const padToMinDuration = async (startMs: number, minMs: number): Promise<
 
 /** Translate a thrown error into a user-facing message. Stderr is never sent
  * to the renderer — it's noisy and can leak filesystem paths. Exported for
- * testing. */
+ * testing.
+ *
+ * Cancellation is handled by the caller via the YtDlpCancelledError sentinel
+ * — the row flips to `status: 'cancelled'` and never invokes this function,
+ * so we don't need a "Cancelled" branch here. */
 export const friendlyErrorMessage = (err: unknown): string => {
   if (err instanceof YtDlpPasswordRequiredError) {
     return 'This recording requires a password.';
@@ -146,6 +160,8 @@ const handleStartDownload = (
   const id = generateDownloadId(request.url);
   const outputFolder = request.outputFolder ?? DEFAULT_OUTPUT_FOLDER;
   const deps = buildRunnerDeps();
+  const abortController = new AbortController();
+  activeAbortControllers.set(id, abortController);
 
   // Per-download mutable snapshot. Each update emits a full Download object
   // so the renderer can replace by id without merging partials.
@@ -205,6 +221,7 @@ const handleStartDownload = (
           format: request.format,
           tempFolder,
           videoPassword: request.videoPassword,
+          cancelSignal: abortController.signal,
           onProgress: (event) => {
             smoother.sample(event.speed, event.eta);
             const smoothed = smoother.current();
@@ -238,13 +255,29 @@ const handleStartDownload = (
         eta: undefined,
       });
     } catch (err) {
-      emit({
-        status: 'failed',
-        error: friendlyErrorMessage(err),
-        speed: undefined,
-        eta: undefined,
-      });
+      if (err instanceof YtDlpCancelledError) {
+        // Distinct from the failure path: cancellation is intentional, so
+        // no error message + status flips to 'cancelled' (not 'failed').
+        // DownloadRow renders 'cancelled' neutrally rather than with the
+        // scary red error block.
+        emit({
+          status: 'cancelled',
+          completedAt: Date.now(),
+          speed: undefined,
+          eta: undefined,
+        });
+      } else {
+        emit({
+          status: 'failed',
+          error: friendlyErrorMessage(err),
+          speed: undefined,
+          eta: undefined,
+        });
+      }
     } finally {
+      // Drop the controller from the registry regardless of outcome — the
+      // row's no longer cancellable once it's reached a terminal state.
+      activeAbortControllers.delete(id);
       await removeTempFolder(tempFolder);
     }
   })();
@@ -281,5 +314,14 @@ export const registerIpcHandlers = (): void => {
       return;
     }
     getMetadataCache().prefetch(url);
+  });
+  ipcMain.handle(IpcChannels.CancelDownload, (_event, id: unknown) => {
+    // No-op for unknown ids (the download may have finished between the
+    // user clicking Cancel and the IPC arriving). The runner handles the
+    // race on its side via the AbortSignal listener cleanup.
+    if (typeof id !== 'string') {
+      return;
+    }
+    activeAbortControllers.get(id)?.abort();
   });
 };

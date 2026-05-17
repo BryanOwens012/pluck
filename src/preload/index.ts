@@ -39,6 +39,12 @@ const api = {
    * metadata fetch. Fire-and-forget; main process never rejects. */
   prefetchMetadata: (url: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.PrefetchMetadata, url),
+
+  /** Cancel an active download by id. Main aborts the yt-dlp child; the
+   * row transitions to 'cancelled' status via the existing DownloadUpdate
+   * channel. No-op if the id isn't currently downloading (e.g. it just
+   * finished). */
+  cancelDownload: (id: string): Promise<void> => ipcRenderer.invoke(IpcChannels.CancelDownload, id),
 };
 
 export type PluckAPI = typeof api;

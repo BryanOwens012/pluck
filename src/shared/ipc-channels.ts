@@ -20,6 +20,10 @@ export const IpcChannels = {
    * fire-and-forget. The UrlInput debounces and calls this so a subsequent
    * Download click can skip the 2-4 s yt-dlp cold-start fetch. */
   PrefetchMetadata: 'pluck:prefetch-metadata',
+  /** Renderer -> main, invoke. Cancels an active download by id. Main
+   * aborts the in-flight yt-dlp process; the download's status flips to
+   * 'cancelled' (not 'failed') via the existing DownloadUpdate channel. */
+  CancelDownload: 'pluck:cancel-download',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

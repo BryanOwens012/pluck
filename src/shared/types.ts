@@ -4,7 +4,8 @@
  * from here.
  */
 
-export type Format = 'best' | '1080p' | '720p' | 'audio_mp3';
+export const FORMATS = ['best', '1080p', '720p', 'audio_mp3'] as const;
+export type Format = (typeof FORMATS)[number];
 
 export type DownloadRequest = {
   url: string;
@@ -15,7 +16,15 @@ export type DownloadRequest = {
   videoPassword?: string;
 };
 
-export type DownloadStatus = 'queued' | 'downloading' | 'completed' | 'failed' | 'transcribing';
+export const DOWNLOAD_STATUSES = [
+  'queued',
+  'downloading',
+  'completed',
+  'failed',
+  'cancelled',
+  'transcribing',
+] as const;
+export type DownloadStatus = (typeof DOWNLOAD_STATUSES)[number];
 
 export type Download = {
   id: string;

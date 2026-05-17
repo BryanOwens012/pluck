@@ -30,18 +30,20 @@ const STATUS_LABEL: Record<Download['status'], string> = {
   downloading: 'Downloading',
   completed: 'Completed',
   failed: 'Failed',
+  cancelled: 'Cancelled',
   transcribing: 'Transcribing',
 };
 
 // Tailwind classes for the small status badge in the row header. Failed gets
 // red so the row reads as broken at a glance even before the user reads the
-// error message below. Error display is always on — never gated on debug
-// mode.
+// error message below. Cancelled stays neutral — it was the user's choice,
+// not an error. Error display is always on — never gated on debug mode.
 const STATUS_BADGE_CLASS: Record<Download['status'], string> = {
   queued: 'text-neutral-400',
   downloading: 'text-neutral-400',
   completed: 'text-neutral-400',
   failed: 'text-red-400',
+  cancelled: 'text-neutral-500',
   transcribing: 'text-neutral-400',
 };
 
@@ -76,8 +78,11 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
               <SourceSiteBadge siteKey={download.sourceSite} url={download.url} />
             ) : null}
           </div>
-          <div className={`shrink-0 text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
-            {STATUS_LABEL[download.status]}
+          <div className="flex shrink-0 items-center gap-2">
+            {download.status === 'downloading' ? <CancelButton id={download.id} /> : null}
+            <div className={`text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
+              {STATUS_LABEL[download.status]}
+            </div>
           </div>
         </div>
 
@@ -175,6 +180,29 @@ const SourceSiteBadge = ({ siteKey, url }: { siteKey: string; url: string }): Re
     >
       <SourceSiteIcon siteKey={siteKey} />
       <span>{siteKey}</span>
+    </button>
+  );
+};
+
+/** Red cancel button shown next to the status badge while a download is
+ * active. Click → api.cancelDownload(id); main process sends SIGTERM to
+ * yt-dlp (then SIGKILL after 2 s), the row's status flips to 'cancelled',
+ * and the temp workspace is wiped via the existing try/finally. */
+const CancelButton = ({ id }: { id: string }): React.JSX.Element => {
+  const handleCancel = (): void => {
+    api.cancelDownload(id).catch((err: unknown) => {
+      console.error('cancelDownload rejected:', err);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleCancel}
+      title="Cancel download"
+      aria-label="Cancel download"
+      className="rounded-md border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-300 transition hover:bg-red-900/50 hover:text-red-200 focus:outline-none focus-visible:bg-red-900/50"
+    >
+      Cancel
     </button>
   );
 };
