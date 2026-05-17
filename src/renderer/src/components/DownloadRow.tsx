@@ -56,6 +56,12 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
   // fill; until then the bar animates an indeterminate slide so the user
   // sees activity rather than a stuck-at-zero bar.
   const hasDeterminateProgress = percent > 0;
+  // Three distinct sub-phases inside `status === 'downloading'`. yt-dlp's
+  // metadata fetch (especially the YouTube JS-challenge step) can take
+  // 2-4 s on a cold start; calling that out as "Reading video info" beats
+  // letting the user stare at "Starting…" for several seconds.
+  const isFetchingMetadata = download.title === undefined;
+  const startingLabel = isFetchingMetadata ? 'Reading video info…' : 'Starting download…';
 
   return (
     <div className="rounded-lg border border-neutral-800 bg-neutral-900 p-4">
@@ -91,7 +97,7 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
               </span>
             </div>
           ) : (
-            <div className="text-xs text-neutral-500">Starting…</div>
+            <div className="text-xs text-neutral-500">{startingLabel}</div>
           )}
         </div>
       ) : null}
