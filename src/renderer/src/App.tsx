@@ -74,12 +74,21 @@ const App = (): React.JSX.Element => {
     };
   }, []);
 
-  // Auto-open the password prompt for any 'needs_password' row the user
-  // hasn't dismissed at its current attempt count. Re-runs after each
-  // store change; idempotent because the same (id, attempts) pair only
-  // opens once. Skips if a modal is already showing.
+  // Manage the password-prompt modal:
+  //   (a) Auto-close if the currently-prompted row left needs_password
+  //       (correct password succeeded, user cancelled, or 3rd attempt
+  //       terminated it). Keeps a stale modal from floating over an
+  //       already-resolved row.
+  //   (b) Otherwise, auto-open for any needs_password row the user
+  //       hasn't dismissed at the current attempt count. Idempotent —
+  //       the same (id, attempts) pair only opens once; a wrong-password
+  //       push bumps attempts and re-pops.
   useEffect(() => {
     if (passwordPromptId !== undefined) {
+      const current = downloads.get(passwordPromptId);
+      if (!current || current.status !== 'needs_password') {
+        setPasswordPromptId(undefined);
+      }
       return;
     }
     for (const download of downloads.values()) {
