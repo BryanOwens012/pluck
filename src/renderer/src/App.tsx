@@ -1,29 +1,45 @@
 import { useEffect, useState } from 'react';
-import type { Format } from '../../shared/types';
+import type { Download, Format } from '../../shared/types';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { UrlInput } from './components/UrlInput';
 import { api } from './lib/api';
-import { useDownloadsStore } from './stores/downloads';
 
 const App = (): React.JSX.Element => {
-  const seed = useDownloadsStore((s) => s.seed);
-  const upsert = useDownloadsStore((s) => s.upsert);
+  // Keyed by Download.id so push updates replace by id; rendered as a list
+  // sorted by createdAt descending (newest first). One state owner, one
+  // consumer (DownloadQueue) — no need for a global store yet.
+  const [downloads, setDownloads] = useState<Map<string, Download>>(() => new Map());
   const [format, setFormat] = useState<Format>('best');
 
   // Boot: subscribe to push updates first so any update emitted while
-  // getInitialState is in-flight still lands. Then seed with the snapshot
-  // from main — seed merges (existing wins on id), so a newer pushed row
-  // isn't clobbered by the older snapshot.
+  // getInitialState is in-flight still lands. Seed merges with existing-
+  // wins semantics — a newer pushed row isn't clobbered by the older
+  // snapshot from main.
   useEffect(() => {
     let cancelled = false;
-    const unsubscribe = api.onDownloadUpdate(upsert);
+    const unsubscribe = api.onDownloadUpdate((download) => {
+      setDownloads((prev) => {
+        const next = new Map(prev);
+        next.set(download.id, download);
+        return next;
+      });
+    });
     api
       .getInitialState()
-      .then((downloads) => {
-        if (!cancelled) {
-          seed(downloads);
+      .then((initial) => {
+        if (cancelled) {
+          return;
         }
+        setDownloads((prev) => {
+          const next = new Map(prev);
+          for (const d of initial) {
+            if (!next.has(d.id)) {
+              next.set(d.id, d);
+            }
+          }
+          return next;
+        });
       })
       .catch((err: unknown) => {
         console.error('getInitialState rejected:', err);
@@ -32,13 +48,15 @@ const App = (): React.JSX.Element => {
       cancelled = true;
       unsubscribe();
     };
-  }, [seed, upsert]);
+  }, []);
 
   const handleSubmit = (url: string): void => {
     api.startDownload({ url, format }).catch((err: unknown) => {
       console.error('startDownload rejected:', err);
     });
   };
+
+  const rows = Array.from(downloads.values()).sort((a, b) => b.createdAt - a.createdAt);
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -48,7 +66,7 @@ const App = (): React.JSX.Element => {
           <UrlInput onSubmit={handleSubmit} />
           <FormatSelector value={format} onChange={setFormat} />
         </div>
-        <DownloadQueue />
+        <DownloadQueue rows={rows} />
       </div>
     </main>
   );
