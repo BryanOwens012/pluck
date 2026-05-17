@@ -119,9 +119,11 @@ app.whenReady().then(async () => {
     metadataCache,
     generateId: generateDownloadId,
     onUpdate: broadcastDownloadUpdate,
-    onTerminalChange: (downloads) => {
+    onPersistChange: (downloads) => {
       // Fire-and-forget. A write failure logs but doesn't crash the app
-      // — the user's downloads still completed; history is best-effort.
+      // — history is best-effort. Called on enqueue, every status
+      // transition, and every terminal end (but NOT on in-status
+      // progress patches — those would thrash the disk).
       history.save(downloads).catch((err: unknown) => {
         console.error('history: save failed', err);
       });

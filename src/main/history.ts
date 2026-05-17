@@ -19,10 +19,9 @@ type HistoryFile = {
   downloads: Download[];
 };
 
-/** Marker statuses that mean "was running when the app exited and never got
- * to write a terminal update". On boot we promote these to 'failed' with a
- * specific interrupted-message so the user can tell crash-rescue from a
- * genuine yt-dlp failure. */
+/** "Was running when the app exited and never got to write a terminal
+ * update" — promoted to 'failed' on boot with a specific message so the
+ * user can tell crash-rescue from a genuine yt-dlp failure. */
 const INTERRUPTED_STATUSES = new Set(['downloading', 'queued']);
 
 const INTERRUPTED_ERROR = 'Interrupted by app exit.';
@@ -105,10 +104,22 @@ const isHistoryFile = (value: unknown): value is HistoryFile => {
   );
 };
 
-/** Boot-path rewrite: any row left mid-flight (the app crashed or was force
- * quit) becomes 'failed' with a clear interrupted message, distinct from a
+/** Boot-path rewrite: any row left in a non-terminal state at app exit
+ * needs to be moved to a terminal one — there's no live process to ever
+ * push the real terminal update. 'canceling' becomes 'cancelled' (the
+ * user meant to cancel, so honour the intent). 'queued' and 'downloading'
+ * become 'failed' with a clear interrupted message, distinct from a
  * real yt-dlp failure. Exported for testing. */
 export const promoteInterruptedToFailed = (download: Download): Download => {
+  if (download.status === 'canceling') {
+    return {
+      ...download,
+      status: 'cancelled',
+      completedAt: download.completedAt ?? Date.now(),
+      speed: undefined,
+      eta: undefined,
+    };
+  }
   if (!INTERRUPTED_STATUSES.has(download.status)) {
     return download;
   }

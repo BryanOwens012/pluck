@@ -87,10 +87,13 @@ export type QueueOptions = {
   generateId: (url: string) => string;
   /** Fired on every state change so the IPC layer can push to the renderer. */
   onUpdate: (download: Download) => void;
-  /** Fired on every terminal state (completed/failed/cancelled) so the
-   * caller can persist. The queue passes the full current snapshot; the
-   * caller decides what to keep (e.g. history.save with capping). */
-  onTerminalChange?: (downloads: Download[]) => void;
+  /** Fired on every visible state change — new row, status transition, or
+   * terminal — so the caller can persist. The queue passes the full
+   * current snapshot; the caller decides what to keep (e.g. history.save
+   * with capping). NOT fired for in-status progress patches (smoothed
+   * speed / ETA / percent) — those happen multiple times a second and
+   * persisting each would thrash the disk. */
+  onPersistChange?: (downloads: Download[]) => void;
 };
 
 export type DownloadQueue = {
@@ -123,6 +126,10 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
   const abortControllers = new Map<string, AbortController>();
   let activeCount = 0;
 
+  const persist = (): void => {
+    opts.onPersistChange?.([...state.values()]);
+  };
+
   const emit = (id: string, patch: Partial<Download> = {}): void => {
     const current = state.get(id);
     if (!current) {
@@ -131,14 +138,16 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     const next = { ...current, ...patch };
     state.set(id, next);
     opts.onUpdate(next);
+    // Persist whenever the visible status changes — covers queued→
+    // downloading, downloading→canceling, →completed, →failed, →cancelled.
+    // Pure progress patches (same status) don't trigger a save.
+    if (current.status !== next.status) {
+      persist();
+    }
   };
 
   const isTerminal = (status: Download['status']): boolean =>
     status === 'completed' || status === 'failed' || status === 'cancelled';
-
-  const onTerminal = (): void => {
-    opts.onTerminalChange?.([...state.values()]);
-  };
 
   const tryStartNext = (): void => {
     if (activeCount >= MAX_CONCURRENT) {
@@ -239,7 +248,8 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       secrets.delete(id);
       activeCount -= 1;
       await removeTempFolder(tempFolder);
-      onTerminal();
+      // Terminal status was already persisted via the emit() above;
+      // no extra save needed here.
       // Slot opened up — see if another queued row can now start.
       tryStartNext();
     }
@@ -261,6 +271,10 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       secrets.set(id, request.videoPassword);
     }
     opts.onUpdate(download);
+    // New row — persist immediately so an app crash before the first
+    // status transition still leaves the row in history (otherwise it'd
+    // be lost and the user would never know they tried to download it).
+    persist();
     tryStartNext();
     return id;
   };
@@ -272,10 +286,10 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     }
     if (download.status === 'queued') {
       // Never spawned a process; just flip the state. No abort controller,
-      // no temp folder, no slot to release.
+      // no temp folder, no slot to release. emit() will persist via the
+      // status transition.
       secrets.delete(id);
       emit(id, { status: 'cancelled', completedAt: Date.now() });
-      onTerminal();
       return;
     }
     // Active download — emit 'canceling' optimistically so the row reflects

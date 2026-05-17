@@ -343,28 +343,44 @@ describe('DownloadQueue', () => {
     expect(fakeRuns).toHaveLength(0);
   });
 
-  it('fires onTerminalChange when a queued row is cancelled', () => {
-    const onTerminalChange = vi.fn();
+  it('fires onPersistChange on enqueue and on every status transition', () => {
+    const onPersistChange = vi.fn();
     const queue = createDownloadQueue({
       ...buildQueueDeps(() => {}),
-      onTerminalChange,
+      onPersistChange,
     });
-    const activeIds = [
-      queue.enqueue(makeRequest('https://example.com/1')),
-      queue.enqueue(makeRequest('https://example.com/2')),
-      queue.enqueue(makeRequest('https://example.com/3')),
-    ];
-    const queuedId = queue.enqueue(makeRequest('https://example.com/4'));
+    const id = queue.enqueue(makeRequest());
 
-    queue.cancel(queuedId);
-    expect(onTerminalChange).toHaveBeenCalled();
-    const lastCall = onTerminalChange.mock.calls.at(-1);
+    // enqueue → 'queued' (1) → 'downloading' (2). Multiple emits per
+    // status are fine; what matters is that every transition saves.
+    expect(onPersistChange.mock.calls.length).toBeGreaterThanOrEqual(2);
+
+    queue.cancel(id);
+    // 'downloading' → 'canceling' is also a transition → save fires.
+    const lastCall = onPersistChange.mock.calls.at(-1);
     const snapshot = lastCall?.[0] as Download[];
-    expect(snapshot.find((d) => d.id === queuedId)?.status).toBe('cancelled');
+    expect(snapshot.find((d) => d.id === id)?.status).toBe('canceling');
+  });
 
-    for (const id of activeIds) {
-      queue.cancel(id);
-    }
+  it('does NOT fire onPersistChange on in-status progress patches', async () => {
+    const onPersistChange = vi.fn();
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      onPersistChange,
+    });
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    const callsAfterEnqueue = onPersistChange.mock.calls.length;
+
+    // Synthesize a few progress events at the same 'downloading' status.
+    fakeRuns[0]?.opts.onProgress?.({ status: 'downloading', percent: 10 });
+    fakeRuns[0]?.opts.onProgress?.({ status: 'downloading', percent: 20 });
+    fakeRuns[0]?.opts.onProgress?.({ status: 'downloading', percent: 30 });
+
+    expect(onPersistChange.mock.calls.length).toBe(callsAfterEnqueue);
+
+    queue.cancel(id);
   });
 
   it('failed run emits status=failed with a friendly error message', async () => {

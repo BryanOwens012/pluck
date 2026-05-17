@@ -77,6 +77,27 @@ describe('promoteInterruptedToFailed', () => {
     const original = makeDownload({ status: 'failed', error: 'real yt-dlp error' });
     expect(promoteInterruptedToFailed(original).error).toBe('real yt-dlp error');
   });
+
+  it('rewrites canceling → cancelled (honour the user intent)', () => {
+    // The user clicked Cancel and force-quit before yt-dlp finished
+    // exiting. On boot the right state is 'cancelled' (what they meant),
+    // not 'failed (interrupted)'.
+    const result = promoteInterruptedToFailed(
+      makeDownload({ status: 'canceling', speed: '5.2 MB/s', eta: '00:30' }),
+    );
+    expect(result.status).toBe('cancelled');
+    expect(result.error).toBeUndefined();
+    expect(result.speed).toBeUndefined();
+    expect(result.eta).toBeUndefined();
+    expect(result.completedAt).toBeDefined();
+  });
+
+  it('preserves an existing completedAt when rewriting canceling', () => {
+    const result = promoteInterruptedToFailed(
+      makeDownload({ status: 'canceling', completedAt: 1234567890 }),
+    );
+    expect(result.completedAt).toBe(1234567890);
+  });
 });
 
 describe('createHistoryStore', () => {
