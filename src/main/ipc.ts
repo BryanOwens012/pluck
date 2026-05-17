@@ -5,6 +5,7 @@ import { ipcMain, shell, type WebContents } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
 import { binPath } from './paths';
+import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
 import { fetchMetadata, runDownload } from './ytdlp/runner';
 import { type RunnerDeps, YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
@@ -176,6 +177,10 @@ const handleStartDownload = (
         durationSec: meta.durationSec,
       });
 
+      // Two-second smoother for speed + ETA. yt-dlp fires progress multiple
+      // times per second; raw values flicker too fast to read. Percent is
+      // NOT smoothed — bar should fill continuously.
+      const smoother = createProgressSmoother();
       const result = await runDownload(
         {
           url: request.url,
@@ -183,10 +188,12 @@ const handleStartDownload = (
           tempFolder,
           videoPassword: request.videoPassword,
           onProgress: (event) => {
+            smoother.sample(event.speed, event.eta);
+            const smoothed = smoother.current();
             emit({
               progress: Number.isFinite(event.percent) ? event.percent : snapshot.progress,
-              speed: event.speed,
-              eta: event.eta,
+              speed: smoothed.speed,
+              eta: smoothed.eta,
             });
           },
         },
