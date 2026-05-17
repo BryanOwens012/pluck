@@ -34,16 +34,21 @@ export type RunnerDeps = {
   ffmpegPath: string;
 };
 
-/** Same shape as the renderer-facing `DownloadRequest`, plus a progress
- * callback. The IPC handler resolves the default output folder before
- * calling the runner, so `outputFolder` is required here even though it's
- * optional on the wire. */
+/** What the runner needs to drive a single yt-dlp invocation.
+ *
+ * Note `tempFolder` instead of `outputFolder`: the runner downloads + merges
+ * into a hidden per-download workspace. The caller (IPC handler / smoke
+ * script) moves the final file into the user-visible output folder once
+ * yt-dlp completes. Keeping the runner ignorant of the final destination
+ * keeps yt-dlp orchestration and filesystem staging cleanly separated and
+ * means a failed download leaves nothing in the user's Downloads folder. */
 export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
-  outputFolder: string;
+  tempFolder: string;
   onProgress?: (event: ProgressEvent) => void;
 };
 
 export type RunDownloadResult = {
+  /** Absolute path to the merged final file, inside the temp folder. */
   filePath: string;
 };
 

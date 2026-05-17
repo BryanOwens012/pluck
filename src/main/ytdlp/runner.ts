@@ -23,6 +23,15 @@ const METADATA_MAX_BUFFER = 100 * 1024 * 1024;
 // last N lines are what matter for diagnosing the failure.
 const MAX_STDERR_RETENTION_LINES = 256;
 
+// Parallel HTTP connections yt-dlp opens per single download (`-N`). yt-dlp's
+// default is 1 (serial); 14 saturates most home connections without enough
+// per-server load to trip rate limits on the sites we target (YouTube,
+// Vimeo, Zoom). This is *intra-download* parallelism (chunks of one video);
+// the queue's max-3 in PR 5 is *inter-download* parallelism — a separate
+// axis. With 3 concurrent downloads at -N 14 we top out at ~42 sockets,
+// well under any consumer machine's limit.
+const DOWNLOAD_CONCURRENCY = 14;
+
 // Emit one JSON object per progress tick. Routed to stderr by default since
 // `--progress-template` without an explicit destination targets the progress
 // stream, and yt-dlp's progress stream is stderr. Keeping stdout free for
@@ -73,8 +82,11 @@ export const fetchMetadata = async (url: string, deps: RunnerDeps): Promise<Vide
 };
 
 /**
- * Download a single URL. Resolves with the final file path once yt-dlp
- * completes the post-move (handles --audio-format mp3 / merging cases).
+ * Download a single URL into `opts.tempFolder`. yt-dlp handles the parallel
+ * fragment download (-N), merge, and post-process; we resolve with the path
+ * to the final file *inside the temp folder*. The caller (IPC handler /
+ * smoke harness) is responsible for moving that file into the user-visible
+ * output folder and cleaning up the temp folder.
  *
  * Progress is streamed via `onProgress`; the parent should debounce on its
  * side if it's pushing into UI state.
@@ -87,10 +99,12 @@ export const runDownload = (
     const args = [
       '--newline',
       '--no-mtime',
+      '-N',
+      String(DOWNLOAD_CONCURRENCY),
       '--ffmpeg-location',
       deps.ffmpegPath,
       '--paths',
-      `home:${opts.outputFolder}`,
+      `home:${opts.tempFolder}`,
       '-o',
       '%(title)s.%(ext)s',
       '--progress-template',
@@ -115,13 +129,14 @@ export const runDownload = (
     stdoutReader.on('line', (line) => {
       const trimmed = line.trim();
       // The only `--print` is `after_move:%(filepath)s`, so any non-empty
-      // stdout line is the final file path. Last one wins if yt-dlp emits
-      // multiple (e.g. playlist URLs, though those aren't a v1 use case).
+      // stdout line is the final file path inside the temp folder. Last
+      // one wins if yt-dlp ever emits multiple (e.g. playlist URLs —
+      // not a v1 use case).
       //
-      // Known edge case: if the destination file already exists, yt-dlp may
-      // skip the download and not emit after_move. The close handler rejects
-      // with a clear error in that case; the queue (PR 5) is responsible for
-      // generating non-colliding output paths.
+      // The temp folder is unique per download (named by downloadId), so
+      // the file-exists collision yt-dlp would skip on can't happen here.
+      // The caller resolves collisions when moving into the user's
+      // visible output folder.
       if (trimmed.length > 0) {
         finalFilePath = trimmed;
       }

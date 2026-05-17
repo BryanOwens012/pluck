@@ -1,10 +1,11 @@
 import { mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { ipcMain, type WebContents } from 'electron';
+import { basename, join } from 'node:path';
+import { app, ipcMain, type WebContents } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
 import { binPath } from './paths';
+import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
 import { fetchMetadata, runDownload } from './ytdlp/runner';
 import { type RunnerDeps, YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
 
@@ -112,6 +113,12 @@ const handleStartDownload = (
   // Fire and forget: the IPC contract only requires that the id come back
   // synchronously; everything else streams through DownloadUpdate.
   void (async (): Promise<void> => {
+    // Per-download workspace inside the OS temp dir. yt-dlp downloads
+    // fragments and writes the merged output here; on success we move the
+    // final file into outputFolder and rm the workspace. On any failure
+    // the `finally` rm still fires, so user-visible Downloads/Pluck never
+    // sees partial files.
+    const tempFolder = await createTempFolder(app.getPath('temp'), id);
     try {
       const meta = await fetchMetadata(request.url, deps);
       emit({
@@ -124,7 +131,7 @@ const handleStartDownload = (
         {
           url: request.url,
           format: request.format,
-          outputFolder,
+          tempFolder,
           videoPassword: request.videoPassword,
           onProgress: (event) => {
             emit({
@@ -137,10 +144,16 @@ const handleStartDownload = (
         deps,
       );
 
+      // Move the merged file out of temp into the user-visible folder.
+      // Same-volume case (default): atomic rename. Cross-volume (external
+      // drive): staging.ts falls back to copyFile + rm via EXDEV branch.
+      const finalPath = await resolveAvailablePath(outputFolder, basename(result.filePath));
+      await moveFile(result.filePath, finalPath);
+
       emit({
         status: 'completed',
         progress: 100,
-        filePath: result.filePath,
+        filePath: finalPath,
         completedAt: Date.now(),
         speed: undefined,
         eta: undefined,
@@ -152,6 +165,8 @@ const handleStartDownload = (
         speed: undefined,
         eta: undefined,
       });
+    } finally {
+      await removeTempFolder(tempFolder);
     }
   })();
 
