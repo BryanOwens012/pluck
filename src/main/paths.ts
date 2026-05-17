@@ -1,7 +1,8 @@
 import { join } from 'node:path';
 import { app } from 'electron';
 
-export type BundledBinary = 'yt-dlp' | 'ffmpeg';
+export const BUNDLED_BINARIES = ['yt-dlp', 'ffmpeg'] as const;
+export type BundledBinary = (typeof BUNDLED_BINARIES)[number];
 
 /**
  * Resolve the absolute path to a bundled CLI binary in both dev and packaged builds.

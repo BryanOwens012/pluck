@@ -16,6 +16,9 @@ export type VideoMetadata = {
   thumbnailUrl?: string;
 };
 
+export const PROGRESS_STATUSES = ['downloading', 'finished', 'error'] as const;
+export type ProgressStatus = (typeof PROGRESS_STATUSES)[number];
+
 /**
  * One progress emission parsed off yt-dlp's stdout stream, line by line.
  * yt-dlp writes both its info chatter and `--progress-template` JSON to
@@ -23,7 +26,7 @@ export type VideoMetadata = {
  * JSON lines. parseProgressLine drops the non-JSON noise.
  */
 export type ProgressEvent = {
-  status: 'downloading' | 'finished' | 'error';
+  status: ProgressStatus;
   /** 0–100. May be NaN for unknown duration; callers should clamp/ignore. */
   percent: number;
   speed?: string;
