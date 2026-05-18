@@ -1,7 +1,11 @@
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
+import type { SecretName } from '../main/secrets';
 import type { Settings } from '../main/settings';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download, DownloadRequest } from '../shared/types';
+
+export type HasApiKeys = { anthropic: boolean; elevenlabs: boolean };
+export type ApiKeyResult = { ok: true } | { ok: false; error: string };
 
 if (!process.contextIsolated) {
   throw new Error('Context isolation must be enabled in the BrowserWindow webPreferences.');
@@ -79,6 +83,27 @@ const api = {
    * Empty passwords are silently ignored (no attempt is consumed). */
   submitPassword: (id: string, password: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.SubmitPassword, id, password),
+
+  /** Which API keys are currently saved. Used to gate the Welcome
+   * screen on boot and to disable features whose key is missing. */
+  hasApiKeys: (): Promise<HasApiKeys> => ipcRenderer.invoke(IpcChannels.HasApiKeys),
+
+  /** Validate a key against the provider's cheapest endpoint without
+   * saving it. Returns { ok } on success or { ok: false, error } with
+   * a user-facing message. */
+  testApiKey: (name: SecretName, key: string): Promise<ApiKeyResult> =>
+    ipcRenderer.invoke(IpcChannels.TestApiKey, name, key),
+
+  /** Encrypt and persist a key. Fails (returns ok: false) only if the
+   * OS keychain isn't available or disk write breaks. */
+  saveApiKey: (name: SecretName, key: string): Promise<ApiKeyResult> =>
+    ipcRenderer.invoke(IpcChannels.SaveApiKey, name, key),
+
+  /** Drop a single key (pass `name`) or all keys (pass undefined). The
+   * "delete all" form is used by the Settings panel's reset-to-first-
+   * launch flow. */
+  deleteApiKey: (name?: SecretName): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.DeleteApiKey, name),
 };
 
 export type PluckAPI = typeof api;

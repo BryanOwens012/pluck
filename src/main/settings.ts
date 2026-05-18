@@ -39,12 +39,14 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
   if (obj.version !== SCHEMA_VERSION) {
     return false;
   }
-  const s = obj.settings;
-  return (
-    typeof s === 'object' &&
-    s !== null &&
-    typeof (s as Record<string, unknown>).outputFolder === 'string'
-  );
+  const s = obj.settings as Record<string, unknown> | null;
+  if (typeof s !== 'object' || s === null) {
+    return false;
+  }
+  // Only outputFolder is required for forward-compat: a legacy file
+  // missing welcomeDismissed reads cleanly (default false applied via
+  // the spread in createSettingsStore).
+  return typeof s.outputFolder === 'string';
 };
 
 /** File-backed settings. `dir` is typically `app.getPath('userData')`;
@@ -54,13 +56,17 @@ export const createSettingsStore = async (dir: string): Promise<SettingsStore> =
   const filePath = join(dir, SETTINGS_FILENAME);
   const tmpPath = `${filePath}.tmp`;
 
-  let current: Settings = { outputFolder: defaultOutputFolder() };
+  const defaults: Settings = { outputFolder: defaultOutputFolder() };
+  let current: Settings = defaults;
 
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
     if (isSettingsFile(parsed)) {
-      current = parsed.settings;
+      // Spread defaults under the persisted snapshot so any future
+      // field added here gets a default rather than undefined when an
+      // older file is loaded.
+      current = { ...defaults, ...parsed.settings };
     } else {
       console.error('settings: schema mismatch, using defaults');
     }

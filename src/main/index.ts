@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { electronApp, is, optimizer } from '@electron-toolkit/utils';
-import { app, BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, safeStorage, shell } from 'electron';
 import icon from '../../resources/icon.png?asset';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download } from '../shared/types';
@@ -11,6 +11,7 @@ import { generateDownloadId, registerIpcHandlers } from './ipc';
 import { createMetadataCache } from './metadata-cache';
 import { binPath } from './paths';
 import { createDownloadQueue } from './queue';
+import { createSecretsStore, type Encryptor } from './secrets';
 import { createSettingsStore } from './settings';
 import { fetchMetadata, runDownload } from './ytdlp/runner';
 
@@ -105,6 +106,15 @@ app.whenReady().then(async () => {
   // the directory but live in separate files.
   const userDataDir = app.getPath('userData');
   const settings = await createSettingsStore(userDataDir);
+  // Electron's safeStorage adapter for the secrets store. The wrapper
+  // shape lets tests inject a fake without booting an Electron context
+  // (safeStorage requires app.whenReady, which the test harness lacks).
+  const encryptor: Encryptor = {
+    isAvailable: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (plaintext) => safeStorage.encryptString(plaintext),
+    decrypt: (ciphertext) => safeStorage.decryptString(ciphertext),
+  };
+  const secrets = await createSecretsStore(userDataDir, encryptor);
   const history = createHistoryStore(userDataDir);
   const persistedDownloads = await history.load();
 
@@ -138,7 +148,7 @@ app.whenReady().then(async () => {
   // 'queued' from the prior session to 'failed' (interrupted).
   queue.rehydrate(persistedDownloads);
 
-  registerIpcHandlers({ queue, metadataCache, settings });
+  registerIpcHandlers({ queue, metadataCache, settings, secrets });
   prewarmYtDlp();
   createWindow();
 
