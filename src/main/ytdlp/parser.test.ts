@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { isPasswordRequiredError, parseMetadata, parseProgressLine } from './parser';
+import {
+  isCookieAccessDeniedError,
+  isPasswordRequiredError,
+  parseMetadata,
+  parseProgressLine,
+} from './parser';
 
 describe('parseProgressLine', () => {
   it('parses a typical downloading line', () => {
@@ -184,5 +189,44 @@ describe('isPasswordRequiredError', () => {
   it('handles empty / whitespace input', () => {
     expect(isPasswordRequiredError('')).toBe(false);
     expect(isPasswordRequiredError('   \n  ')).toBe(false);
+  });
+});
+
+describe('isCookieAccessDeniedError', () => {
+  it('matches Chromium-family Keychain denial wording', () => {
+    // Common yt-dlp output when the macOS Keychain prompt is denied.
+    expect(
+      isCookieAccessDeniedError('WARNING: failed to decrypt cookie; access to keychain was denied'),
+    ).toBe(true);
+    expect(isCookieAccessDeniedError('ERROR: could not decrypt cookies from Chrome')).toBe(true);
+    expect(
+      isCookieAccessDeniedError(
+        'WARNING: Failed to access keyring; the user cancelled the operation',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches Safari permission-denied wording (no Full Disk Access)', () => {
+    expect(
+      isCookieAccessDeniedError(
+        "ERROR: Permission denied: '/Users/x/Library/Cookies/Cookies.binarycookies'",
+      ),
+    ).toBe(true);
+    expect(isCookieAccessDeniedError('ERROR: cookie file: permission denied')).toBe(true);
+  });
+
+  it('does not match unrelated errors', () => {
+    expect(isCookieAccessDeniedError('ERROR: HTTP 404')).toBe(false);
+    expect(isCookieAccessDeniedError('ERROR: [youtube] Video unavailable')).toBe(false);
+    expect(isCookieAccessDeniedError('ERROR: Video is age-restricted')).toBe(false);
+    // Cookie WITHOUT denial signal → not a denial.
+    expect(isCookieAccessDeniedError('Loaded 42 cookies from chrome')).toBe(false);
+    // Denial signal WITHOUT cookie context → unrelated permission error.
+    expect(isCookieAccessDeniedError('ERROR: permission denied: /etc/foo')).toBe(false);
+  });
+
+  it('handles empty / whitespace input', () => {
+    expect(isCookieAccessDeniedError('')).toBe(false);
+    expect(isCookieAccessDeniedError('   \n  ')).toBe(false);
   });
 });

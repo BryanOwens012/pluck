@@ -77,25 +77,18 @@ describe('YtDlpCancelledError', () => {
   });
 });
 
-describe('runDownload --cookies-from-browser pass-through', () => {
-  /** Fake yt-dlp that records argv to a file inside the tempFolder then
-   * exits 1. We only care about what args were passed — the resulting
-   * YtDlpError rejection is expected and ignored. */
-  const argvRecorder = async (dir: string): Promise<string> => {
-    const path = join(dir, 'argv-recorder');
-    await fs.writeFile(
-      path,
-      '#!/bin/sh\nfor a in "$@"; do echo "$a" >> "$1/.argv"; done; exit 1\n',
-    );
-    // Note: the script's first positional arg ($1) is the tempFolder
-    // we pass via `--paths home:<tempFolder>` — but $1 here is the
-    // first ALL-arg from yt-dlp's invocation, which is `--newline`.
-    // We use a fixed env var instead. Rewriting:
-    await fs.writeFile(path, `#!/bin/sh\necho "$@" > "${dir}/.argv"\nexit 1\n`);
-    await fs.chmod(path, 0o755);
-    return path;
-  };
+/** Fake yt-dlp that writes its argv (space-joined) to `<dir>/.argv`
+ * and exits 1. Tests read the file to assert what args were passed;
+ * the YtDlpError rejection is expected and ignored. Shared by every
+ * argv-assertion test below. */
+const argvRecorder = async (dir: string): Promise<string> => {
+  const path = join(dir, 'argv-recorder');
+  await fs.writeFile(path, `#!/bin/sh\necho "$@" > "${dir}/.argv"\nexit 1\n`);
+  await fs.chmod(path, 0o755);
+  return path;
+};
 
+describe('runDownload --cookies-from-browser pass-through', () => {
   it('passes --cookies-from-browser when cookiesFromBrowser is set', async () => {
     const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-cookies-test-'));
     const fakePath = await argvRecorder(workspace);
@@ -135,6 +128,96 @@ describe('runDownload --cookies-from-browser pass-through', () => {
       });
       const argv = await fs.readFile(join(workspace, '.argv'), 'utf-8');
       expect(argv).not.toContain('--cookies-from-browser');
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('runDownload -N (concurrent fragments) pass-through', () => {
+  it('passes -N <value> when concurrentFragments is set', async () => {
+    const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-nfragments-test-'));
+    const fakePath = await argvRecorder(workspace);
+    try {
+      await runDownload(
+        {
+          url: 'https://example.com/x',
+          format: 'best',
+          tempFolder: workspace,
+          concurrentFragments: 8,
+        },
+        { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
+      ).catch(() => {});
+      const argv = await fs.readFile(join(workspace, '.argv'), 'utf-8');
+      // -N 8 appears as adjacent tokens in the argv echo.
+      expect(argv).toMatch(/-N 8/);
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the runner default (14) when unset', async () => {
+    const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-nfragments-test-'));
+    const fakePath = await argvRecorder(workspace);
+    try {
+      await runDownload(
+        {
+          url: 'https://example.com/x',
+          format: 'best',
+          tempFolder: workspace,
+        },
+        { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
+      ).catch(() => {});
+      const argv = await fs.readFile(join(workspace, '.argv'), 'utf-8');
+      expect(argv).toMatch(/-N 14/);
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('runDownload onRawLine (debug log tap)', () => {
+  /** Fake yt-dlp that prints a few lines to stdout AND stderr then
+   * exits 1. The order matters for the test: we want to confirm BOTH
+   * streams are forwarded through onRawLine. */
+  const chatteringRunner = async (dir: string): Promise<string> => {
+    const path = join(dir, 'chattering-yt-dlp');
+    await fs.writeFile(
+      path,
+      `#!/bin/sh
+echo "stdout-line-1"
+echo "stderr-line-1" >&2
+echo "stdout-line-2"
+echo "stderr-line-2" >&2
+exit 1
+`,
+    );
+    await fs.chmod(path, 0o755);
+    return path;
+  };
+
+  it('invokes onRawLine for every stdout AND stderr line', async () => {
+    const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-rawline-test-'));
+    const fakePath = await chatteringRunner(workspace);
+    const lines: string[] = [];
+    try {
+      await runDownload(
+        {
+          url: 'https://example.com/x',
+          format: 'best',
+          tempFolder: workspace,
+          onRawLine: (line) => lines.push(line),
+        },
+        { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
+      ).catch(() => {
+        // Expected — fake exits 1.
+      });
+      // Order between stdout vs stderr lines isn't deterministic
+      // (separate readline streams) — just assert all four landed.
+      expect(lines).toContain('stdout-line-1');
+      expect(lines).toContain('stdout-line-2');
+      expect(lines).toContain('stderr-line-1');
+      expect(lines).toContain('stderr-line-2');
     } finally {
       await fs.rm(workspace, { recursive: true, force: true });
     }

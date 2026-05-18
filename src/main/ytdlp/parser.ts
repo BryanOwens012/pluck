@@ -99,3 +99,25 @@ export const parseMetadata = (json: string): VideoMetadata => {
 export const isPasswordRequiredError = (stderr: string): boolean => {
   return /zoom/i.test(stderr) && /(password|passcode|authentic)/i.test(stderr);
 };
+
+/**
+ * Detect cookie-extraction failures from stderr — the user picked a browser
+ * in Settings → Browser cookies, but macOS blocked yt-dlp from reading it.
+ * Two scenarios:
+ *
+ * - Chromium-family (Chrome/Brave/Edge): macOS Keychain prompt was Denied
+ *   (or never shown / dismissed). yt-dlp emits "could not decrypt cookie",
+ *   "failed to access keyring", or similar.
+ * - Safari: no Full Disk Access → "permission denied" on
+ *   `~/Library/Cookies/Cookies.binarycookies`.
+ *
+ * We match on a cookie/keychain token plus a denial/decrypt/permission
+ * token. False positives would be rare and the failure mode (showing a
+ * "browser cookies denied" message on a real network error) is mild.
+ * Pinned against yt-dlp 2026.03.17 — re-verify on every yt-dlp bump.
+ */
+export const isCookieAccessDeniedError = (stderr: string): boolean => {
+  const cookieSignal = /(cookie|keychain|keyring)/i.test(stderr);
+  const denialSignal = /(denied|decrypt|permission|cancell|aborted)/i.test(stderr);
+  return cookieSignal && denialSignal;
+};

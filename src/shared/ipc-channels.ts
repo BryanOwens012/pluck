@@ -70,6 +70,21 @@ export const IpcChannels = {
    * Settings dropdown uses this to hide browsers the user has never
    * launched on this Mac. */
   DetectInstalledBrowsers: 'pluck:detect-installed-browsers',
+  /** Main -> renderer, send. Lifecycle phase events + raw yt-dlp
+   * stderr lines, emitted only when debugMode is on. Renderer
+   * appends to per-id log buffers. */
+  DebugLog: 'pluck:debug-log',
+  /** Renderer -> main, invoke. Opens the per-download temp folder in
+   * Finder (debug-mode affordance — lets the user inspect yt-dlp's
+   * in-flight fragments + merged output). No-op if the folder has
+   * already been cleaned (typical post-success case). */
+  OpenTempFolder: 'pluck:open-temp-folder',
+  /** Renderer -> main, invoke. Walks the per-app cache dir and
+   * removes every per-download subfolder under it — skipping any
+   * folder whose id matches an active (downloading / canceling) row.
+   * Returns { cleared, skippedActive } so the Settings button can
+   * tell the user "Cleared N folders" plus "Skipped K active". */
+  ClearTempFolders: 'pluck:clear-temp-folders',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

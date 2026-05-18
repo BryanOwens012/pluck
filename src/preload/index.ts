@@ -2,7 +2,7 @@ import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
 import type { SecretName } from '../main/secrets';
 import type { Settings } from '../main/settings';
 import { IpcChannels } from '../shared/ipc-channels';
-import type { BrowserName, Download, DownloadRequest } from '../shared/types';
+import type { BrowserName, DebugLogEvent, Download, DownloadRequest } from '../shared/types';
 
 export type HasApiKeys = { anthropic: boolean; elevenlabs: boolean };
 export type ApiKeyResult = { ok: true } | { ok: false; error: string };
@@ -113,6 +113,33 @@ const api = {
    * browsers the user has never launched. */
   detectInstalledBrowsers: (): Promise<BrowserName[]> =>
     ipcRenderer.invoke(IpcChannels.DetectInstalledBrowsers),
+
+  /** Subscribe to debug log events from main. Only fires when
+   * settings.debugMode is true. Returns an unsubscribe function for
+   * useEffect cleanup. */
+  onDebugLog: (callback: (event: DebugLogEvent) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, payload: DebugLogEvent): void => {
+      callback(payload);
+    };
+    ipcRenderer.on(IpcChannels.DebugLog, listener);
+    return (): void => {
+      ipcRenderer.removeListener(IpcChannels.DebugLog, listener);
+    };
+  },
+
+  /** Open this download's temp folder in Finder. Returns
+   * { ok: false, error } when the folder has been cleaned (typical
+   * post-success case) — renderer surfaces the error in the log box. */
+  openTempFolder: (id: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IpcChannels.OpenTempFolder, id),
+
+  /** Wipe every per-download subfolder under the temp base, except
+   * folders that belong to active downloads (downloading / canceling).
+   * Returns the count cleared plus how many were skipped because they
+   * were in use. Used by the Settings "Clear debug temp folders"
+   * button. */
+  clearTempFolders: (): Promise<{ cleared: number; skippedActive: number }> =>
+    ipcRenderer.invoke(IpcChannels.ClearTempFolders),
 };
 
 export type PluckAPI = typeof api;

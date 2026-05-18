@@ -1,3 +1,5 @@
+import { promises as fs } from 'node:fs';
+import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import { BROWSER_NAMES, type BrowserName, type DownloadRequest } from '../shared/types';
@@ -7,7 +9,14 @@ import { detectInstalledBrowsers } from './browser-detection';
 import type { MetadataCache } from './metadata-cache';
 import type { DownloadQueue } from './queue';
 import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
-import type { Settings, SettingsStore } from './settings';
+import {
+  MAX_CONCURRENT_DOWNLOADS,
+  MAX_CONCURRENT_FRAGMENTS,
+  MIN_CONCURRENT_DOWNLOADS,
+  MIN_CONCURRENT_FRAGMENTS,
+  type Settings,
+  type SettingsStore,
+} from './settings';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -60,6 +69,9 @@ export type IpcDeps = {
   metadataCache: MetadataCache;
   settings: SettingsStore;
   secrets: SecretsStore;
+  /** Per-download temp-folder root. Used by OpenTempFolder +
+   * ClearTempFolders. Per-id subfolders live directly underneath. */
+  tempBaseDir: string;
 };
 
 /** Type-guard so the IPC layer can reject unknown provider names from a
@@ -136,6 +148,25 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       } else if (isBrowserName(cookies)) {
         sanitized.cookiesFromBrowser = cookies;
       }
+    }
+    if (typeof patchObj.debugMode === 'boolean') {
+      sanitized.debugMode = patchObj.debugMode;
+    }
+    if (
+      typeof patchObj.concurrentFragments === 'number' &&
+      Number.isInteger(patchObj.concurrentFragments) &&
+      patchObj.concurrentFragments >= MIN_CONCURRENT_FRAGMENTS &&
+      patchObj.concurrentFragments <= MAX_CONCURRENT_FRAGMENTS
+    ) {
+      sanitized.concurrentFragments = patchObj.concurrentFragments;
+    }
+    if (
+      typeof patchObj.concurrentDownloads === 'number' &&
+      Number.isInteger(patchObj.concurrentDownloads) &&
+      patchObj.concurrentDownloads >= MIN_CONCURRENT_DOWNLOADS &&
+      patchObj.concurrentDownloads <= MAX_CONCURRENT_DOWNLOADS
+    ) {
+      sanitized.concurrentDownloads = patchObj.concurrentDownloads;
     }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
@@ -227,4 +258,70 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
   });
   ipcMain.handle(IpcChannels.GetAppVersion, () => app.getVersion());
   ipcMain.handle(IpcChannels.DetectInstalledBrowsers, () => detectInstalledBrowsers());
+  ipcMain.handle(IpcChannels.OpenTempFolder, async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.length === 0) {
+      return { ok: false, error: 'Invalid download id.' };
+    }
+    // The id is filesystem-safe by construction (generateDownloadId
+    // sanitises segments). Still, validate that the resolved path
+    // stays under the temp base — defense against any future id
+    // generator that lets `..` through.
+    const target = join(deps.tempBaseDir, id);
+    if (!target.startsWith(`${deps.tempBaseDir}/`)) {
+      return { ok: false, error: 'Path escape blocked.' };
+    }
+    const error = await shell.openPath(target);
+    if (error.length > 0) {
+      // shell.openPath returns the error string when the open failed
+      // (typical post-success case: the temp folder has been cleaned).
+      return { ok: false, error };
+    }
+    return { ok: true };
+  });
+  ipcMain.handle(IpcChannels.ClearTempFolders, async () => {
+    // Walk + remove every per-download subfolder. ENOENT on the base
+    // dir is fine — there's just nothing to clear. We swallow per-
+    // entry errors so a single stuck folder doesn't abort the sweep.
+    let entries: string[];
+    try {
+      entries = await fs.readdir(deps.tempBaseDir);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { cleared: 0, skippedActive: 0 };
+      }
+      throw err;
+    }
+    // Skip any subfolder whose name matches an active (non-terminal)
+    // download id. yt-dlp is writing into those right now; rm-ing
+    // them out from under it would corrupt the in-flight download.
+    // The user can re-run Clear once those finish.
+    const activeIds = new Set(
+      deps.queue
+        .getAll()
+        .filter((d) => d.status === 'downloading' || d.status === 'canceling')
+        .map((d) => d.id),
+    );
+    let cleared = 0;
+    let skippedActive = 0;
+    await Promise.all(
+      entries.map(async (entry) => {
+        if (activeIds.has(entry)) {
+          skippedActive += 1;
+          return;
+        }
+        try {
+          await fs.rm(join(deps.tempBaseDir, entry), {
+            recursive: true,
+            force: true,
+            maxRetries: 5,
+            retryDelay: 50,
+          });
+          cleared += 1;
+        } catch (err) {
+          console.error('clearTempFolders: failed to remove', entry, err);
+        }
+      }),
+    );
+    return { cleared, skippedActive };
+  });
 };

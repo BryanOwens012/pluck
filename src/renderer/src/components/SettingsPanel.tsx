@@ -11,6 +11,11 @@ type Props = {
   outputFolder: string;
   /** Called when the output folder changes (picker bubble-up). */
   onOutputFolderChange: (next: string) => void;
+  /** Current debug-mode flag. App owns it so DownloadQueue + main
+   * stay in sync without each component re-fetching settings. */
+  debugMode: boolean;
+  /** Called when the user toggles debug mode in the Developer section. */
+  onDebugModeChange: (next: boolean) => void;
   /** Called to close the panel. */
   onClose: () => void;
 };
@@ -21,6 +26,8 @@ type Props = {
 export const SettingsPanel = ({
   outputFolder,
   onOutputFolderChange,
+  debugMode,
+  onDebugModeChange,
   onClose,
 }: Props): React.JSX.Element => {
   return (
@@ -85,9 +92,226 @@ export const SettingsPanel = ({
               help="Powers AI prompt suggestions (coming soon)."
             />
           </section>
+          <section className="space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+              Developer
+            </h3>
+            <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
+            <ConcurrentDownloadsRow />
+            <ConcurrentFragmentsRow />
+            <ClearTempFoldersRow />
+          </section>
         </div>
         <VersionFooter />
       </div>
+    </div>
+  );
+};
+
+// ---- developer section ----------------------------------------------
+
+const DebugModeRow = ({
+  debugMode,
+  onChange,
+}: {
+  debugMode: boolean;
+  onChange: (next: boolean) => void;
+}): React.JSX.Element => {
+  const handleToggle = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const next = event.target.checked;
+    onChange(next);
+    // Optimistic UI: App's state flips immediately, the save happens
+    // in the background. On error we revert.
+    api.updateSettings({ debugMode: next }).catch((err: unknown) => {
+      console.error('updateSettings debugMode rejected:', err);
+      onChange(!next);
+    });
+  };
+
+  return (
+    <label className="flex items-start gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <input
+        type="checkbox"
+        checked={debugMode}
+        onChange={handleToggle}
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-100"
+      />
+      <span className="min-w-0 flex-1 text-xs">
+        <span className="block font-medium text-neutral-200">Debug mode</span>
+        <span className="block text-neutral-500">
+          Show a live log of yt-dlp activity under each download, plus a folder button to inspect
+          its temp directory. Failed downloads in debug mode keep their temp folder for inspection.
+        </span>
+      </span>
+    </label>
+  );
+};
+
+// Concurrency dial bounds. Source of truth is main/settings.ts; the
+// renderer mirrors them so the dropdown can populate without an IPC
+// round-trip. Kept in sync manually — change both places together.
+const MIN_CONCURRENT_FRAGMENTS = 1;
+const MAX_CONCURRENT_FRAGMENTS = 20;
+const DEFAULT_CONCURRENT_FRAGMENTS = 14;
+const MIN_CONCURRENT_DOWNLOADS = 1;
+const MAX_CONCURRENT_DOWNLOADS = 10;
+const DEFAULT_CONCURRENT_DOWNLOADS = 3;
+
+const CONCURRENCY_KEYS = ['concurrentFragments', 'concurrentDownloads'] as const;
+type ConcurrencyKey = (typeof CONCURRENCY_KEYS)[number];
+
+type ConcurrencyRowProps = {
+  settingKey: ConcurrencyKey;
+  label: string;
+  description: string;
+  min: number;
+  max: number;
+  initialDefault: number;
+};
+
+/** Shared scaffold for the two concurrency dropdowns. Both load from
+ * settings, optimistic-save on change, revert + show error on failure.
+ * Extracted because the two rows are mechanically identical apart
+ * from the setting key and copy. */
+const ConcurrencyRow = ({
+  settingKey,
+  label,
+  description,
+  min,
+  max,
+  initialDefault,
+}: ConcurrencyRowProps): React.JSX.Element => {
+  const [value, setValue] = useState<number>(initialDefault);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => {
+        setValue(s[settingKey]);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        console.error('getSettings rejected:', err);
+        setLoaded(true);
+      });
+  }, [settingKey]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLSelectElement>): void => {
+    const next = Number.parseInt(event.target.value, 10);
+    const prev = value;
+    setValue(next);
+    setError(undefined);
+    api.updateSettings({ [settingKey]: next }).catch((err: unknown) => {
+      console.error('updateSettings rejected:', err);
+      setValue(prev);
+      setError('Failed to save.');
+    });
+  };
+
+  const options = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-neutral-200">{label}</div>
+          <div className="text-xs text-neutral-500">{description}</div>
+        </div>
+        <select
+          value={loaded ? value : initialDefault}
+          onChange={handleChange}
+          disabled={!loaded}
+          className="shrink-0 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-600 focus:outline-none disabled:opacity-50"
+        >
+          {options.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+      {error ? <p className="text-xs text-red-400">{error}</p> : null}
+    </div>
+  );
+};
+
+const ConcurrentFragmentsRow = (): React.JSX.Element => (
+  <ConcurrencyRow
+    settingKey="concurrentFragments"
+    label="Concurrent fragments"
+    description={`yt-dlp's -N flag (parallel chunks per single download). Higher = faster, but can trip per-server rate limits. Default ${DEFAULT_CONCURRENT_FRAGMENTS}.`}
+    min={MIN_CONCURRENT_FRAGMENTS}
+    max={MAX_CONCURRENT_FRAGMENTS}
+    initialDefault={DEFAULT_CONCURRENT_FRAGMENTS}
+  />
+);
+
+const ConcurrentDownloadsRow = (): React.JSX.Element => (
+  <ConcurrencyRow
+    settingKey="concurrentDownloads"
+    label="Concurrent downloads"
+    description={`How many downloads run at once. The rest wait in 'Queued' until a slot opens. Default ${DEFAULT_CONCURRENT_DOWNLOADS}.`}
+    min={MIN_CONCURRENT_DOWNLOADS}
+    max={MAX_CONCURRENT_DOWNLOADS}
+    initialDefault={DEFAULT_CONCURRENT_DOWNLOADS}
+  />
+);
+
+type ClearState =
+  | { phase: 'idle' }
+  | { phase: 'clearing' }
+  | { phase: 'done'; cleared: number; skippedActive: number }
+  | { phase: 'error'; message: string };
+
+const ClearTempFoldersRow = (): React.JSX.Element => {
+  const [state, setState] = useState<ClearState>({ phase: 'idle' });
+
+  const handleClick = async (): Promise<void> => {
+    setState({ phase: 'clearing' });
+    try {
+      const result = await api.clearTempFolders();
+      setState({
+        phase: 'done',
+        cleared: result.cleared,
+        skippedActive: result.skippedActive,
+      });
+    } catch (err) {
+      setState({
+        phase: 'error',
+        message: err instanceof Error ? err.message : 'Failed.',
+      });
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-neutral-200">Clear debug temp folders</div>
+        <div className="text-xs text-neutral-500">
+          Removes every per-download workspace under the cache directory. Active downloads are
+          skipped so their files aren't yanked mid-write.
+        </div>
+        {state.phase === 'done' ? (
+          <div className="mt-0.5 text-xs text-emerald-400">
+            Cleared {state.cleared} folder{state.cleared === 1 ? '' : 's'}.
+            {state.skippedActive > 0
+              ? ` Skipped ${state.skippedActive} active download${state.skippedActive === 1 ? '' : 's'}.`
+              : ''}
+          </div>
+        ) : state.phase === 'error' ? (
+          <div className="mt-0.5 text-xs text-red-400">{state.message}</div>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={() => void handleClick()}
+        disabled={state.phase === 'clearing'}
+        className="shrink-0 rounded border border-neutral-800 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {state.phase === 'clearing' ? 'Clearing…' : 'Clear'}
+      </button>
     </div>
   );
 };

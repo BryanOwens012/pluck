@@ -4,14 +4,24 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Download, DownloadRequest } from '../shared/types';
 import type { MetadataCache } from './metadata-cache';
-import { createDownloadQueue, friendlyErrorMessage, padToMinDuration } from './queue';
+import {
+  createDownloadQueue,
+  friendlyCookieDeniedMessage,
+  friendlyErrorMessage,
+  padToMinDuration,
+} from './queue';
 import type {
   RunDownloadOptions,
   RunDownloadResult,
   RunnerDeps,
   VideoMetadata,
 } from './ytdlp/types';
-import { YtDlpCancelledError, YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
+import {
+  YtDlpCancelledError,
+  YtDlpCookieAccessDeniedError,
+  YtDlpError,
+  YtDlpPasswordRequiredError,
+} from './ytdlp/types';
 
 // ---- pure-helper coverage ----------------------------------------------
 
@@ -53,6 +63,19 @@ describe('friendlyErrorMessage', () => {
     expect(friendlyErrorMessage(new YtDlpPasswordRequiredError())).toBe(
       'This recording requires a password.',
     );
+  });
+
+  it('maps YtDlpCookieAccessDeniedError to a per-browser actionable message', () => {
+    // Chromium-family → Keychain hint.
+    const chromeMsg = friendlyErrorMessage(new YtDlpCookieAccessDeniedError('chrome'));
+    expect(chromeMsg).toContain('chrome');
+    expect(chromeMsg).toMatch(/Keychain/i);
+    expect(chromeMsg).toContain('Settings');
+
+    // Safari → Full Disk Access hint (different system pref path).
+    const safariMsg = friendlyErrorMessage(new YtDlpCookieAccessDeniedError('safari'));
+    expect(safariMsg).toMatch(/Full Disk Access/i);
+    expect(safariMsg).toContain('Safari');
   });
 
   it('maps NodeJS.ErrnoException codes to safe strings without leaking paths', () => {
@@ -157,6 +180,9 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
   return {
     getDefaultOutputFolder: (): string => outputDir,
     getCookiesFromBrowser: (): string | undefined => undefined,
+    getConcurrentFragments: (): number => 14,
+    getMaxConcurrentDownloads: (): number => 3,
+    getDebugMode: (): boolean => false,
     tempBaseDir,
     runnerDeps,
     runDownload,
@@ -206,6 +232,35 @@ describe('DownloadQueue', () => {
     const live = queue.getAll();
     expect(live.filter((d) => d.status === 'downloading')).toHaveLength(3);
     expect(live.find((d) => d.id === ids[3])?.status).toBe('queued');
+  });
+
+  it('respects a live getMaxConcurrentDownloads override (cap=5 promotes 5)', async () => {
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getMaxConcurrentDownloads: () => 5,
+    });
+    const ids = Array.from({ length: 6 }, (_, i) =>
+      queue.enqueue(makeRequest(`https://example.com/${i}`)),
+    );
+
+    await waitFor(() => fakeRuns.length === 5);
+    const live = queue.getAll();
+    expect(live.filter((d) => d.status === 'downloading')).toHaveLength(5);
+    expect(live.find((d) => d.id === ids[5])?.status).toBe('queued');
+  });
+
+  it('respects a cap=1 (serial-downloads mode)', async () => {
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getMaxConcurrentDownloads: () => 1,
+    });
+    queue.enqueue(makeRequest('https://example.com/1'));
+    queue.enqueue(makeRequest('https://example.com/2'));
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Only one running; the second should stay queued.
+    const live = queue.getAll();
+    expect(live.filter((d) => d.status === 'downloading')).toHaveLength(1);
   });
 
   it('promotes the next queued row when an active one finishes', async () => {
@@ -313,6 +368,53 @@ describe('DownloadQueue', () => {
     }
   });
 
+  it('emits no debug log events when getDebugMode returns false', async () => {
+    const onDebugLog = vi.fn();
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      onDebugLog,
+    });
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Synthesize a progress event so the queue's emit-debug guard
+    // fires through the throttled progress path too.
+    fakeRuns[0]?.opts.onProgress?.({ status: 'downloading', percent: 50 });
+
+    // Debug mode off → onDebugLog never called regardless of how many
+    // phase boundaries we cross.
+    expect(onDebugLog).not.toHaveBeenCalled();
+
+    queue.cancel(id);
+  });
+
+  it('emits lifecycle phase events when getDebugMode returns true', async () => {
+    const onDebugLog = vi.fn();
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getDebugMode: () => true,
+      onDebugLog,
+    });
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Resolve the run successfully so we walk all phase boundaries.
+    const fakeFile = join(fakeRuns[0]?.opts.tempFolder ?? '', 'fake.mp4');
+    await fs.writeFile(fakeFile, 'x');
+    fakeRuns[0]?.resolve({ filePath: fakeFile });
+
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'completed', 3000);
+
+    const phases = onDebugLog.mock.calls.map((c) => (c[0] as { phase: string }).phase);
+    expect(phases).toContain('metadata:start');
+    expect(phases).toContain('metadata:done');
+    expect(phases).toContain('download:start');
+    expect(phases).toContain('download:done');
+    expect(phases).toContain('move:start');
+    expect(phases).toContain('move:done');
+    expect(phases).toContain('cleanup:done');
+  });
+
   it('reads getDefaultOutputFolder on every enqueue (live-read semantics)', () => {
     // Folder change between two enqueues should land each row in the
     // right folder — first uses A, second uses B. In-flight rows are
@@ -417,6 +519,20 @@ describe('DownloadQueue', () => {
     expect(row?.error).toBe(
       'Download failed. The site may be unsupported or the URL may be invalid.',
     );
+  });
+
+  it('cookie-denied run flips to failed with a per-browser actionable message', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpCookieAccessDeniedError('chrome', 'stderr noise'));
+
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'failed');
+    const row = queue.getAll().find((d) => d.id === id);
+    // Verifies the propagation, not the message wording (that's
+    // covered by the friendlyCookieDeniedMessage unit test above).
+    expect(row?.error).toBe(friendlyCookieDeniedMessage('chrome'));
   });
 
   it('password-required run flips to needs_password (not failed)', async () => {

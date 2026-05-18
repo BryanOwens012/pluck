@@ -66,6 +66,130 @@ describe('createSettingsStore', () => {
     expect(b.get().cookiesFromBrowser).toBeUndefined();
   });
 
+  it('debugMode defaults to false on first run', async () => {
+    const store = await createSettingsStore(dir);
+    expect(store.get().debugMode).toBe(false);
+  });
+
+  it('round-trips debugMode through update → reload', async () => {
+    const a = await createSettingsStore(dir);
+    await a.update({ debugMode: true });
+    expect(a.get().debugMode).toBe(true);
+
+    const b = await createSettingsStore(dir);
+    expect(b.get().debugMode).toBe(true);
+  });
+
+  it('legacy settings.json without debugMode loads as debugMode: false', async () => {
+    // Forward-compat: a file written before this PR has no debugMode
+    // key. The defaults-spread in createSettingsStore should fill it
+    // in as false rather than carrying `undefined` forward.
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, settings: { outputFolder: '/tmp/x' } }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    expect(store.get().debugMode).toBe(false);
+    expect(store.get().outputFolder).toBe('/tmp/x');
+  });
+
+  it('rejects a settings file with a non-boolean debugMode', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, settings: { outputFolder: '/tmp/x', debugMode: 'yes' } }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    expect(store.get().debugMode).toBe(false);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
+  it('concurrentFragments defaults to 14 on first run', async () => {
+    const store = await createSettingsStore(dir);
+    expect(store.get().concurrentFragments).toBe(14);
+  });
+
+  it('round-trips concurrentFragments through update → reload', async () => {
+    const a = await createSettingsStore(dir);
+    await a.update({ concurrentFragments: 8 });
+    expect(a.get().concurrentFragments).toBe(8);
+
+    const b = await createSettingsStore(dir);
+    expect(b.get().concurrentFragments).toBe(8);
+  });
+
+  it('rejects a settings file with concurrentFragments out of range', async () => {
+    // Range is 1-20 (inclusive). 0, 21, 100, negatives, non-integers
+    // all fail validation; the file is rejected and defaults apply.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const bad of [0, 21, 100, -1, 3.5]) {
+      await fs.writeFile(
+        join(dir, 'settings.json'),
+        JSON.stringify({
+          version: 1,
+          settings: { outputFolder: '/tmp/x', concurrentFragments: bad },
+        }),
+        'utf-8',
+      );
+      const store = await createSettingsStore(dir);
+      // Falls back to default (14) — invalid file → defaults spread.
+      expect(store.get().concurrentFragments).toBe(14);
+    }
+    errorSpy.mockRestore();
+  });
+
+  it('legacy settings.json without concurrentFragments loads as default 14', async () => {
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, settings: { outputFolder: '/tmp/x' } }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    expect(store.get().concurrentFragments).toBe(14);
+  });
+
+  it('concurrentDownloads defaults to 3 on first run', async () => {
+    const store = await createSettingsStore(dir);
+    expect(store.get().concurrentDownloads).toBe(3);
+  });
+
+  it('round-trips concurrentDownloads through update → reload', async () => {
+    const a = await createSettingsStore(dir);
+    await a.update({ concurrentDownloads: 5 });
+    expect(a.get().concurrentDownloads).toBe(5);
+
+    const b = await createSettingsStore(dir);
+    expect(b.get().concurrentDownloads).toBe(5);
+  });
+
+  it('rejects a settings file with concurrentDownloads out of range', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    for (const bad of [0, 11, 50, -1, 2.5]) {
+      await fs.writeFile(
+        join(dir, 'settings.json'),
+        JSON.stringify({
+          version: 1,
+          settings: { outputFolder: '/tmp/x', concurrentDownloads: bad },
+        }),
+        'utf-8',
+      );
+      const store = await createSettingsStore(dir);
+      expect(store.get().concurrentDownloads).toBe(3);
+    }
+    errorSpy.mockRestore();
+  });
+
+  it('accepts concurrentFragments up to 20 (new max)', async () => {
+    // Bumped from the previous 1-16 cap. A user setting 20 should
+    // round-trip cleanly; 21 should fall back to default.
+    const a = await createSettingsStore(dir);
+    await a.update({ concurrentFragments: 20 });
+    expect(a.get().concurrentFragments).toBe(20);
+  });
+
   it('rejects a settings file with an invalid cookiesFromBrowser value', async () => {
     // Hand-edited typo or schema drift — must fall back to defaults
     // rather than silently passing `--cookies-from-browser banana` to

@@ -63,6 +63,17 @@ export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
    * unaware of the allowed set so the runner module has zero settings
    * coupling. */
   cookiesFromBrowser?: string;
+  /** Optional raw-stderr tap for the debug log box. The runner calls
+   * this for every stderr line (post-readline). Caller decides what
+   * to do with the firehose — typically forwards each line as a
+   * DebugLogEvent. Subscribing has a cost (one closure per line), so
+   * callers should only set this when debug mode is on. */
+  onRawLine?: (line: string) => void;
+  /** yt-dlp `-N` value (parallel HTTP fragments). Falls back to the
+   * runner's default when undefined. Callers (queue, smoke harness)
+   * pass the live settings value so a user change applies to the
+   * next started download. */
+  concurrentFragments?: number;
 };
 
 /** Per-call options for the metadata fetch. Same `cookiesFromBrowser`
@@ -104,5 +115,20 @@ export class YtDlpCancelledError extends YtDlpError {
   constructor() {
     super('Download cancelled by user.');
     this.name = 'YtDlpCancelledError';
+  }
+}
+
+/** Thrown when yt-dlp couldn't read cookies for the configured browser —
+ * Keychain access denied (Chromium-family) or no Full Disk Access (Safari).
+ * The `browser` field carries the name so the renderer can craft a
+ * per-browser actionable message ("click Allow on the Keychain prompt"
+ * vs "grant Full Disk Access in System Settings"). */
+export class YtDlpCookieAccessDeniedError extends YtDlpError {
+  constructor(
+    public readonly browser: string,
+    stderr?: string,
+  ) {
+    super(`yt-dlp could not access ${browser} cookies`, stderr);
+    this.name = 'YtDlpCookieAccessDeniedError';
   }
 }

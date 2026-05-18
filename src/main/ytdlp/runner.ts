@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { Format } from '../../shared/types';
-import { isPasswordRequiredError, parseMetadata, parseProgressLine } from './parser';
+import {
+  isCookieAccessDeniedError,
+  isPasswordRequiredError,
+  parseMetadata,
+  parseProgressLine,
+} from './parser';
 import {
   type FetchMetadataOptions,
   type RunDownloadOptions,
@@ -12,6 +17,7 @@ import {
   type RunnerDeps,
   type VideoMetadata,
   YtDlpCancelledError,
+  YtDlpCookieAccessDeniedError,
   YtDlpError,
   YtDlpPasswordRequiredError,
 } from './types';
@@ -27,14 +33,16 @@ const METADATA_MAX_BUFFER = 100 * 1024 * 1024;
 // last N lines are what matter for diagnosing the failure.
 const MAX_STDERR_RETENTION_LINES = 256;
 
-// Parallel HTTP connections yt-dlp opens per single download (`-N`). yt-dlp's
-// default is 1 (serial); 14 saturates most home connections without enough
-// per-server load to trip rate limits on the sites we target (YouTube,
-// Vimeo, Zoom). This is *intra-download* parallelism (chunks of one video);
-// the queue's max-3 in PR 5 is *inter-download* parallelism — a separate
-// axis. With 3 concurrent downloads at -N 14 we top out at ~42 sockets,
-// well under any consumer machine's limit.
-const DOWNLOAD_CONCURRENCY = 14;
+// Default for yt-dlp `-N` (parallel HTTP connections per single download)
+// when the caller doesn't specify. yt-dlp's own default is 1 (serial); 14
+// saturates most home connections without enough per-server load to trip
+// rate limits on the sites we target (YouTube, Vimeo, Zoom). This is
+// *intra-download* parallelism (chunks of one video); the queue's max-3
+// in PR 5 is *inter-download* parallelism — a separate axis. With 3
+// concurrent downloads at -N 14 we top out at ~42 sockets, well under
+// any consumer machine's limit. The user can override this per-app
+// via Settings → Developer → Concurrent fragments (1-16).
+const DEFAULT_DOWNLOAD_CONCURRENCY = 14;
 
 // Emit one JSON object per progress tick. yt-dlp writes both its info chatter
 // (`[youtube] Extracting URL: ...`) and the progress-template output to
@@ -98,6 +106,14 @@ export const fetchMetadata = async (
     return parseMetadata(stdout);
   } catch (err) {
     if (err instanceof Error && 'stderr' in err && typeof err.stderr === 'string') {
+      // Cookie-access-denied is checked BEFORE the password-required
+      // signal because both can fire on Zoom (the user picked a
+      // browser, macOS denied → yt-dlp may also report "passcode
+      // required" downstream). The cookies failure is the upstream
+      // cause; surfacing that is more actionable.
+      if (options.cookiesFromBrowser && isCookieAccessDeniedError(err.stderr)) {
+        throw new YtDlpCookieAccessDeniedError(options.cookiesFromBrowser, err.stderr);
+      }
       if (isPasswordRequiredError(err.stderr)) {
         throw new YtDlpPasswordRequiredError(err.stderr);
       }
@@ -129,7 +145,7 @@ export const runDownload = (
       '--newline',
       '--no-mtime',
       '-N',
-      String(DOWNLOAD_CONCURRENCY),
+      String(opts.concurrentFragments ?? DEFAULT_DOWNLOAD_CONCURRENCY),
       '--ffmpeg-location',
       deps.ffmpegPath,
       '--paths',
@@ -191,6 +207,10 @@ export const runDownload = (
     // Destination: ...`, etc.) so we don't need to pre-filter.
     const stdoutReader = createInterface({ input: child.stdout });
     stdoutReader.on('line', (line) => {
+      // Debug tap: forward every stdout line (progress JSON included)
+      // when the caller wants the raw firehose. Cheap when off — the
+      // optional chain skips the closure call entirely.
+      opts.onRawLine?.(line);
       const event = parseProgressLine(line);
       if (event) {
         opts.onProgress?.(event);
@@ -202,6 +222,10 @@ export const runDownload = (
     // on a non-zero exit.
     const stderrReader = createInterface({ input: child.stderr });
     stderrReader.on('line', (line) => {
+      // Same debug tap on stderr — both streams flow to the log box
+      // when on, so the user sees a complete picture of yt-dlp's
+      // output without having to spawn it themselves.
+      opts.onRawLine?.(line);
       stderrChunks.push(line);
       if (stderrChunks.length > MAX_STDERR_RETENTION_LINES) {
         stderrChunks.shift();
@@ -231,6 +255,10 @@ export const runDownload = (
           return;
         }
         if (code !== 0) {
+          if (opts.cookiesFromBrowser && isCookieAccessDeniedError(stderr)) {
+            reject(new YtDlpCookieAccessDeniedError(opts.cookiesFromBrowser, stderr));
+            return;
+          }
           if (isPasswordRequiredError(stderr)) {
             reject(new YtDlpPasswordRequiredError(stderr));
             return;
