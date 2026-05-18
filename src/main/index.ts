@@ -102,8 +102,9 @@ app.whenReady().then(async () => {
 
   // Persisted state lives under app.getPath('userData') — Electron's
   // per-user, per-app config dir. Survives reinstalls (until the user
-  // explicitly nukes Application Support). Settings + history share
-  // the directory but live in separate files.
+  // explicitly nukes Application Support). Settings, history, and
+  // secrets share the directory but live in separate files (all written
+  // via atomic-json so partial writes can't leave half-baked state).
   const userDataDir = app.getPath('userData');
   const settings = await createSettingsStore(userDataDir);
   // Electron's safeStorage adapter for the secrets store. The wrapper

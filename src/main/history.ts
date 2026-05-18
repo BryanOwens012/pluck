@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import type { Download } from '../shared/types';
+import { atomicWriteJson } from './atomic-json';
 
 /** Hard cap on persisted entries. When a write would exceed this, oldest
  * (by createdAt) is dropped. 50 is the spec's number — keeps the JSON file
@@ -30,9 +31,8 @@ export type HistoryStore = {
   /** Snapshot of what's persisted. Boot path returns this with in-flight
    * rows already rewritten to 'failed' (see INTERRUPTED_STATUSES). */
   load(): Promise<Download[]>;
-  /** Atomic write: serialize to a sibling .tmp file then rename. The
-   * rename is atomic on a single APFS volume so a power loss can't leave
-   * us with a half-written history.json. */
+  /** Persist via atomic-json. Power loss can't leave a half-written
+   * history.json — the rename is atomic on a single APFS volume. */
   save(downloads: Download[]): Promise<void>;
 };
 
@@ -40,7 +40,6 @@ export type HistoryStore = {
  * in (not imported) so the module is testable outside Electron. */
 export const createHistoryStore = (dir: string): HistoryStore => {
   const filePath = join(dir, HISTORY_FILENAME);
-  const tmpPath = `${filePath}.tmp`;
 
   const load = async (): Promise<Download[]> => {
     let raw: string;
@@ -75,9 +74,7 @@ export const createHistoryStore = (dir: string): HistoryStore => {
   const save = async (downloads: Download[]): Promise<void> => {
     const capped = capToMax(downloads, MAX_ENTRIES);
     const body: HistoryFile = { version: SCHEMA_VERSION, downloads: capped };
-    await fs.mkdir(dirname(filePath), { recursive: true });
-    await fs.writeFile(tmpPath, JSON.stringify(body, null, 2), 'utf-8');
-    await fs.rename(tmpPath, filePath);
+    await atomicWriteJson(filePath, body);
   };
 
   return { load, save };

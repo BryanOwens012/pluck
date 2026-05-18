@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { atomicWriteJson } from './atomic-json';
 
 /** Schema version. Bump on any breaking change to the on-disk shape so we
  * can migrate or discard cleanly. Currently v1 — initial schema. */
@@ -66,7 +67,6 @@ export const createSecretsStore = async (
   encryptor: Encryptor,
 ): Promise<SecretsStore> => {
   const filePath = join(dir, SECRETS_FILENAME);
-  const tmpPath = `${filePath}.tmp`;
 
   // entries map holds base64 ciphertext per name. Plaintext is never
   // cached — every getKey() round-trips through decrypt() so a stolen
@@ -91,9 +91,7 @@ export const createSecretsStore = async (
 
   const writeAtomic = async (): Promise<void> => {
     const body: SecretsFile = { version: SCHEMA_VERSION, entries };
-    await fs.mkdir(dirname(filePath), { recursive: true });
-    await fs.writeFile(tmpPath, JSON.stringify(body, null, 2), 'utf-8');
-    await fs.rename(tmpPath, filePath);
+    await atomicWriteJson(filePath, body);
   };
 
   const hasKey = (name: SecretName): boolean => entries[name] !== undefined;
