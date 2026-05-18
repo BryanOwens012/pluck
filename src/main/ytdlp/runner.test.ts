@@ -77,25 +77,18 @@ describe('YtDlpCancelledError', () => {
   });
 });
 
-describe('runDownload --cookies-from-browser pass-through', () => {
-  /** Fake yt-dlp that records argv to a file inside the tempFolder then
-   * exits 1. We only care about what args were passed — the resulting
-   * YtDlpError rejection is expected and ignored. */
-  const argvRecorder = async (dir: string): Promise<string> => {
-    const path = join(dir, 'argv-recorder');
-    await fs.writeFile(
-      path,
-      '#!/bin/sh\nfor a in "$@"; do echo "$a" >> "$1/.argv"; done; exit 1\n',
-    );
-    // Note: the script's first positional arg ($1) is the tempFolder
-    // we pass via `--paths home:<tempFolder>` — but $1 here is the
-    // first ALL-arg from yt-dlp's invocation, which is `--newline`.
-    // We use a fixed env var instead. Rewriting:
-    await fs.writeFile(path, `#!/bin/sh\necho "$@" > "${dir}/.argv"\nexit 1\n`);
-    await fs.chmod(path, 0o755);
-    return path;
-  };
+/** Fake yt-dlp that writes its argv (space-joined) to `<dir>/.argv`
+ * and exits 1. Tests read the file to assert what args were passed;
+ * the YtDlpError rejection is expected and ignored. Shared by every
+ * argv-assertion test below. */
+const argvRecorder = async (dir: string): Promise<string> => {
+  const path = join(dir, 'argv-recorder');
+  await fs.writeFile(path, `#!/bin/sh\necho "$@" > "${dir}/.argv"\nexit 1\n`);
+  await fs.chmod(path, 0o755);
+  return path;
+};
 
+describe('runDownload --cookies-from-browser pass-through', () => {
   it('passes --cookies-from-browser when cookiesFromBrowser is set', async () => {
     const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-cookies-test-'));
     const fakePath = await argvRecorder(workspace);
@@ -142,15 +135,6 @@ describe('runDownload --cookies-from-browser pass-through', () => {
 });
 
 describe('runDownload -N (concurrent fragments) pass-through', () => {
-  /** Reuse the argv-recorder from the cookies tests — same shape:
-   * write argv to <dir>/.argv, exit 1. */
-  const argvRecorder = async (dir: string): Promise<string> => {
-    const path = join(dir, 'argv-recorder');
-    await fs.writeFile(path, `#!/bin/sh\necho "$@" > "${dir}/.argv"\nexit 1\n`);
-    await fs.chmod(path, 0o755);
-    return path;
-  };
-
   it('passes -N <value> when concurrentFragments is set', async () => {
     const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-nfragments-test-'));
     const fakePath = await argvRecorder(workspace);
