@@ -24,10 +24,10 @@ const App = (): React.JSX.Element => {
   // sorted by createdAt descending (newest first). One state owner, one
   // consumer (DownloadQueue) — no need for a global store yet.
   const [downloads, setDownloads] = useState<Map<string, Download>>(() => new Map());
-  // Currently-selected FormatChoice. Default to the static "Best Quality"
-  // entry; once a URL is probed (Phase B per-URL enrichment, future
-  // work in this PR), App swaps in a richer list and re-resolves the
-  // selection by id to keep the user's pick stable across re-probes.
+  // Currently-selected FormatChoice. Default to the static "Best
+  // Quality" entry; the per-URL probe effect below swaps in an enriched
+  // list once metadata lands and re-resolves the selection by id so the
+  // user's pick stays stable across re-probes.
   const [format, setFormat] = useState<FormatChoice>(STATIC_FORMAT_CHOICES.best);
   // Available choices for the dropdown. Starts as the four static
   // defaults; the per-URL probe (triggered when the URL input changes)
