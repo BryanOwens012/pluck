@@ -282,18 +282,33 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     // Walk + remove every per-download subfolder. ENOENT on the base
     // dir is fine — there's just nothing to clear. We swallow per-
     // entry errors so a single stuck folder doesn't abort the sweep.
-    let cleared = 0;
     let entries: string[];
     try {
       entries = await fs.readdir(deps.tempBaseDir);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { cleared: 0 };
+        return { cleared: 0, skippedActive: 0 };
       }
       throw err;
     }
+    // Skip any subfolder whose name matches an active (non-terminal)
+    // download id. yt-dlp is writing into those right now; rm-ing
+    // them out from under it would corrupt the in-flight download.
+    // The user can re-run Clear once those finish.
+    const activeIds = new Set(
+      deps.queue
+        .getAll()
+        .filter((d) => d.status === 'downloading' || d.status === 'canceling')
+        .map((d) => d.id),
+    );
+    let cleared = 0;
+    let skippedActive = 0;
     await Promise.all(
       entries.map(async (entry) => {
+        if (activeIds.has(entry)) {
+          skippedActive += 1;
+          return;
+        }
         try {
           await fs.rm(join(deps.tempBaseDir, entry), {
             recursive: true,
@@ -307,6 +322,6 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
         }
       }),
     );
-    return { cleared };
+    return { cleared, skippedActive };
   });
 };

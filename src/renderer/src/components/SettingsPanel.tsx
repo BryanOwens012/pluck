@@ -262,7 +262,7 @@ const ConcurrentDownloadsRow = (): React.JSX.Element => (
 type ClearState =
   | { phase: 'idle' }
   | { phase: 'clearing' }
-  | { phase: 'done'; cleared: number }
+  | { phase: 'done'; cleared: number; skippedActive: number }
   | { phase: 'error'; message: string };
 
 const ClearTempFoldersRow = (): React.JSX.Element => {
@@ -272,7 +272,11 @@ const ClearTempFoldersRow = (): React.JSX.Element => {
     setState({ phase: 'clearing' });
     try {
       const result = await api.clearTempFolders();
-      setState({ phase: 'done', cleared: result.cleared });
+      setState({
+        phase: 'done',
+        cleared: result.cleared,
+        skippedActive: result.skippedActive,
+      });
     } catch (err) {
       setState({
         phase: 'error',
@@ -286,10 +290,16 @@ const ClearTempFoldersRow = (): React.JSX.Element => {
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-neutral-200">Clear debug temp folders</div>
         <div className="text-xs text-neutral-500">
-          Removes every per-download workspace under the cache directory.
+          Removes every per-download workspace under the cache directory. Active downloads are
+          skipped so their files aren't yanked mid-write.
         </div>
         {state.phase === 'done' ? (
-          <div className="mt-0.5 text-xs text-emerald-400">Cleared {state.cleared} folders.</div>
+          <div className="mt-0.5 text-xs text-emerald-400">
+            Cleared {state.cleared} folder{state.cleared === 1 ? '' : 's'}.
+            {state.skippedActive > 0
+              ? ` Skipped ${state.skippedActive} active download${state.skippedActive === 1 ? '' : 's'}.`
+              : ''}
+          </div>
         ) : state.phase === 'error' ? (
           <div className="mt-0.5 text-xs text-red-400">{state.message}</div>
         ) : null}

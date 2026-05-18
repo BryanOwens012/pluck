@@ -80,8 +80,10 @@ export const IpcChannels = {
    * already been cleaned (typical post-success case). */
   OpenTempFolder: 'pluck:open-temp-folder',
   /** Renderer -> main, invoke. Walks the per-app cache dir and
-   * removes every per-download subfolder under it. Returns the count
-   * cleared so the Settings button can show "Cleared N folders". */
+   * removes every per-download subfolder under it — skipping any
+   * folder whose id matches an active (downloading / canceling) row.
+   * Returns { cleared, skippedActive } so the Settings button can
+   * tell the user "Cleared N folders" plus "Skipped K active". */
   ClearTempFolders: 'pluck:clear-temp-folders',
 } as const;
 

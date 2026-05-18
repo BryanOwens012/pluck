@@ -133,10 +133,12 @@ const api = {
   openTempFolder: (id: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IpcChannels.OpenTempFolder, id),
 
-  /** Wipe every per-download subfolder under the temp base. Returns
-   * the count cleared. Used by the Settings "Clear debug temp folders"
+  /** Wipe every per-download subfolder under the temp base, except
+   * folders that belong to active downloads (downloading / canceling).
+   * Returns the count cleared plus how many were skipped because they
+   * were in use. Used by the Settings "Clear debug temp folders"
    * button. */
-  clearTempFolders: (): Promise<{ cleared: number }> =>
+  clearTempFolders: (): Promise<{ cleared: number; skippedActive: number }> =>
     ipcRenderer.invoke(IpcChannels.ClearTempFolders),
 };
 
