@@ -176,6 +176,69 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
   });
 });
 
+describe('runDownload format-flags (mp4-preferring presets)', () => {
+  // Spec PR 9.6 Phase A: every video preset must (a) prefer mp4
+  // container so the file plays in QuickTime/iMessage, and (b) sort
+  // candidate streams by res,fps,vcodec so 1080p60 wins over 1080p30
+  // when both exist.
+
+  const runAndReadArgv = async (
+    format: 'best' | '1080p' | '720p' | 'audio_mp3',
+  ): Promise<string> => {
+    const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-format-test-'));
+    const fakePath = await argvRecorder(workspace);
+    try {
+      await runDownload(
+        {
+          url: 'https://example.com/x',
+          format,
+          tempFolder: workspace,
+        },
+        { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
+      ).catch(() => {});
+      return await fs.readFile(join(workspace, '.argv'), 'utf-8');
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  };
+
+  it('best: -f filters to mp4 video + m4a audio, falls back to single mp4', async () => {
+    const argv = await runAndReadArgv('best');
+    expect(argv).toContain('bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]');
+    expect(argv).toMatch(/-S res,fps,vcodec/);
+  });
+
+  it('1080p: caps height inside the mp4 filter', async () => {
+    const argv = await runAndReadArgv('1080p');
+    expect(argv).toContain('bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]');
+    expect(argv).toMatch(/-S res,fps,vcodec/);
+  });
+
+  it('720p: caps height inside the mp4 filter', async () => {
+    const argv = await runAndReadArgv('720p');
+    expect(argv).toContain('bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]');
+    expect(argv).toMatch(/-S res,fps,vcodec/);
+  });
+
+  it('audio_mp3: extraction path, no -S sort (container-agnostic by design)', async () => {
+    const argv = await runAndReadArgv('audio_mp3');
+    expect(argv).toContain('-x');
+    expect(argv).toContain('--audio-format mp3');
+    expect(argv).toContain('--audio-quality 0');
+    // -S is for video container/codec sorting; mp3 extraction
+    // re-encodes regardless of source container, so -S would be wasted.
+    expect(argv).not.toMatch(/-S res,fps,vcodec/);
+  });
+
+  it('regression: old format strings (no [ext=mp4] filter) are NOT used', async () => {
+    // The bare `bv*+ba/b` would let YouTube serve vp9/webm by default;
+    // PR 9.6 forces mp4. If this regresses, downloads play in VLC but
+    // break in QuickTime/iMessage/iMovie.
+    const argv = await runAndReadArgv('best');
+    expect(argv).not.toMatch(/-f bv\*\+ba\/b\s/);
+  });
+});
+
 describe('runDownload onRawLine (debug log tap)', () => {
   /** Fake yt-dlp that prints a few lines to stdout AND stderr then
    * exits 1. The order matters for the test: we want to confirm BOTH
