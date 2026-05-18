@@ -1,12 +1,13 @@
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
-import type { DownloadRequest } from '../shared/types';
+import { BROWSER_NAMES, type BrowserName, type DownloadRequest } from '../shared/types';
 import { isHttpUrl } from '../shared/url';
 import { testApiKey } from './api-key-test';
+import { detectInstalledBrowsers } from './browser-detection';
 import type { MetadataCache } from './metadata-cache';
 import type { DownloadQueue } from './queue';
 import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
-import { BROWSER_NAMES, type BrowserName, type Settings, type SettingsStore } from './settings';
+import type { Settings, SettingsStore } from './settings';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -218,4 +219,5 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     }
   });
   ipcMain.handle(IpcChannels.GetAppVersion, () => app.getVersion());
+  ipcMain.handle(IpcChannels.DetectInstalledBrowsers, () => detectInstalledBrowsers());
 };

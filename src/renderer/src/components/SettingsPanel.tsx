@@ -115,21 +115,33 @@ type CookiesState = { phase: 'idle' } | { phase: 'saving' } | { phase: 'error'; 
 /** Browser-cookies dropdown + per-browser permission hint. Help text
  * differs per browser because macOS surfaces different permission
  * prompts (Full Disk Access for Safari, Keychain for Chromium-family,
- * none for Firefox). */
+ * none for Firefox).
+ *
+ * The dropdown filters to browsers actually present on the Mac (cookies
+ * file exists) so users don't see paradoxical options. If the user has
+ * a saved value for a browser that's no longer detected (uninstall),
+ * we keep it in the list with a "(not detected)" suffix so they can
+ * see and change it. */
 const CookiesSection = (): React.JSX.Element => {
   const [value, setValue] = useState<BrowserName | ''>('');
   const [state, setState] = useState<CookiesState>({ phase: 'idle' });
   const [loaded, setLoaded] = useState(false);
+  const [installed, setInstalled] = useState<readonly BrowserName[]>([]);
 
   useEffect(() => {
-    api
-      .getSettings()
-      .then((s) => {
+    // Parallel: settings tells us the current value, detection tells
+    // us which options to surface.
+    Promise.all([api.getSettings(), api.detectInstalledBrowsers()])
+      .then(([s, browsers]) => {
         setValue(s.cookiesFromBrowser ?? '');
+        setInstalled(browsers);
         setLoaded(true);
       })
       .catch((err: unknown) => {
-        console.error('getSettings rejected:', err);
+        console.error('cookies section boot rejected:', err);
+        // Fall back to all browsers — better than locking the user
+        // out of the dropdown if detection fails.
+        setInstalled(BROWSER_NAMES);
         setLoaded(true);
       });
   }, []);
@@ -154,7 +166,7 @@ const CookiesSection = (): React.JSX.Element => {
 
   if (!loaded) {
     // Render an inert select skeleton so the section height doesn't
-    // jump when getSettings resolves a tick later.
+    // jump when getSettings + detection resolve a tick later.
     return (
       <select
         disabled
@@ -162,6 +174,19 @@ const CookiesSection = (): React.JSX.Element => {
       />
     );
   }
+
+  // Render the saved value even if it's not in `installed` (e.g. the
+  // user uninstalled Chrome after saving), suffixed so they know to
+  // change it. Avoids the dropdown silently dropping their selection.
+  const options: Array<{ name: BrowserName; label: string }> = installed.map((name) => ({
+    name,
+    label: BROWSER_LABEL[name],
+  }));
+  if (value !== '' && !installed.includes(value)) {
+    options.push({ name: value, label: `${BROWSER_LABEL[value]} (not detected)` });
+  }
+  // Empty-state message when no supported browser is found on disk.
+  const noBrowsersDetected = installed.length === 0;
 
   return (
     <div className="space-y-1.5">
@@ -171,14 +196,18 @@ const CookiesSection = (): React.JSX.Element => {
         className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-100 focus:border-neutral-600 focus:outline-none"
       >
         <option value="">None (don't use browser cookies)</option>
-        {BROWSER_NAMES.map((name) => (
-          <option key={name} value={name}>
-            {BROWSER_LABEL[name]}
+        {options.map((opt) => (
+          <option key={opt.name} value={opt.name}>
+            {opt.label}
           </option>
         ))}
       </select>
       <p className="text-xs text-neutral-500">
-        {value === '' ? COOKIES_NONE_HELP : BROWSER_HELP[value]}
+        {noBrowsersDetected
+          ? 'No supported browser cookies found on this Mac.'
+          : value === ''
+            ? COOKIES_NONE_HELP
+            : BROWSER_HELP[value]}
       </p>
       {state.phase === 'error' ? <p className="text-xs text-red-400">{state.message}</p> : null}
     </div>

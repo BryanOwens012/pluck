@@ -65,6 +65,11 @@ export const IpcChannels = {
   /** Renderer -> main, invoke. Returns the app's package.json version
    * so the Settings panel can show "Pluck 0.1.0" at the bottom. */
   GetAppVersion: 'pluck:get-app-version',
+  /** Renderer -> main, invoke. Returns the subset of BROWSER_NAMES
+   * whose cookies file (or profile dir, for Firefox) exists on disk.
+   * Settings dropdown uses this to hide browsers the user has never
+   * launched on this Mac. */
+  DetectInstalledBrowsers: 'pluck:detect-installed-browsers',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
