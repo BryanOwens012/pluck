@@ -2,7 +2,7 @@ import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
 import type { SecretName } from '../main/secrets';
 import type { Settings } from '../main/settings';
 import { IpcChannels } from '../shared/ipc-channels';
-import type { Download, DownloadRequest } from '../shared/types';
+import type { BrowserName, Download, DownloadRequest } from '../shared/types';
 
 export type HasApiKeys = { anthropic: boolean; elevenlabs: boolean };
 export type ApiKeyResult = { ok: true } | { ok: false; error: string };
@@ -104,6 +104,15 @@ const api = {
    * launch flow. */
   deleteApiKey: (name?: SecretName): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.DeleteApiKey, name),
+
+  /** App version from package.json, for the Settings panel footer. */
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke(IpcChannels.GetAppVersion),
+
+  /** Subset of BROWSER_NAMES whose cookies file (or Firefox profile
+   * dir) exists on disk. Used by the Settings dropdown to hide
+   * browsers the user has never launched. */
+  detectInstalledBrowsers: (): Promise<BrowserName[]> =>
+    ipcRenderer.invoke(IpcChannels.DetectInstalledBrowsers),
 };
 
 export type PluckAPI = typeof api;

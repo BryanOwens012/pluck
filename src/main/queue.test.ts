@@ -156,6 +156,7 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
     });
   return {
     getDefaultOutputFolder: (): string => outputDir,
+    getCookiesFromBrowser: (): string | undefined => undefined,
     tempBaseDir,
     runnerDeps,
     runDownload,

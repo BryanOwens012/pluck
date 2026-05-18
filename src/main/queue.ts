@@ -84,6 +84,11 @@ export type QueueOptions = {
    * struct at enqueue time). Overridden per-request by
    * DownloadRequest.outputFolder when present. */
   getDefaultOutputFolder: () => string;
+  /** Read at runOne time so a settings change takes effect on the
+   * next started row. Currently-running rows aren't affected — yt-dlp
+   * is already past the metadata phase. Undefined = don't pass
+   * `--cookies-from-browser`. */
+  getCookiesFromBrowser: () => string | undefined;
   /** Base dir for per-download workspaces (~/Library/Caches/video.pluck.app/). */
   tempBaseDir: string;
   /** Path to yt-dlp + ffmpeg, passed through to the runner. */
@@ -199,6 +204,12 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       await fs.mkdir(outputFolder, { recursive: true });
 
       const meta = await opts.metadataCache.get(download.url);
+      // Note: the metadata cache was warmed at URL paste with the
+      // cookies setting that was active *at paste time*. If the user
+      // changes cookies between paste and download, the cached
+      // metadata might be from the wrong browser context. The actual
+      // download below uses the live setting, so it'll still work —
+      // we just might show a slightly stale title/thumbnail.
       emit(id, {
         title: meta.title,
         sourceSite: meta.extractor,
@@ -213,6 +224,7 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
           format: download.format,
           tempFolder,
           videoPassword: secrets.get(id),
+          cookiesFromBrowser: opts.getCookiesFromBrowser(),
           cancelSignal: abortController.signal,
           onProgress: (event) => {
             smoother.sample(event.speed, event.eta);
