@@ -128,13 +128,21 @@ app.whenReady().then(async () => {
   const persistedDownloads = await history.load();
 
   const runnerDeps = { ytDlpPath: binPath('yt-dlp'), ffmpegPath: binPath('ffmpeg') };
-  const metadataCache = createMetadataCache((url) => fetchMetadata(url, runnerDeps));
+  // Live-read cookies from settings at fetch time so a change takes
+  // effect on the next prefetch / metadata fetch without rebuilding
+  // the cache. Already-cached entries stay (per the cache's no-TTL
+  // design), but a failed fetch evicts itself so auth-required URLs
+  // self-heal after the user picks a browser.
+  const metadataCache = createMetadataCache((url) =>
+    fetchMetadata(url, runnerDeps, { cookiesFromBrowser: settings.get().cookiesFromBrowser }),
+  );
 
   const queue = createDownloadQueue({
     // Callable so a settings update takes effect on the next enqueue
     // without rebuilding the queue. In-flight rows keep the folder
     // snapshotted in their Download struct.
     getDefaultOutputFolder: () => settings.get().outputFolder,
+    getCookiesFromBrowser: () => settings.get().cookiesFromBrowser,
     tempBaseDir: PLUCK_CACHE_DIR,
     runnerDeps,
     runDownload,

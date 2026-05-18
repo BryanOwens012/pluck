@@ -62,6 +62,9 @@ export const IpcChannels = {
   /** Renderer -> main, invoke. Drop one or all keys (Settings panel
    * uses the all form to reset to first-launch state). */
   DeleteApiKey: 'pluck:delete-api-key',
+  /** Renderer -> main, invoke. Returns the app's package.json version
+   * so the Settings panel can show "Pluck 0.1.0" at the bottom. */
+  GetAppVersion: 'pluck:get-app-version',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

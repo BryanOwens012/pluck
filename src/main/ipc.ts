@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { DownloadRequest } from '../shared/types';
 import { isHttpUrl } from '../shared/url';
@@ -6,7 +6,7 @@ import { testApiKey } from './api-key-test';
 import type { MetadataCache } from './metadata-cache';
 import type { DownloadQueue } from './queue';
 import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
-import type { Settings, SettingsStore } from './settings';
+import { BROWSER_NAMES, type BrowserName, type Settings, type SettingsStore } from './settings';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -66,6 +66,11 @@ export type IpcDeps = {
 const isSecretName = (value: unknown): value is SecretName =>
   typeof value === 'string' && (SECRET_NAMES as readonly string[]).includes(value);
 
+/** Same guard idea for the cookiesFromBrowser dropdown value — an invalid
+ * string would silently break the next yt-dlp invocation otherwise. */
+const isBrowserName = (value: unknown): value is BrowserName =>
+  typeof value === 'string' && (BROWSER_NAMES as readonly string[]).includes(value);
+
 /** Wire all renderer→main and main→renderer IPC. Pure delegation to the
  * queue/cache; this module owns no download lifecycle itself anymore. */
 export const registerIpcHandlers = (deps: IpcDeps): void => {
@@ -104,17 +109,30 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
   });
   ipcMain.handle(IpcChannels.GetSettings, () => deps.settings.get());
   ipcMain.handle(IpcChannels.UpdateSettings, (_event, patch: unknown) => {
-    // Only `outputFolder` is settable from the renderer today. Reject any
-    // other keys defensively — a compromised renderer shouldn't be able
-    // to write arbitrary properties to settings.json.
+    // Defense in depth: only the keys we accept are forwarded to disk.
+    // A compromised renderer shouldn't be able to write arbitrary
+    // properties to settings.json. Each key is validated for shape
+    // before merging.
     if (typeof patch !== 'object' || patch === null) {
       return deps.settings.get();
     }
+    const sanitized: Partial<Settings> = {};
     const folder = (patch as Partial<Settings>).outputFolder;
-    if (typeof folder !== 'string' || folder.length === 0) {
+    if (typeof folder === 'string' && folder.length > 0) {
+      sanitized.outputFolder = folder;
+    }
+    const cookies = (patch as Partial<Settings>).cookiesFromBrowser;
+    // `null` is the wire-format for "clear it" — we accept it and unset
+    // cookiesFromBrowser. Otherwise it must be a known BrowserName.
+    if (cookies === null) {
+      sanitized.cookiesFromBrowser = undefined;
+    } else if (isBrowserName(cookies)) {
+      sanitized.cookiesFromBrowser = cookies;
+    }
+    if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
     }
-    return deps.settings.update({ outputFolder: folder });
+    return deps.settings.update(sanitized);
   });
   ipcMain.handle(IpcChannels.ChooseOutputFolder, async (event) => {
     // Anchor the dialog to the window that invoked us so it behaves as a
@@ -199,4 +217,5 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       await deps.secrets.deleteKey(name);
     }
   });
+  ipcMain.handle(IpcChannels.GetAppVersion, () => app.getVersion());
 };

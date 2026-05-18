@@ -35,6 +35,44 @@ describe('createSettingsStore', () => {
     expect(b.get().outputFolder).toBe('/tmp/custom');
   });
 
+  it('round-trips cookiesFromBrowser (chrome) through update → reload', async () => {
+    const a = await createSettingsStore(dir);
+    await a.update({ cookiesFromBrowser: 'chrome' });
+    expect(a.get().cookiesFromBrowser).toBe('chrome');
+
+    const b = await createSettingsStore(dir);
+    expect(b.get().cookiesFromBrowser).toBe('chrome');
+    // outputFolder default still applied via defaults-spread.
+    expect(b.get().outputFolder).toBe(defaultOutputFolder());
+  });
+
+  it('clearing cookiesFromBrowser (set to undefined) drops it from the snapshot', async () => {
+    const a = await createSettingsStore(dir);
+    await a.update({ cookiesFromBrowser: 'firefox' });
+    await a.update({ cookiesFromBrowser: undefined });
+    expect(a.get().cookiesFromBrowser).toBeUndefined();
+  });
+
+  it('rejects a settings file with an invalid cookiesFromBrowser value', async () => {
+    // Hand-edited typo or schema drift — must fall back to defaults
+    // rather than silently passing `--cookies-from-browser banana` to
+    // yt-dlp on the next download.
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        settings: { outputFolder: '/tmp/x', cookiesFromBrowser: 'banana' },
+      }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    expect(store.get().outputFolder).toBe(defaultOutputFolder());
+    expect(store.get().cookiesFromBrowser).toBeUndefined();
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   it('uses an atomic write (sibling .tmp + rename)', async () => {
     const store = await createSettingsStore(dir);
     const renameSpy = vi.spyOn(fs, 'rename');

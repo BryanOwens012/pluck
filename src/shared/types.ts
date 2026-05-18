@@ -7,6 +7,13 @@
 export const FORMATS = ['best', '1080p', '720p', 'audio_mp3'] as const;
 export type Format = (typeof FORMATS)[number];
 
+/** Browsers yt-dlp can pull cookies from. Subset of yt-dlp's full list
+ * (chromium, opera, vivaldi, whale also work) — these are the common
+ * ones we surface in the Settings dropdown. Lives in shared/ so both
+ * the renderer dropdown and main's settings validator can read it. */
+export const BROWSER_NAMES = ['chrome', 'firefox', 'safari', 'brave', 'edge'] as const;
+export type BrowserName = (typeof BROWSER_NAMES)[number];
+
 export type DownloadRequest = {
   url: string;
   format: Format;

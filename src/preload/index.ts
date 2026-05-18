@@ -104,6 +104,9 @@ const api = {
    * launch flow. */
   deleteApiKey: (name?: SecretName): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.DeleteApiKey, name),
+
+  /** App version from package.json, for the Settings panel footer. */
+  getAppVersion: (): Promise<string> => ipcRenderer.invoke(IpcChannels.GetAppVersion),
 };
 
 export type PluckAPI = typeof api;

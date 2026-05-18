@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { Download, Format } from '../../shared/types';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
-import { OutputFolderPicker } from './components/OutputFolderPicker';
 import { PasswordPrompt } from './components/PasswordPrompt';
+import { SettingsPanel } from './components/SettingsPanel';
 import { UrlInput } from './components/UrlInput';
 import { api } from './lib/api';
 
@@ -13,10 +13,11 @@ const App = (): React.JSX.Element => {
   // consumer (DownloadQueue) — no need for a global store yet.
   const [downloads, setDownloads] = useState<Map<string, Download>>(() => new Map());
   const [format, setFormat] = useState<Format>('best');
-  // Settings snapshot. Loaded once on mount, updated optimistically when
-  // the picker accepts a new folder (main has already persisted by the
-  // time it resolves with the path).
+  // Settings snapshot. Loaded once on mount and refreshed after a save
+  // from SettingsPanel. The folder picker lives inside Settings now;
+  // App keeps the value so startDownload doesn't need to re-fetch.
   const [outputFolder, setOutputFolder] = useState<string | undefined>(undefined);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // Currently-open password prompt, by row id. Single modal at a time.
   const [passwordPromptId, setPasswordPromptId] = useState<string | undefined>(undefined);
   // Rows the user has explicitly dismissed without entering a password,
@@ -130,21 +131,55 @@ const App = (): React.JSX.Element => {
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
       <div className="mx-auto max-w-2xl space-y-4 p-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Pluck</h1>
+        <header className="flex items-center justify-between">
+          <h1 className="text-2xl font-semibold tracking-tight">Pluck</h1>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen(true)}
+            aria-label="Open settings"
+            title="Settings"
+            className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
+          >
+            <GearIcon />
+          </button>
+        </header>
         <div className="flex gap-2">
           <UrlInput onSubmit={handleSubmit} />
           <FormatSelector value={format} onChange={setFormat} />
         </div>
-        {outputFolder !== undefined ? (
-          <OutputFolderPicker outputFolder={outputFolder} onChange={setOutputFolder} />
-        ) : null}
         <DownloadQueue rows={rows} onOpenPasswordPrompt={handleOpenPasswordPrompt} />
       </div>
       {promptDownload ? (
         <PasswordPrompt download={promptDownload} onDismiss={handleDismissPasswordPrompt} />
       ) : null}
+      {settingsOpen && outputFolder !== undefined ? (
+        <SettingsPanel
+          outputFolder={outputFolder}
+          onOutputFolderChange={setOutputFolder}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
     </main>
   );
 };
+
+/** Header gear icon. Lucide-style stroke, inline so we don't pull a
+ * full icon dep just for one button. */
+const GearIcon = (): React.JSX.Element => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    className="h-5 w-5"
+  >
+    <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
+    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+  </svg>
+);
 
 export default App;

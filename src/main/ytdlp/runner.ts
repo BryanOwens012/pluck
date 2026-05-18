@@ -6,6 +6,7 @@ import { promisify } from 'node:util';
 import type { Format } from '../../shared/types';
 import { isPasswordRequiredError, parseMetadata, parseProgressLine } from './parser';
 import {
+  type FetchMetadataOptions,
   type RunDownloadOptions,
   type RunDownloadResult,
   type RunnerDeps,
@@ -80,9 +81,18 @@ const formatFlags = (format: Format): string[] => {
  * any media. Used by the queue to populate the row with a title before the
  * download starts streaming.
  */
-export const fetchMetadata = async (url: string, deps: RunnerDeps): Promise<VideoMetadata> => {
+export const fetchMetadata = async (
+  url: string,
+  deps: RunnerDeps,
+  options: FetchMetadataOptions = {},
+): Promise<VideoMetadata> => {
+  const args = ['-J', '--no-download'];
+  if (options.cookiesFromBrowser) {
+    args.push('--cookies-from-browser', options.cookiesFromBrowser);
+  }
+  args.push(url);
   try {
-    const { stdout } = await execFileAsync(deps.ytDlpPath, ['-J', '--no-download', url], {
+    const { stdout } = await execFileAsync(deps.ytDlpPath, args, {
       maxBuffer: METADATA_MAX_BUFFER,
     });
     return parseMetadata(stdout);
@@ -136,6 +146,10 @@ export const runDownload = (
 
     if (opts.videoPassword) {
       args.push('--video-password', opts.videoPassword);
+    }
+
+    if (opts.cookiesFromBrowser) {
+      args.push('--cookies-from-browser', opts.cookiesFromBrowser);
     }
 
     args.push(opts.url);

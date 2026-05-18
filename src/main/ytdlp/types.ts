@@ -56,6 +56,20 @@ export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
   tempFolder: string;
   onProgress?: (event: ProgressEvent) => void;
   cancelSignal?: AbortSignal;
+  /** When set, yt-dlp gets `--cookies-from-browser <name>` so it can
+   * read the user's login cookies for sites that require auth (age-
+   * gated YouTube, private Vimeo, LinkedIn, etc.). Plain string here
+   * — the BrowserName union lives in settings.ts; this module stays
+   * unaware of the allowed set so the runner module has zero settings
+   * coupling. */
+  cookiesFromBrowser?: string;
+};
+
+/** Per-call options for the metadata fetch. Same `cookiesFromBrowser`
+ * semantic as RunDownloadOptions — yt-dlp's metadata endpoint also
+ * gates auth-required videos, so the same flag has to pass through. */
+export type FetchMetadataOptions = {
+  cookiesFromBrowser?: string;
 };
 
 export type RunDownloadResult = {
