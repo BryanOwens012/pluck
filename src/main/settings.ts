@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { atomicWriteJson } from './atomic-json';
 
 /** Schema version. Bump on any breaking change to the on-disk shape so we
  * can migrate or discard cleanly. Currently v1 — initial schema. */
@@ -39,12 +40,14 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
   if (obj.version !== SCHEMA_VERSION) {
     return false;
   }
-  const s = obj.settings;
-  return (
-    typeof s === 'object' &&
-    s !== null &&
-    typeof (s as Record<string, unknown>).outputFolder === 'string'
-  );
+  const s = obj.settings as Record<string, unknown> | null;
+  if (typeof s !== 'object' || s === null) {
+    return false;
+  }
+  // Only outputFolder is required. Future additive fields are merged
+  // under defaults in createSettingsStore so a legacy file missing a
+  // newer key reads cleanly rather than carrying `undefined` forward.
+  return typeof s.outputFolder === 'string';
 };
 
 /** File-backed settings. `dir` is typically `app.getPath('userData')`;
@@ -52,15 +55,18 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
  * Loads at construction so `get()` is synchronous afterward. */
 export const createSettingsStore = async (dir: string): Promise<SettingsStore> => {
   const filePath = join(dir, SETTINGS_FILENAME);
-  const tmpPath = `${filePath}.tmp`;
 
-  let current: Settings = { outputFolder: defaultOutputFolder() };
+  const defaults: Settings = { outputFolder: defaultOutputFolder() };
+  let current: Settings = defaults;
 
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
     if (isSettingsFile(parsed)) {
-      current = parsed.settings;
+      // Spread defaults under the persisted snapshot so any future
+      // field added here gets a default rather than undefined when an
+      // older file is loaded.
+      current = { ...defaults, ...parsed.settings };
     } else {
       console.error('settings: schema mismatch, using defaults');
     }
@@ -72,18 +78,12 @@ export const createSettingsStore = async (dir: string): Promise<SettingsStore> =
     }
   }
 
-  const writeAtomic = async (next: Settings): Promise<void> => {
-    const body: SettingsFile = { version: SCHEMA_VERSION, settings: next };
-    await fs.mkdir(dirname(filePath), { recursive: true });
-    await fs.writeFile(tmpPath, JSON.stringify(body, null, 2), 'utf-8');
-    await fs.rename(tmpPath, filePath);
-  };
-
   const get = (): Settings => current;
 
   const update = async (patch: Partial<Settings>): Promise<Settings> => {
     const next = { ...current, ...patch };
-    await writeAtomic(next);
+    const body: SettingsFile = { version: SCHEMA_VERSION, settings: next };
+    await atomicWriteJson(filePath, body);
     // Commit to memory only after the rename succeeds — a failed write
     // shouldn't leave the in-memory snapshot ahead of disk.
     current = next;

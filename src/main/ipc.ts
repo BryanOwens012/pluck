@@ -2,8 +2,10 @@ import { BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'e
 import { IpcChannels } from '../shared/ipc-channels';
 import type { DownloadRequest } from '../shared/types';
 import { isHttpUrl } from '../shared/url';
+import { testApiKey } from './api-key-test';
 import type { MetadataCache } from './metadata-cache';
 import type { DownloadQueue } from './queue';
+import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
 import type { Settings, SettingsStore } from './settings';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
@@ -56,7 +58,13 @@ export type IpcDeps = {
   queue: DownloadQueue;
   metadataCache: MetadataCache;
   settings: SettingsStore;
+  secrets: SecretsStore;
 };
+
+/** Type-guard so the IPC layer can reject unknown provider names from a
+ * compromised renderer rather than blindly calling SecretsStore. */
+const isSecretName = (value: unknown): value is SecretName =>
+  typeof value === 'string' && (SECRET_NAMES as readonly string[]).includes(value);
 
 /** Wire all renderer→main and main→renderer IPC. Pure delegation to the
  * queue/cache; this module owns no download lifecycle itself anymore. */
@@ -154,5 +162,41 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       return;
     }
     deps.queue.submitPassword(id, password);
+  });
+  ipcMain.handle(IpcChannels.HasApiKeys, () => ({
+    anthropic: deps.secrets.hasKey('anthropic'),
+    elevenlabs: deps.secrets.hasKey('elevenlabs'),
+  }));
+  ipcMain.handle(IpcChannels.TestApiKey, (_event, name: unknown, key: unknown) => {
+    if (!isSecretName(name) || typeof key !== 'string' || key.length === 0) {
+      return { ok: false, error: 'Missing provider or key.' };
+    }
+    return testApiKey(name, key);
+  });
+  ipcMain.handle(IpcChannels.SaveApiKey, async (_event, name: unknown, key: unknown) => {
+    if (!isSecretName(name) || typeof key !== 'string' || key.length === 0) {
+      return { ok: false, error: 'Missing provider or key.' };
+    }
+    try {
+      await deps.secrets.setKey(name, key);
+      return { ok: true };
+    } catch (err) {
+      // EncryptionUnavailableError is the user-facing case; anything else
+      // is a disk / write failure. Both collapse to a safe message here.
+      const message = err instanceof Error ? err.message : 'Failed to save the key.';
+      return { ok: false, error: message };
+    }
+  });
+  ipcMain.handle(IpcChannels.DeleteApiKey, async (_event, name: unknown) => {
+    // `name === undefined` (or any non-SecretName value) means "delete
+    // all keys" — the Settings panel's reset flow. A specific name
+    // deletes only that one.
+    if (name === undefined || name === null) {
+      await deps.secrets.deleteAll();
+      return;
+    }
+    if (isSecretName(name)) {
+      await deps.secrets.deleteKey(name);
+    }
   });
 };

@@ -48,6 +48,20 @@ export const IpcChannels = {
    * password as `--video-password`. After MAX_PASSWORD_ATTEMPTS wrong
    * submissions the row terminates as 'failed'. */
   SubmitPassword: 'pluck:submit-password',
+  /** Renderer -> main, invoke. Returns { anthropic: boolean,
+   * elevenlabs: boolean } so the renderer can decide which features
+   * are enabled and whether Welcome should appear on boot. */
+  HasApiKeys: 'pluck:has-api-keys',
+  /** Renderer -> main, invoke. Validate a key against the provider's
+   * cheapest endpoint without saving it. Returns { ok } or
+   * { ok: false, error }. */
+  TestApiKey: 'pluck:test-api-key',
+  /** Renderer -> main, invoke. Encrypt and persist a key. Throws if
+   * the OS keychain is unavailable. */
+  SaveApiKey: 'pluck:save-api-key',
+  /** Renderer -> main, invoke. Drop one or all keys (Settings panel
+   * uses the all form to reset to first-launch state). */
+  DeleteApiKey: 'pluck:delete-api-key',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];
