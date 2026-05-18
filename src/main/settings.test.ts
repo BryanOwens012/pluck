@@ -53,6 +53,19 @@ describe('createSettingsStore', () => {
     expect(a.get().cookiesFromBrowser).toBeUndefined();
   });
 
+  it('clear persists across reload (next boot sees no cookies setting)', async () => {
+    // Regression guard for the IPC "clear" path: setting then clearing
+    // a value must survive a fresh load. If the store skipped the disk
+    // write on undefined (e.g. treating it as "no change"), the next
+    // store would still see 'firefox' — that bug bit us once already.
+    const a = await createSettingsStore(dir);
+    await a.update({ cookiesFromBrowser: 'firefox' });
+    await a.update({ cookiesFromBrowser: undefined });
+
+    const b = await createSettingsStore(dir);
+    expect(b.get().cookiesFromBrowser).toBeUndefined();
+  });
+
   it('rejects a settings file with an invalid cookiesFromBrowser value', async () => {
     // Hand-edited typo or schema drift — must fall back to defaults
     // rather than silently passing `--cookies-from-browser banana` to

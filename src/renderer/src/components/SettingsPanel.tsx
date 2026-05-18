@@ -150,9 +150,12 @@ const CookiesSection = (): React.JSX.Element => {
     const next = event.target.value as BrowserName | '';
     setValue(next);
     setState({ phase: 'saving' });
-    // Send `null` (not undefined) for the "clear it" intent — IPC
-    // serializes undefined to a missing arg, and the main handler
-    // treats `null` explicitly as "unset cookiesFromBrowser".
+    // The patch carries the cookiesFromBrowser KEY in both cases —
+    // value === undefined signals "clear it" to main. Main detects
+    // intent by key presence (structured-clone IPC preserves the key
+    // even when its value is undefined), so a missing key means
+    // "no change". Sending an explicit clear is the only way to
+    // distinguish None-picked from no-change.
     const patch: Partial<Settings> =
       next === '' ? { cookiesFromBrowser: undefined } : { cookiesFromBrowser: next };
     api

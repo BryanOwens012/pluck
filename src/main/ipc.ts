@@ -117,18 +117,25 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     if (typeof patch !== 'object' || patch === null) {
       return deps.settings.get();
     }
+    const patchObj = patch as Record<string, unknown>;
     const sanitized: Partial<Settings> = {};
-    const folder = (patch as Partial<Settings>).outputFolder;
+    const folder = patchObj.outputFolder;
     if (typeof folder === 'string' && folder.length > 0) {
       sanitized.outputFolder = folder;
     }
-    const cookies = (patch as Partial<Settings>).cookiesFromBrowser;
-    // `null` is the wire-format for "clear it" — we accept it and unset
-    // cookiesFromBrowser. Otherwise it must be a known BrowserName.
-    if (cookies === null) {
-      sanitized.cookiesFromBrowser = undefined;
-    } else if (isBrowserName(cookies)) {
-      sanitized.cookiesFromBrowser = cookies;
+    // For cookiesFromBrowser the "clear" intent matters as much as the
+    // "set" intent — the user picks 'None' to stop sending the flag.
+    // We detect intent by *key presence* (renderer sends the key with
+    // a null/undefined value to clear); a missing key means "no change
+    // to this field". Both null and undefined survive structured-clone
+    // IPC with the key intact, so this check is the wire-safe one.
+    if ('cookiesFromBrowser' in patchObj) {
+      const cookies = patchObj.cookiesFromBrowser;
+      if (cookies === null || cookies === undefined) {
+        sanitized.cookiesFromBrowser = undefined;
+      } else if (isBrowserName(cookies)) {
+        sanitized.cookiesFromBrowser = cookies;
+      }
     }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
