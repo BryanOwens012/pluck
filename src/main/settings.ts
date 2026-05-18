@@ -91,9 +91,11 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
   if (typeof s.outputFolder !== 'string') {
     return false;
   }
-  // Both newer fields (cookiesFromBrowser, debugMode) are optional on
+  // The non-outputFolder fields (cookiesFromBrowser, debugMode,
+  // concurrentFragments, concurrentDownloads) are all optional on
   // disk — additive schema. Reject only if PRESENT and the wrong type;
-  // missing is fine.
+  // missing is fine and the defaults-spread in createSettingsStore
+  // fills it in.
   if (s.debugMode !== undefined && typeof s.debugMode !== 'boolean') {
     return false;
   }

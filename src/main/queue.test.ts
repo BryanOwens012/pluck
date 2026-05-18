@@ -4,14 +4,24 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Download, DownloadRequest } from '../shared/types';
 import type { MetadataCache } from './metadata-cache';
-import { createDownloadQueue, friendlyErrorMessage, padToMinDuration } from './queue';
+import {
+  createDownloadQueue,
+  friendlyCookieDeniedMessage,
+  friendlyErrorMessage,
+  padToMinDuration,
+} from './queue';
 import type {
   RunDownloadOptions,
   RunDownloadResult,
   RunnerDeps,
   VideoMetadata,
 } from './ytdlp/types';
-import { YtDlpCancelledError, YtDlpError, YtDlpPasswordRequiredError } from './ytdlp/types';
+import {
+  YtDlpCancelledError,
+  YtDlpCookieAccessDeniedError,
+  YtDlpError,
+  YtDlpPasswordRequiredError,
+} from './ytdlp/types';
 
 // ---- pure-helper coverage ----------------------------------------------
 
@@ -53,6 +63,19 @@ describe('friendlyErrorMessage', () => {
     expect(friendlyErrorMessage(new YtDlpPasswordRequiredError())).toBe(
       'This recording requires a password.',
     );
+  });
+
+  it('maps YtDlpCookieAccessDeniedError to a per-browser actionable message', () => {
+    // Chromium-family → Keychain hint.
+    const chromeMsg = friendlyErrorMessage(new YtDlpCookieAccessDeniedError('chrome'));
+    expect(chromeMsg).toContain('chrome');
+    expect(chromeMsg).toMatch(/Keychain/i);
+    expect(chromeMsg).toContain('Settings');
+
+    // Safari → Full Disk Access hint (different system pref path).
+    const safariMsg = friendlyErrorMessage(new YtDlpCookieAccessDeniedError('safari'));
+    expect(safariMsg).toMatch(/Full Disk Access/i);
+    expect(safariMsg).toContain('Safari');
   });
 
   it('maps NodeJS.ErrnoException codes to safe strings without leaking paths', () => {
@@ -496,6 +519,20 @@ describe('DownloadQueue', () => {
     expect(row?.error).toBe(
       'Download failed. The site may be unsupported or the URL may be invalid.',
     );
+  });
+
+  it('cookie-denied run flips to failed with a per-browser actionable message', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpCookieAccessDeniedError('chrome', 'stderr noise'));
+
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'failed');
+    const row = queue.getAll().find((d) => d.id === id);
+    // Verifies the propagation, not the message wording (that's
+    // covered by the friendlyCookieDeniedMessage unit test above).
+    expect(row?.error).toBe(friendlyCookieDeniedMessage('chrome'));
   });
 
   it('password-required run flips to needs_password (not failed)', async () => {

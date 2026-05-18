@@ -157,7 +157,8 @@ const MIN_CONCURRENT_DOWNLOADS = 1;
 const MAX_CONCURRENT_DOWNLOADS = 10;
 const DEFAULT_CONCURRENT_DOWNLOADS = 3;
 
-type ConcurrencyKey = 'concurrentFragments' | 'concurrentDownloads';
+const CONCURRENCY_KEYS = ['concurrentFragments', 'concurrentDownloads'] as const;
+type ConcurrencyKey = (typeof CONCURRENCY_KEYS)[number];
 
 type ConcurrencyRowProps = {
   settingKey: ConcurrencyKey;

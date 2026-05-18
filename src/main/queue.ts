@@ -5,7 +5,11 @@ import type { MetadataCache } from './metadata-cache';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
 import type { RunDownloadOptions, RunDownloadResult, RunnerDeps } from './ytdlp/types';
-import { YtDlpCancelledError, YtDlpPasswordRequiredError } from './ytdlp/types';
+import {
+  YtDlpCancelledError,
+  YtDlpCookieAccessDeniedError,
+  YtDlpPasswordRequiredError,
+} from './ytdlp/types';
 
 // Max concurrent downloads is now a user setting (Settings → Developer
 // → Concurrent downloads). Default 3; 1-10 range. Read via the
@@ -55,6 +59,14 @@ export const friendlyErrorMessage = (err: unknown): string => {
     // produce a useful message rather than the generic one.
     return 'This recording requires a password.';
   }
+  if (err instanceof YtDlpCookieAccessDeniedError) {
+    // Per-browser tailored message: Safari needs Full Disk Access in
+    // System Settings; Chromium-family triggers a Keychain prompt the
+    // user may have dismissed. Firefox doesn't normally hit this path
+    // (no permission prompt) but fall back to a generic message just
+    // in case.
+    return friendlyCookieDeniedMessage(err.browser);
+  }
   if (err instanceof Error) {
     const code = (err as NodeJS.ErrnoException).code;
     if (typeof code === 'string') {
@@ -65,6 +77,19 @@ export const friendlyErrorMessage = (err: unknown): string => {
     return 'Download failed. The site may be unsupported or the URL may be invalid.';
   }
   return 'Download failed.';
+};
+
+/** Per-browser actionable message for the cookie-access-denied path. Used
+ * by friendlyErrorMessage when YtDlpCookieAccessDeniedError lands. The
+ * Safari path is meaningfully different (Full Disk Access, not Keychain)
+ * so it gets its own copy. Exported for testing. */
+export const friendlyCookieDeniedMessage = (browser: string): string => {
+  if (browser === 'safari') {
+    return "Couldn't read Safari cookies. Grant Pluck Full Disk Access in System Settings → Privacy & Security, then try again. Or pick a different browser in Settings → Browser cookies.";
+  }
+  // chrome / brave / edge — Keychain access flow. Firefox shouldn't
+  // normally hit this but the message still reads correctly.
+  return `Couldn't read ${browser} cookies. macOS Keychain access was denied — try the download again and click Allow when prompted, or pick a different browser in Settings → Browser cookies.`;
 };
 
 /** Sleep until `minMs` has elapsed since `startMs`. No-op if past. Exported
@@ -234,13 +259,17 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     emit(id, { status: 'downloading' });
 
     const outputFolder = download.outputFolder;
-    const tempFolder = await createTempFolder(opts.tempBaseDir, id);
+    // tempFolder is only set after createTempFolder succeeds. The
+    // finally block guards on it so a failure before the folder exists
+    // doesn't try to clean up a path we never created.
+    let tempFolder: string | undefined;
     // Tracks the last `download:progress` debug log emit so we can
     // throttle to ~1/sec — yt-dlp progress fires multiple times per
     // second, but the user reading the log box doesn't need that. Set
     // to 0 so the first progress event always emits.
     let lastDebugProgressAt = 0;
     try {
+      tempFolder = await createTempFolder(opts.tempBaseDir, id);
       await fs.mkdir(outputFolder, { recursive: true });
 
       emitDebug(id, 'metadata:start', download.url);
@@ -365,14 +394,17 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       // success / cancelled / needs_password paths still clean up —
       // success has nothing useful left; cancel was the user's intent
       // anyway. needs_password is non-terminal so the next run reuses
-      // the slot but a fresh temp folder.
+      // the slot but a fresh temp folder. tempFolder may be undefined
+      // if createTempFolder itself failed — nothing to clean up then.
       const finalStatus = state.get(id)?.status;
       const keepTemp = opts.getDebugMode() && finalStatus === 'failed';
-      if (!keepTemp) {
-        await removeTempFolder(tempFolder);
-        emitDebug(id, 'cleanup:done', tempFolder);
-      } else {
-        emitDebug(id, 'cleanup:done', `kept for inspection: ${tempFolder}`);
+      if (tempFolder !== undefined) {
+        if (!keepTemp) {
+          await removeTempFolder(tempFolder);
+          emitDebug(id, 'cleanup:done', tempFolder);
+        } else {
+          emitDebug(id, 'cleanup:done', `kept for inspection: ${tempFolder}`);
+        }
       }
       // Always drop the secret after a run. submitPassword writes a
       // fresh one for the next attempt, so survival between runs has

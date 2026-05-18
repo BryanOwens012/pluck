@@ -117,3 +117,18 @@ export class YtDlpCancelledError extends YtDlpError {
     this.name = 'YtDlpCancelledError';
   }
 }
+
+/** Thrown when yt-dlp couldn't read cookies for the configured browser —
+ * Keychain access denied (Chromium-family) or no Full Disk Access (Safari).
+ * The `browser` field carries the name so the renderer can craft a
+ * per-browser actionable message ("click Allow on the Keychain prompt"
+ * vs "grant Full Disk Access in System Settings"). */
+export class YtDlpCookieAccessDeniedError extends YtDlpError {
+  constructor(
+    public readonly browser: string,
+    stderr?: string,
+  ) {
+    super(`yt-dlp could not access ${browser} cookies`, stderr);
+    this.name = 'YtDlpCookieAccessDeniedError';
+  }
+}

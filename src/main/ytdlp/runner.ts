@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import type { Format } from '../../shared/types';
-import { isPasswordRequiredError, parseMetadata, parseProgressLine } from './parser';
+import {
+  isCookieAccessDeniedError,
+  isPasswordRequiredError,
+  parseMetadata,
+  parseProgressLine,
+} from './parser';
 import {
   type FetchMetadataOptions,
   type RunDownloadOptions,
@@ -12,6 +17,7 @@ import {
   type RunnerDeps,
   type VideoMetadata,
   YtDlpCancelledError,
+  YtDlpCookieAccessDeniedError,
   YtDlpError,
   YtDlpPasswordRequiredError,
 } from './types';
@@ -100,6 +106,14 @@ export const fetchMetadata = async (
     return parseMetadata(stdout);
   } catch (err) {
     if (err instanceof Error && 'stderr' in err && typeof err.stderr === 'string') {
+      // Cookie-access-denied is checked BEFORE the password-required
+      // signal because both can fire on Zoom (the user picked a
+      // browser, macOS denied → yt-dlp may also report "passcode
+      // required" downstream). The cookies failure is the upstream
+      // cause; surfacing that is more actionable.
+      if (options.cookiesFromBrowser && isCookieAccessDeniedError(err.stderr)) {
+        throw new YtDlpCookieAccessDeniedError(options.cookiesFromBrowser, err.stderr);
+      }
       if (isPasswordRequiredError(err.stderr)) {
         throw new YtDlpPasswordRequiredError(err.stderr);
       }
@@ -241,6 +255,10 @@ export const runDownload = (
           return;
         }
         if (code !== 0) {
+          if (opts.cookiesFromBrowser && isCookieAccessDeniedError(stderr)) {
+            reject(new YtDlpCookieAccessDeniedError(opts.cookiesFromBrowser, stderr));
+            return;
+          }
           if (isPasswordRequiredError(stderr)) {
             reject(new YtDlpPasswordRequiredError(stderr));
             return;
