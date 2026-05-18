@@ -141,6 +141,57 @@ describe('runDownload --cookies-from-browser pass-through', () => {
   });
 });
 
+describe('runDownload -N (concurrent fragments) pass-through', () => {
+  /** Reuse the argv-recorder from the cookies tests — same shape:
+   * write argv to <dir>/.argv, exit 1. */
+  const argvRecorder = async (dir: string): Promise<string> => {
+    const path = join(dir, 'argv-recorder');
+    await fs.writeFile(path, `#!/bin/sh\necho "$@" > "${dir}/.argv"\nexit 1\n`);
+    await fs.chmod(path, 0o755);
+    return path;
+  };
+
+  it('passes -N <value> when concurrentFragments is set', async () => {
+    const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-nfragments-test-'));
+    const fakePath = await argvRecorder(workspace);
+    try {
+      await runDownload(
+        {
+          url: 'https://example.com/x',
+          format: 'best',
+          tempFolder: workspace,
+          concurrentFragments: 8,
+        },
+        { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
+      ).catch(() => {});
+      const argv = await fs.readFile(join(workspace, '.argv'), 'utf-8');
+      // -N 8 appears as adjacent tokens in the argv echo.
+      expect(argv).toMatch(/-N 8/);
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+
+  it('falls back to the runner default (14) when unset', async () => {
+    const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-nfragments-test-'));
+    const fakePath = await argvRecorder(workspace);
+    try {
+      await runDownload(
+        {
+          url: 'https://example.com/x',
+          format: 'best',
+          tempFolder: workspace,
+        },
+        { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
+      ).catch(() => {});
+      const argv = await fs.readFile(join(workspace, '.argv'), 'utf-8');
+      expect(argv).toMatch(/-N 14/);
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('runDownload onRawLine (debug log tap)', () => {
   /** Fake yt-dlp that prints a few lines to stdout AND stderr then
    * exits 1. The order matters for the test: we want to confirm BOTH

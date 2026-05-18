@@ -9,7 +9,14 @@ import { detectInstalledBrowsers } from './browser-detection';
 import type { MetadataCache } from './metadata-cache';
 import type { DownloadQueue } from './queue';
 import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
-import type { Settings, SettingsStore } from './settings';
+import {
+  MAX_CONCURRENT_DOWNLOADS,
+  MAX_CONCURRENT_FRAGMENTS,
+  MIN_CONCURRENT_DOWNLOADS,
+  MIN_CONCURRENT_FRAGMENTS,
+  type Settings,
+  type SettingsStore,
+} from './settings';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -144,6 +151,22 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     }
     if (typeof patchObj.debugMode === 'boolean') {
       sanitized.debugMode = patchObj.debugMode;
+    }
+    if (
+      typeof patchObj.concurrentFragments === 'number' &&
+      Number.isInteger(patchObj.concurrentFragments) &&
+      patchObj.concurrentFragments >= MIN_CONCURRENT_FRAGMENTS &&
+      patchObj.concurrentFragments <= MAX_CONCURRENT_FRAGMENTS
+    ) {
+      sanitized.concurrentFragments = patchObj.concurrentFragments;
+    }
+    if (
+      typeof patchObj.concurrentDownloads === 'number' &&
+      Number.isInteger(patchObj.concurrentDownloads) &&
+      patchObj.concurrentDownloads >= MIN_CONCURRENT_DOWNLOADS &&
+      patchObj.concurrentDownloads <= MAX_CONCURRENT_DOWNLOADS
+    ) {
+      sanitized.concurrentDownloads = patchObj.concurrentDownloads;
     }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();

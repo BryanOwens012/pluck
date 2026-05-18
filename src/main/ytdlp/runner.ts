@@ -27,14 +27,16 @@ const METADATA_MAX_BUFFER = 100 * 1024 * 1024;
 // last N lines are what matter for diagnosing the failure.
 const MAX_STDERR_RETENTION_LINES = 256;
 
-// Parallel HTTP connections yt-dlp opens per single download (`-N`). yt-dlp's
-// default is 1 (serial); 14 saturates most home connections without enough
-// per-server load to trip rate limits on the sites we target (YouTube,
-// Vimeo, Zoom). This is *intra-download* parallelism (chunks of one video);
-// the queue's max-3 in PR 5 is *inter-download* parallelism — a separate
-// axis. With 3 concurrent downloads at -N 14 we top out at ~42 sockets,
-// well under any consumer machine's limit.
-const DOWNLOAD_CONCURRENCY = 14;
+// Default for yt-dlp `-N` (parallel HTTP connections per single download)
+// when the caller doesn't specify. yt-dlp's own default is 1 (serial); 14
+// saturates most home connections without enough per-server load to trip
+// rate limits on the sites we target (YouTube, Vimeo, Zoom). This is
+// *intra-download* parallelism (chunks of one video); the queue's max-3
+// in PR 5 is *inter-download* parallelism — a separate axis. With 3
+// concurrent downloads at -N 14 we top out at ~42 sockets, well under
+// any consumer machine's limit. The user can override this per-app
+// via Settings → Developer → Concurrent fragments (1-16).
+const DEFAULT_DOWNLOAD_CONCURRENCY = 14;
 
 // Emit one JSON object per progress tick. yt-dlp writes both its info chatter
 // (`[youtube] Extracting URL: ...`) and the progress-template output to
@@ -129,7 +131,7 @@ export const runDownload = (
       '--newline',
       '--no-mtime',
       '-N',
-      String(DOWNLOAD_CONCURRENCY),
+      String(opts.concurrentFragments ?? DEFAULT_DOWNLOAD_CONCURRENCY),
       '--ffmpeg-location',
       deps.ffmpegPath,
       '--paths',

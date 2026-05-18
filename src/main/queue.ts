@@ -7,10 +7,12 @@ import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } fr
 import type { RunDownloadOptions, RunDownloadResult, RunnerDeps } from './ytdlp/types';
 import { YtDlpCancelledError, YtDlpPasswordRequiredError } from './ytdlp/types';
 
-/** Spec: max 3 concurrent downloads. Above this every additional URL waits
- * in 'queued' until a slot opens. Inter-download parallelism — separate
- * from yt-dlp's -N 14 intra-download parallelism. */
-const MAX_CONCURRENT = 3;
+// Max concurrent downloads is now a user setting (Settings → Developer
+// → Concurrent downloads). Default 3; 1-10 range. Read via the
+// getMaxConcurrentDownloads callable below — live-read so a settings
+// change takes effect on the next tryStartNext without rebuilding the
+// queue. Decreasing while rows are active doesn't kill in-flight ones;
+// the cap just gates whether new queued rows promote.
 
 /** Padding so very fast downloads (a YouTube Short at -N 14 finishes in
  * one frame) still let the progress bar paint at least once before the
@@ -94,6 +96,13 @@ export type QueueOptions = {
    * is already past the metadata phase. Undefined = don't pass
    * `--cookies-from-browser`. */
   getCookiesFromBrowser: () => string | undefined;
+  /** Read at runOne time. Passed through to yt-dlp as `-N`. */
+  getConcurrentFragments: () => number;
+  /** Read in tryStartNext on every promotion attempt. The cap can
+   * grow mid-session (next queued row immediately promotes) or
+   * shrink (in-flight rows finish naturally, no new promotion until
+   * activeCount drops below the new cap). */
+  getMaxConcurrentDownloads: () => number;
   /** Read at every emit point. When false, the queue does no debug
    * work — no event construction, no raw-stderr subscription, no
    * skip-cleanup-on-failure. Cheap default state. */
@@ -196,7 +205,8 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     status === 'completed' || status === 'failed' || status === 'cancelled';
 
   const tryStartNext = (): void => {
-    if (activeCount >= MAX_CONCURRENT) {
+    const cap = opts.getMaxConcurrentDownloads();
+    if (activeCount >= cap) {
       return;
     }
     // FIFO: oldest queued first. Map iteration order is insertion order,
@@ -204,7 +214,7 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     for (const download of state.values()) {
       if (download.status === 'queued') {
         void runOne(download.id);
-        if (activeCount >= MAX_CONCURRENT) {
+        if (activeCount >= cap) {
           return;
         }
       }
@@ -258,6 +268,7 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
           tempFolder,
           videoPassword: secrets.get(id),
           cookiesFromBrowser: opts.getCookiesFromBrowser(),
+          concurrentFragments: opts.getConcurrentFragments(),
           cancelSignal: abortController.signal,
           // Subscribe to the raw stderr/stdout firehose only when
           // debug mode is on — otherwise the closure-per-line cost is

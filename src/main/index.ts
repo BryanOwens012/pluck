@@ -153,6 +153,8 @@ app.whenReady().then(async () => {
     // snapshotted in their Download struct.
     getDefaultOutputFolder: () => settings.get().outputFolder,
     getCookiesFromBrowser: () => settings.get().cookiesFromBrowser,
+    getConcurrentFragments: () => settings.get().concurrentFragments,
+    getMaxConcurrentDownloads: () => settings.get().concurrentDownloads,
     getDebugMode: () => settings.get().debugMode,
     tempBaseDir: PLUCK_CACHE_DIR,
     runnerDeps,

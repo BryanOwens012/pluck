@@ -49,20 +49,18 @@ export const LogBox = ({ lines }: Props): React.JSX.Element => {
       onScroll={handleScroll}
       className="mt-3 h-48 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950 p-2 font-mono text-[11px] leading-relaxed text-neutral-400"
     >
-      {lines.length === 0 ? (
-        <div className="text-neutral-600">Waiting for activity…</div>
-      ) : (
-        lines.map((line, idx) => (
-          // Lines aren't independently identifiable (timestamp +
-          // phase + message could repeat for throttled progress
-          // ticks), so use index. Buffer is append-only + bounded,
-          // so the index-as-key risk (reorder mis-renders) is moot.
-          // biome-ignore lint/suspicious/noArrayIndexKey: append-only bounded buffer
-          <div key={idx} className={LINE_CLASS[line.phase] ?? 'text-neutral-400'}>
-            <span className="text-neutral-600">[{line.phase}]</span> {line.message}
-          </div>
-        ))
-      )}
+      {lines.map((line, idx) => (
+        // Lines aren't independently identifiable (timestamp + phase
+        // + message could repeat for throttled progress ticks), so
+        // use index. Buffer is append-only + bounded, so the
+        // index-as-key risk (reorder mis-renders) is moot. Empty
+        // state isn't handled here — DownloadRow only mounts LogBox
+        // when there's at least one line.
+        // biome-ignore lint/suspicious/noArrayIndexKey: append-only bounded buffer
+        <div key={idx} className={LINE_CLASS[line.phase] ?? 'text-neutral-400'}>
+          <span className="text-neutral-600">[{line.phase}]</span> {line.message}
+        </div>
+      ))}
     </div>
   );
 };

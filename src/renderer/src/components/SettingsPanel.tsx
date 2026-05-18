@@ -97,6 +97,8 @@ export const SettingsPanel = ({
               Developer
             </h3>
             <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
+            <ConcurrentDownloadsRow />
+            <ConcurrentFragmentsRow />
             <ClearTempFoldersRow />
           </section>
         </div>
@@ -144,6 +146,117 @@ const DebugModeRow = ({
     </label>
   );
 };
+
+// Concurrency dial bounds. Source of truth is main/settings.ts; the
+// renderer mirrors them so the dropdown can populate without an IPC
+// round-trip. Kept in sync manually — change both places together.
+const MIN_CONCURRENT_FRAGMENTS = 1;
+const MAX_CONCURRENT_FRAGMENTS = 20;
+const DEFAULT_CONCURRENT_FRAGMENTS = 14;
+const MIN_CONCURRENT_DOWNLOADS = 1;
+const MAX_CONCURRENT_DOWNLOADS = 10;
+const DEFAULT_CONCURRENT_DOWNLOADS = 3;
+
+type ConcurrencyKey = 'concurrentFragments' | 'concurrentDownloads';
+
+type ConcurrencyRowProps = {
+  settingKey: ConcurrencyKey;
+  label: string;
+  description: string;
+  min: number;
+  max: number;
+  initialDefault: number;
+};
+
+/** Shared scaffold for the two concurrency dropdowns. Both load from
+ * settings, optimistic-save on change, revert + show error on failure.
+ * Extracted because the two rows are mechanically identical apart
+ * from the setting key and copy. */
+const ConcurrencyRow = ({
+  settingKey,
+  label,
+  description,
+  min,
+  max,
+  initialDefault,
+}: ConcurrencyRowProps): React.JSX.Element => {
+  const [value, setValue] = useState<number>(initialDefault);
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState<string | undefined>(undefined);
+
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => {
+        setValue(s[settingKey]);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        console.error('getSettings rejected:', err);
+        setLoaded(true);
+      });
+  }, [settingKey]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLSelectElement>): void => {
+    const next = Number.parseInt(event.target.value, 10);
+    const prev = value;
+    setValue(next);
+    setError(undefined);
+    api.updateSettings({ [settingKey]: next }).catch((err: unknown) => {
+      console.error('updateSettings rejected:', err);
+      setValue(prev);
+      setError('Failed to save.');
+    });
+  };
+
+  const options = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-neutral-200">{label}</div>
+          <div className="text-xs text-neutral-500">{description}</div>
+        </div>
+        <select
+          value={loaded ? value : initialDefault}
+          onChange={handleChange}
+          disabled={!loaded}
+          className="shrink-0 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-600 focus:outline-none disabled:opacity-50"
+        >
+          {options.map((n) => (
+            <option key={n} value={n}>
+              {n}
+            </option>
+          ))}
+        </select>
+      </div>
+      {error ? <p className="text-xs text-red-400">{error}</p> : null}
+    </div>
+  );
+};
+
+const ConcurrentFragmentsRow = (): React.JSX.Element => (
+  <ConcurrencyRow
+    settingKey="concurrentFragments"
+    label="Concurrent fragments"
+    description={`yt-dlp's -N flag (parallel chunks per single download). Higher = faster, but can trip per-server rate limits. Default ${DEFAULT_CONCURRENT_FRAGMENTS}.`}
+    min={MIN_CONCURRENT_FRAGMENTS}
+    max={MAX_CONCURRENT_FRAGMENTS}
+    initialDefault={DEFAULT_CONCURRENT_FRAGMENTS}
+  />
+);
+
+const ConcurrentDownloadsRow = (): React.JSX.Element => (
+  <ConcurrencyRow
+    settingKey="concurrentDownloads"
+    label="Concurrent downloads"
+    description={`How many downloads run at once. The rest wait in 'Queued' until a slot opens. Default ${DEFAULT_CONCURRENT_DOWNLOADS}.`}
+    min={MIN_CONCURRENT_DOWNLOADS}
+    max={MAX_CONCURRENT_DOWNLOADS}
+    initialDefault={DEFAULT_CONCURRENT_DOWNLOADS}
+  />
+);
 
 type ClearState =
   | { phase: 'idle' }

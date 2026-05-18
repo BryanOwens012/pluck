@@ -159,7 +159,11 @@ export const DownloadRow = ({
           </div>
         ) : null}
 
-        {debugMode ? <LogBox lines={debugLog ?? []} /> : null}
+        {/* Only render the log box when there's actually something to
+            show. An empty box "Waiting for activity…" placeholder
+            would just be visual noise on completed rows in history
+            (no events ever fire for them post-load). */}
+        {debugMode && debugLog && debugLog.length > 0 ? <LogBox lines={debugLog} /> : null}
 
         {/* Failed-state error block; always shown regardless of debug mode. */}
         {download.status === 'failed' && download.error ? (

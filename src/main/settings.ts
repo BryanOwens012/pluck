@@ -19,6 +19,25 @@ const SETTINGS_FILENAME = 'settings.json';
  * need to exist at settings-load time. */
 export const defaultOutputFolder = (): string => join(homedir(), 'Downloads', 'Pluck');
 
+/** yt-dlp `-N` value: parallel HTTP connections per single download.
+ * 1 is fully serial; ~16 is where per-server rate limits start
+ * tripping on YouTube / Vimeo / Zoom for most users, but yt-dlp
+ * itself doesn't cap it. We expose up to 20 so a power user with a
+ * fat pipe can push it if they want. Default 14 saturates most home
+ * connections cleanly. */
+export const MIN_CONCURRENT_FRAGMENTS = 1;
+export const MAX_CONCURRENT_FRAGMENTS = 20;
+export const DEFAULT_CONCURRENT_FRAGMENTS = 14;
+
+/** Number of simultaneous downloads the queue allows. A 4th waits in
+ * 'queued' until a slot opens. Lower keeps each row faster (no
+ * bandwidth contention); higher gets more rows moving at once. 10 is
+ * a soft ceiling — beyond that the queue chews bandwidth without
+ * meaningfully improving wall time. Default 3 keeps it sane. */
+export const MIN_CONCURRENT_DOWNLOADS = 1;
+export const MAX_CONCURRENT_DOWNLOADS = 10;
+export const DEFAULT_CONCURRENT_DOWNLOADS = 3;
+
 export type Settings = {
   outputFolder: string;
   /** When set, every yt-dlp invocation (metadata + download) gets
@@ -32,6 +51,12 @@ export type Settings = {
    * lines; failed downloads keep their temp folder for inspection.
    * Default `false` — invisible to the primary user. */
   debugMode: boolean;
+  /** Integer in [MIN_CONCURRENT_FRAGMENTS, MAX_CONCURRENT_FRAGMENTS].
+   * Passed to yt-dlp as `-N`. */
+  concurrentFragments: number;
+  /** Integer in [MIN_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS].
+   * Queue's simultaneous-active cap. */
+  concurrentDownloads: number;
 };
 
 type SettingsFile = {
@@ -72,6 +97,27 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
   if (s.debugMode !== undefined && typeof s.debugMode !== 'boolean') {
     return false;
   }
+  // concurrentFragments is similarly optional. When present must be an
+  // integer in range — a stray "100" in the JSON would otherwise sail
+  // through to yt-dlp and likely trip rate limits.
+  if (s.concurrentFragments !== undefined) {
+    const n = s.concurrentFragments;
+    if (typeof n !== 'number' || !Number.isInteger(n)) {
+      return false;
+    }
+    if (n < MIN_CONCURRENT_FRAGMENTS || n > MAX_CONCURRENT_FRAGMENTS) {
+      return false;
+    }
+  }
+  if (s.concurrentDownloads !== undefined) {
+    const n = s.concurrentDownloads;
+    if (typeof n !== 'number' || !Number.isInteger(n)) {
+      return false;
+    }
+    if (n < MIN_CONCURRENT_DOWNLOADS || n > MAX_CONCURRENT_DOWNLOADS) {
+      return false;
+    }
+  }
   // cookiesFromBrowser is optional; if present, must be one of the
   // known browser names. Reject the file if it's something else — a
   // hand-edited typo or schema drift would otherwise silently pass an
@@ -93,7 +139,12 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
 export const createSettingsStore = async (dir: string): Promise<SettingsStore> => {
   const filePath = join(dir, SETTINGS_FILENAME);
 
-  const defaults: Settings = { outputFolder: defaultOutputFolder(), debugMode: false };
+  const defaults: Settings = {
+    outputFolder: defaultOutputFolder(),
+    debugMode: false,
+    concurrentFragments: DEFAULT_CONCURRENT_FRAGMENTS,
+    concurrentDownloads: DEFAULT_CONCURRENT_DOWNLOADS,
+  };
   let current: Settings = defaults;
 
   try {

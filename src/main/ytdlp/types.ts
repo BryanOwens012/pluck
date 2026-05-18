@@ -69,6 +69,11 @@ export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
    * DebugLogEvent. Subscribing has a cost (one closure per line), so
    * callers should only set this when debug mode is on. */
   onRawLine?: (line: string) => void;
+  /** yt-dlp `-N` value (parallel HTTP fragments). Falls back to the
+   * runner's default when undefined. Callers (queue, smoke harness)
+   * pass the live settings value so a user change applies to the
+   * next started download. */
+  concurrentFragments?: number;
 };
 
 /** Per-call options for the metadata fetch. Same `cookiesFromBrowser`

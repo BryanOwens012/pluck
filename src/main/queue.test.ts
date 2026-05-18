@@ -157,6 +157,8 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
   return {
     getDefaultOutputFolder: (): string => outputDir,
     getCookiesFromBrowser: (): string | undefined => undefined,
+    getConcurrentFragments: (): number => 14,
+    getMaxConcurrentDownloads: (): number => 3,
     getDebugMode: (): boolean => false,
     tempBaseDir,
     runnerDeps,
@@ -207,6 +209,35 @@ describe('DownloadQueue', () => {
     const live = queue.getAll();
     expect(live.filter((d) => d.status === 'downloading')).toHaveLength(3);
     expect(live.find((d) => d.id === ids[3])?.status).toBe('queued');
+  });
+
+  it('respects a live getMaxConcurrentDownloads override (cap=5 promotes 5)', async () => {
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getMaxConcurrentDownloads: () => 5,
+    });
+    const ids = Array.from({ length: 6 }, (_, i) =>
+      queue.enqueue(makeRequest(`https://example.com/${i}`)),
+    );
+
+    await waitFor(() => fakeRuns.length === 5);
+    const live = queue.getAll();
+    expect(live.filter((d) => d.status === 'downloading')).toHaveLength(5);
+    expect(live.find((d) => d.id === ids[5])?.status).toBe('queued');
+  });
+
+  it('respects a cap=1 (serial-downloads mode)', async () => {
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getMaxConcurrentDownloads: () => 1,
+    });
+    queue.enqueue(makeRequest('https://example.com/1'));
+    queue.enqueue(makeRequest('https://example.com/2'));
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Only one running; the second should stay queued.
+    const live = queue.getAll();
+    expect(live.filter((d) => d.status === 'downloading')).toHaveLength(1);
   });
 
   it('promotes the next queued row when an active one finishes', async () => {
