@@ -191,6 +191,10 @@ export const runDownload = (
     // Destination: ...`, etc.) so we don't need to pre-filter.
     const stdoutReader = createInterface({ input: child.stdout });
     stdoutReader.on('line', (line) => {
+      // Debug tap: forward every stdout line (progress JSON included)
+      // when the caller wants the raw firehose. Cheap when off — the
+      // optional chain skips the closure call entirely.
+      opts.onRawLine?.(line);
       const event = parseProgressLine(line);
       if (event) {
         opts.onProgress?.(event);
@@ -202,6 +206,10 @@ export const runDownload = (
     // on a non-zero exit.
     const stderrReader = createInterface({ input: child.stderr });
     stderrReader.on('line', (line) => {
+      // Same debug tap on stderr — both streams flow to the log box
+      // when on, so the user sees a complete picture of yt-dlp's
+      // output without having to spawn it themselves.
+      opts.onRawLine?.(line);
       stderrChunks.push(line);
       if (stderrChunks.length > MAX_STDERR_RETENTION_LINES) {
         stderrChunks.shift();

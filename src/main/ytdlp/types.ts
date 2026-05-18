@@ -63,6 +63,12 @@ export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
    * unaware of the allowed set so the runner module has zero settings
    * coupling. */
   cookiesFromBrowser?: string;
+  /** Optional raw-stderr tap for the debug log box. The runner calls
+   * this for every stderr line (post-readline). Caller decides what
+   * to do with the firehose — typically forwards each line as a
+   * DebugLogEvent. Subscribing has a cost (one closure per line), so
+   * callers should only set this when debug mode is on. */
+  onRawLine?: (line: string) => void;
 };
 
 /** Per-call options for the metadata fetch. Same `cookiesFromBrowser`

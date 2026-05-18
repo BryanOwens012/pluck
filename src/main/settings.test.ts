@@ -66,6 +66,47 @@ describe('createSettingsStore', () => {
     expect(b.get().cookiesFromBrowser).toBeUndefined();
   });
 
+  it('debugMode defaults to false on first run', async () => {
+    const store = await createSettingsStore(dir);
+    expect(store.get().debugMode).toBe(false);
+  });
+
+  it('round-trips debugMode through update → reload', async () => {
+    const a = await createSettingsStore(dir);
+    await a.update({ debugMode: true });
+    expect(a.get().debugMode).toBe(true);
+
+    const b = await createSettingsStore(dir);
+    expect(b.get().debugMode).toBe(true);
+  });
+
+  it('legacy settings.json without debugMode loads as debugMode: false', async () => {
+    // Forward-compat: a file written before this PR has no debugMode
+    // key. The defaults-spread in createSettingsStore should fill it
+    // in as false rather than carrying `undefined` forward.
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, settings: { outputFolder: '/tmp/x' } }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    expect(store.get().debugMode).toBe(false);
+    expect(store.get().outputFolder).toBe('/tmp/x');
+  });
+
+  it('rejects a settings file with a non-boolean debugMode', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, settings: { outputFolder: '/tmp/x', debugMode: 'yes' } }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    expect(store.get().debugMode).toBe(false);
+    expect(errorSpy).toHaveBeenCalled();
+    errorSpy.mockRestore();
+  });
+
   it('rejects a settings file with an invalid cookiesFromBrowser value', async () => {
     // Hand-edited typo or schema drift — must fall back to defaults
     // rather than silently passing `--cookies-from-browser banana` to

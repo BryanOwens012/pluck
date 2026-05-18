@@ -157,6 +157,7 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
   return {
     getDefaultOutputFolder: (): string => outputDir,
     getCookiesFromBrowser: (): string | undefined => undefined,
+    getDebugMode: (): boolean => false,
     tempBaseDir,
     runnerDeps,
     runDownload,
@@ -311,6 +312,53 @@ describe('DownloadQueue', () => {
     for (const id of activeIds) {
       queue.cancel(id);
     }
+  });
+
+  it('emits no debug log events when getDebugMode returns false', async () => {
+    const onDebugLog = vi.fn();
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      onDebugLog,
+    });
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Synthesize a progress event so the queue's emit-debug guard
+    // fires through the throttled progress path too.
+    fakeRuns[0]?.opts.onProgress?.({ status: 'downloading', percent: 50 });
+
+    // Debug mode off → onDebugLog never called regardless of how many
+    // phase boundaries we cross.
+    expect(onDebugLog).not.toHaveBeenCalled();
+
+    queue.cancel(id);
+  });
+
+  it('emits lifecycle phase events when getDebugMode returns true', async () => {
+    const onDebugLog = vi.fn();
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getDebugMode: () => true,
+      onDebugLog,
+    });
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Resolve the run successfully so we walk all phase boundaries.
+    const fakeFile = join(fakeRuns[0]?.opts.tempFolder ?? '', 'fake.mp4');
+    await fs.writeFile(fakeFile, 'x');
+    fakeRuns[0]?.resolve({ filePath: fakeFile });
+
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'completed', 3000);
+
+    const phases = onDebugLog.mock.calls.map((c) => (c[0] as { phase: string }).phase);
+    expect(phases).toContain('metadata:start');
+    expect(phases).toContain('metadata:done');
+    expect(phases).toContain('download:start');
+    expect(phases).toContain('download:done');
+    expect(phases).toContain('move:start');
+    expect(phases).toContain('move:done');
+    expect(phases).toContain('cleanup:done');
   });
 
   it('reads getDefaultOutputFolder on every enqueue (live-read semantics)', () => {

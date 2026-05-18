@@ -140,3 +140,51 @@ describe('runDownload --cookies-from-browser pass-through', () => {
     }
   });
 });
+
+describe('runDownload onRawLine (debug log tap)', () => {
+  /** Fake yt-dlp that prints a few lines to stdout AND stderr then
+   * exits 1. The order matters for the test: we want to confirm BOTH
+   * streams are forwarded through onRawLine. */
+  const chatteringRunner = async (dir: string): Promise<string> => {
+    const path = join(dir, 'chattering-yt-dlp');
+    await fs.writeFile(
+      path,
+      `#!/bin/sh
+echo "stdout-line-1"
+echo "stderr-line-1" >&2
+echo "stdout-line-2"
+echo "stderr-line-2" >&2
+exit 1
+`,
+    );
+    await fs.chmod(path, 0o755);
+    return path;
+  };
+
+  it('invokes onRawLine for every stdout AND stderr line', async () => {
+    const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-rawline-test-'));
+    const fakePath = await chatteringRunner(workspace);
+    const lines: string[] = [];
+    try {
+      await runDownload(
+        {
+          url: 'https://example.com/x',
+          format: 'best',
+          tempFolder: workspace,
+          onRawLine: (line) => lines.push(line),
+        },
+        { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
+      ).catch(() => {
+        // Expected — fake exits 1.
+      });
+      // Order between stdout vs stderr lines isn't deterministic
+      // (separate readline streams) — just assert all four landed.
+      expect(lines).toContain('stdout-line-1');
+      expect(lines).toContain('stdout-line-2');
+      expect(lines).toContain('stderr-line-1');
+      expect(lines).toContain('stderr-line-2');
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
+});

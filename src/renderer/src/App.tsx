@@ -1,11 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Download, Format } from '../../shared/types';
+import type { DebugLogEvent, Download, Format } from '../../shared/types';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { PasswordPrompt } from './components/PasswordPrompt';
 import { SettingsPanel } from './components/SettingsPanel';
 import { UrlInput } from './components/UrlInput';
 import { api } from './lib/api';
+
+/** Per-download log buffer cap. Debug mode for one long Zoom recording
+ * shouldn't balloon renderer memory — we drop the oldest lines when
+ * the buffer hits this size. 500 lines is roughly 8-10 minutes of
+ * throttled progress + scattered yt-dlp chatter. */
+const MAX_LOG_LINES_PER_ID = 500;
 
 const App = (): React.JSX.Element => {
   // Keyed by Download.id so push updates replace by id; rendered as a list
@@ -17,7 +23,14 @@ const App = (): React.JSX.Element => {
   // from SettingsPanel. The folder picker lives inside Settings now;
   // App keeps the value so startDownload doesn't need to re-fetch.
   const [outputFolder, setOutputFolder] = useState<string | undefined>(undefined);
+  const [debugMode, setDebugMode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Per-id log buffers. Only populated when debugMode is true (main
+  // gates emits there too). Capped per-id at MAX_LOG_LINES_PER_ID —
+  // older lines fall off the front when the buffer fills.
+  const [debugLogs, setDebugLogs] = useState<Map<string, readonly DebugLogEvent[]>>(
+    () => new Map(),
+  );
   // Currently-open password prompt, by row id. Single modal at a time.
   const [passwordPromptId, setPasswordPromptId] = useState<string | undefined>(undefined);
   // Rows the user has explicitly dismissed without entering a password,
@@ -64,14 +77,35 @@ const App = (): React.JSX.Element => {
       .then((settings) => {
         if (!cancelled) {
           setOutputFolder(settings.outputFolder);
+          setDebugMode(settings.debugMode);
         }
       })
       .catch((err: unknown) => {
         console.error('getSettings rejected:', err);
       });
+    // Always subscribe to debug-log pushes — main only emits when its
+    // own getDebugMode() returns true, so an unsubscribed-but-on
+    // listener would still see zero traffic. Subscribing
+    // unconditionally also handles the case where the user flips the
+    // toggle mid-session: events start arriving without a remount.
+    const unsubscribeDebug = api.onDebugLog((event) => {
+      setDebugLogs((prev) => {
+        const next = new Map(prev);
+        const existing = next.get(event.id) ?? [];
+        const updated = [...existing, event];
+        // Drop oldest when over the cap. Slicing is O(n) but n is
+        // bounded at MAX_LOG_LINES_PER_ID so this is fine.
+        if (updated.length > MAX_LOG_LINES_PER_ID) {
+          updated.splice(0, updated.length - MAX_LOG_LINES_PER_ID);
+        }
+        next.set(event.id, updated);
+        return next;
+      });
+    });
     return () => {
       cancelled = true;
       unsubscribe();
+      unsubscribeDebug();
     };
   }, []);
 
@@ -147,7 +181,12 @@ const App = (): React.JSX.Element => {
           <UrlInput onSubmit={handleSubmit} />
           <FormatSelector value={format} onChange={setFormat} />
         </div>
-        <DownloadQueue rows={rows} onOpenPasswordPrompt={handleOpenPasswordPrompt} />
+        <DownloadQueue
+          rows={rows}
+          onOpenPasswordPrompt={handleOpenPasswordPrompt}
+          debugMode={debugMode}
+          debugLogs={debugLogs}
+        />
       </div>
       {promptDownload ? (
         <PasswordPrompt download={promptDownload} onDismiss={handleDismissPasswordPrompt} />
@@ -156,6 +195,8 @@ const App = (): React.JSX.Element => {
         <SettingsPanel
           outputFolder={outputFolder}
           onOutputFolderChange={setOutputFolder}
+          debugMode={debugMode}
+          onDebugModeChange={setDebugMode}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}

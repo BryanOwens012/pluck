@@ -14,6 +14,34 @@ export type Format = (typeof FORMATS)[number];
 export const BROWSER_NAMES = ['chrome', 'firefox', 'safari', 'brave', 'edge'] as const;
 export type BrowserName = (typeof BROWSER_NAMES)[number];
 
+/** Lifecycle phase boundaries the queue + runner emit when debug mode
+ * is on. The renderer renders these in the per-download log box.
+ * `ytdlp` is the catch-all for raw stderr lines from yt-dlp itself
+ * (forwarded line-by-line; not parsed). */
+export const DEBUG_LOG_PHASES = [
+  'metadata:start',
+  'metadata:done',
+  'download:start',
+  'download:progress',
+  'download:done',
+  'move:start',
+  'move:done',
+  'cleanup:done',
+  'error',
+  'ytdlp',
+] as const;
+export type DebugLogPhase = (typeof DEBUG_LOG_PHASES)[number];
+
+/** One line in a per-download debug log buffer. `id` is the Download
+ * id; `timestamp` is Date.now() at emit time so the renderer can show
+ * elapsed time without owning a clock. */
+export type DebugLogEvent = {
+  id: string;
+  phase: DebugLogPhase;
+  message: string;
+  timestamp: number;
+};
+
 export type DownloadRequest = {
   url: string;
   format: Format;

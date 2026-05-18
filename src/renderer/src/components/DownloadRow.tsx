@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { Download } from '../../../shared/types';
+import type { DebugLogEvent, Download } from '../../../shared/types';
 import { api } from '../lib/api';
+import { LogBox } from './LogBox';
 import { resolveSiteGlyph, SourceSiteIcon } from './SourceSiteIcon';
 
 type Props = {
@@ -10,6 +11,12 @@ type Props = {
    * to reopen a dismissed prompt without waiting for the next status
    * transition. */
   onOpenPasswordPrompt?: (id: string) => void;
+  /** When true (debug mode), the row shows a folder-icon button to
+   * open its temp dir + a log box below the row body. Off by default. */
+  debugMode?: boolean;
+  /** Per-id log buffer, capped + appended by App. Only rendered when
+   * debugMode is true. */
+  debugLog?: readonly DebugLogEvent[];
 };
 
 /** Lucide-style folder icon, inlined to avoid pulling in an icon dep just
@@ -63,7 +70,12 @@ const formatPercent = (value: number): string =>
 const clampPercent = (value: number): number =>
   Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
 
-export const DownloadRow = ({ download, onOpenPasswordPrompt }: Props): React.JSX.Element => {
+export const DownloadRow = ({
+  download,
+  onOpenPasswordPrompt,
+  debugMode,
+  debugLog,
+}: Props): React.JSX.Element => {
   const headerTitle = download.title ?? download.url;
   const percent = clampPercent(download.progress);
   // Once yt-dlp reports any non-zero percent we switch to a determinate
@@ -89,6 +101,7 @@ export const DownloadRow = ({ download, onOpenPasswordPrompt }: Props): React.JS
             ) : null}
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {debugMode ? <DebugTempFolderButton id={download.id} /> : null}
             {download.status === 'downloading' ? <CancelButton id={download.id} /> : null}
             <div className={`text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
               {STATUS_LABEL[download.status]}
@@ -145,6 +158,8 @@ export const DownloadRow = ({ download, onOpenPasswordPrompt }: Props): React.JS
             </button>
           </div>
         ) : null}
+
+        {debugMode ? <LogBox lines={debugLog ?? []} /> : null}
 
         {/* Failed-state error block; always shown regardless of debug mode. */}
         {download.status === 'failed' && download.error ? (
@@ -212,6 +227,28 @@ const SourceSiteBadge = ({ siteKey, url }: { siteKey: string; url: string }): Re
     >
       <SourceSiteIcon siteKey={siteKey} />
       <span>{siteKey}</span>
+    </button>
+  );
+};
+
+/** Folder-icon button visible only in debug mode. Click → opens the
+ * per-download temp folder in Finder. Cheap log-box note (not a modal)
+ * if the folder has already been cleaned (typical post-success case). */
+const DebugTempFolderButton = ({ id }: { id: string }): React.JSX.Element => {
+  const handleClick = (): void => {
+    api.openTempFolder(id).catch((err: unknown) => {
+      console.error('openTempFolder rejected:', err);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleClick}
+      title="Open temp folder (debug)"
+      aria-label="Open temp folder"
+      className="rounded p-1 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-200"
+    >
+      <FolderIcon />
     </button>
   );
 };

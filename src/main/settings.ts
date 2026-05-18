@@ -26,6 +26,12 @@ export type Settings = {
    * Unlocks age-gated YouTube, private Vimeo / LinkedIn / Twitter, and
    * other login-required content the user is already signed in to. */
   cookiesFromBrowser?: BrowserName;
+  /** Power-user diagnostic surface. When on: every download row gets
+   * a live log box + folder button to its temp dir; the queue emits
+   * lifecycle events to the renderer; the runner forwards raw stderr
+   * lines; failed downloads keep their temp folder for inspection.
+   * Default `false` — invisible to the primary user. */
+  debugMode: boolean;
 };
 
 type SettingsFile = {
@@ -60,6 +66,12 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
   if (typeof s.outputFolder !== 'string') {
     return false;
   }
+  // Both newer fields (cookiesFromBrowser, debugMode) are optional on
+  // disk — additive schema. Reject only if PRESENT and the wrong type;
+  // missing is fine.
+  if (s.debugMode !== undefined && typeof s.debugMode !== 'boolean') {
+    return false;
+  }
   // cookiesFromBrowser is optional; if present, must be one of the
   // known browser names. Reject the file if it's something else — a
   // hand-edited typo or schema drift would otherwise silently pass an
@@ -81,7 +93,7 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
 export const createSettingsStore = async (dir: string): Promise<SettingsStore> => {
   const filePath = join(dir, SETTINGS_FILENAME);
 
-  const defaults: Settings = { outputFolder: defaultOutputFolder() };
+  const defaults: Settings = { outputFolder: defaultOutputFolder(), debugMode: false };
   let current: Settings = defaults;
 
   try {

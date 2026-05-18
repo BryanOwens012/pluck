@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { basename } from 'node:path';
-import type { Download, DownloadRequest } from '../shared/types';
+import type { DebugLogEvent, DebugLogPhase, Download, DownloadRequest } from '../shared/types';
 import type { MetadataCache } from './metadata-cache';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
@@ -20,6 +20,11 @@ const MIN_VISIBLE_DOWNLOADING_MS = 500;
 /** After this many wrong password submissions on the same row, give up
  * and mark the row 'failed'. Matches the spec's 3-attempt cap. */
 const MAX_PASSWORD_ATTEMPTS = 3;
+
+/** Throttle for `download:progress` debug log entries — yt-dlp fires
+ * progress multiple times a second, but the log box doesn't need that
+ * resolution. One entry per second is plenty to follow the trend. */
+const DEBUG_PROGRESS_THROTTLE_MS = 1000;
 
 /** Filesystem errno → user-facing message. Stderr / absolute paths never
  * reach the renderer; this lookup is what stays safe. */
@@ -89,6 +94,15 @@ export type QueueOptions = {
    * is already past the metadata phase. Undefined = don't pass
    * `--cookies-from-browser`. */
   getCookiesFromBrowser: () => string | undefined;
+  /** Read at every emit point. When false, the queue does no debug
+   * work — no event construction, no raw-stderr subscription, no
+   * skip-cleanup-on-failure. Cheap default state. */
+  getDebugMode: () => boolean;
+  /** Receives lifecycle + raw-stderr events. Called only when
+   * getDebugMode() is true, so the implementation can assume "user
+   * wants to see this" — typically fans out via the DebugLog IPC
+   * channel. */
+  onDebugLog?: (event: DebugLogEvent) => void;
   /** Base dir for per-download workspaces (~/Library/Caches/video.pluck.app/). */
   tempBaseDir: string;
   /** Path to yt-dlp + ffmpeg, passed through to the runner. */
@@ -151,6 +165,17 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     opts.onPersistChange?.([...state.values()]);
   };
 
+  /** Emit a debug log event iff debug mode is on. The outer guard means
+   * the message-construction cost (e.g. JSON.stringify on metadata) is
+   * also skipped in the off case — callers should pass a thunk if the
+   * message is expensive, but most calls just pass a string literal. */
+  const emitDebug = (id: string, phase: DebugLogPhase, message: string): void => {
+    if (!opts.getDebugMode()) {
+      return;
+    }
+    opts.onDebugLog?.({ id, phase, message, timestamp: Date.now() });
+  };
+
   const emit = (id: string, patch: Partial<Download> = {}): void => {
     const current = state.get(id);
     if (!current) {
@@ -200,9 +225,15 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
 
     const outputFolder = download.outputFolder;
     const tempFolder = await createTempFolder(opts.tempBaseDir, id);
+    // Tracks the last `download:progress` debug log emit so we can
+    // throttle to ~1/sec — yt-dlp progress fires multiple times per
+    // second, but the user reading the log box doesn't need that. Set
+    // to 0 so the first progress event always emits.
+    let lastDebugProgressAt = 0;
     try {
       await fs.mkdir(outputFolder, { recursive: true });
 
+      emitDebug(id, 'metadata:start', download.url);
       const meta = await opts.metadataCache.get(download.url);
       // Note: the metadata cache was warmed at URL paste with the
       // cookies setting that was active *at paste time*. If the user
@@ -216,8 +247,10 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
         durationSec: meta.durationSec,
         thumbnailUrl: meta.thumbnailUrl,
       });
+      emitDebug(id, 'metadata:done', `${meta.extractor}: ${meta.title}`);
 
       const smoother = createProgressSmoother();
+      emitDebug(id, 'download:start', `format=${download.format}`);
       const result = await opts.runDownload(
         {
           url: download.url,
@@ -226,6 +259,11 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
           videoPassword: secrets.get(id),
           cookiesFromBrowser: opts.getCookiesFromBrowser(),
           cancelSignal: abortController.signal,
+          // Subscribe to the raw stderr/stdout firehose only when
+          // debug mode is on — otherwise the closure-per-line cost is
+          // pure waste. Captured at runOne entry; a settings toggle
+          // during the run won't take effect until the next row.
+          onRawLine: opts.getDebugMode() ? (line) => emitDebug(id, 'ytdlp', line) : undefined,
           onProgress: (event) => {
             smoother.sample(event.speed, event.eta);
             const smoothed = smoother.current();
@@ -237,13 +275,31 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
               speed: smoothed.speed,
               eta: smoothed.eta,
             });
+            // Throttled lifecycle log — gives a once-per-second
+            // "we're alive" entry without flooding the log box. The
+            // outer emitDebug guard skips when debug mode is off, so
+            // we don't even pay the Date.now() cost most of the time.
+            if (opts.getDebugMode()) {
+              const now = Date.now();
+              if (now - lastDebugProgressAt >= DEBUG_PROGRESS_THROTTLE_MS) {
+                lastDebugProgressAt = now;
+                emitDebug(
+                  id,
+                  'download:progress',
+                  `${smoothed.speed ?? '—'} · ETA ${smoothed.eta ?? '—'}`,
+                );
+              }
+            }
           },
         },
         opts.runnerDeps,
       );
+      emitDebug(id, 'download:done', result.filePath);
 
+      emitDebug(id, 'move:start', outputFolder);
       const finalPath = await resolveAvailablePath(outputFolder, basename(result.filePath));
       await moveFile(result.filePath, finalPath);
+      emitDebug(id, 'move:done', finalPath);
 
       await padToMinDuration(download.createdAt, MIN_VISIBLE_DOWNLOADING_MS);
 
@@ -281,9 +337,11 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
           emit(id, { status: 'needs_password', speed: undefined, eta: undefined });
         }
       } else {
+        const message = friendlyErrorMessage(err);
+        emitDebug(id, 'error', message);
         emit(id, {
           status: 'failed',
-          error: friendlyErrorMessage(err),
+          error: message,
           speed: undefined,
           eta: undefined,
         });
@@ -291,7 +349,20 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     } finally {
       abortControllers.delete(id);
       activeCount -= 1;
-      await removeTempFolder(tempFolder);
+      // Debug mode preserves the temp folder for failed downloads so
+      // the user can inspect yt-dlp's fragments + merged output. The
+      // success / cancelled / needs_password paths still clean up —
+      // success has nothing useful left; cancel was the user's intent
+      // anyway. needs_password is non-terminal so the next run reuses
+      // the slot but a fresh temp folder.
+      const finalStatus = state.get(id)?.status;
+      const keepTemp = opts.getDebugMode() && finalStatus === 'failed';
+      if (!keepTemp) {
+        await removeTempFolder(tempFolder);
+        emitDebug(id, 'cleanup:done', tempFolder);
+      } else {
+        emitDebug(id, 'cleanup:done', `kept for inspection: ${tempFolder}`);
+      }
       // Always drop the secret after a run. submitPassword writes a
       // fresh one for the next attempt, so survival between runs has
       // no functional effect — and dropping eagerly keeps the secrets

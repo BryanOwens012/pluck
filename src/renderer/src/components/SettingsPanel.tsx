@@ -11,6 +11,11 @@ type Props = {
   outputFolder: string;
   /** Called when the output folder changes (picker bubble-up). */
   onOutputFolderChange: (next: string) => void;
+  /** Current debug-mode flag. App owns it so DownloadQueue + main
+   * stay in sync without each component re-fetching settings. */
+  debugMode: boolean;
+  /** Called when the user toggles debug mode in the Developer section. */
+  onDebugModeChange: (next: boolean) => void;
   /** Called to close the panel. */
   onClose: () => void;
 };
@@ -21,6 +26,8 @@ type Props = {
 export const SettingsPanel = ({
   outputFolder,
   onOutputFolderChange,
+  debugMode,
+  onDebugModeChange,
   onClose,
 }: Props): React.JSX.Element => {
   return (
@@ -85,9 +92,102 @@ export const SettingsPanel = ({
               help="Powers AI prompt suggestions (coming soon)."
             />
           </section>
+          <section className="space-y-2">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+              Developer
+            </h3>
+            <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
+            <ClearTempFoldersRow />
+          </section>
         </div>
         <VersionFooter />
       </div>
+    </div>
+  );
+};
+
+// ---- developer section ----------------------------------------------
+
+const DebugModeRow = ({
+  debugMode,
+  onChange,
+}: {
+  debugMode: boolean;
+  onChange: (next: boolean) => void;
+}): React.JSX.Element => {
+  const handleToggle = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const next = event.target.checked;
+    onChange(next);
+    // Optimistic UI: App's state flips immediately, the save happens
+    // in the background. On error we revert.
+    api.updateSettings({ debugMode: next }).catch((err: unknown) => {
+      console.error('updateSettings debugMode rejected:', err);
+      onChange(!next);
+    });
+  };
+
+  return (
+    <label className="flex items-start gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <input
+        type="checkbox"
+        checked={debugMode}
+        onChange={handleToggle}
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-100"
+      />
+      <span className="min-w-0 flex-1 text-xs">
+        <span className="block font-medium text-neutral-200">Debug mode</span>
+        <span className="block text-neutral-500">
+          Show a live log of yt-dlp activity under each download, plus a folder button to inspect
+          its temp directory. Failed downloads in debug mode keep their temp folder for inspection.
+        </span>
+      </span>
+    </label>
+  );
+};
+
+type ClearState =
+  | { phase: 'idle' }
+  | { phase: 'clearing' }
+  | { phase: 'done'; cleared: number }
+  | { phase: 'error'; message: string };
+
+const ClearTempFoldersRow = (): React.JSX.Element => {
+  const [state, setState] = useState<ClearState>({ phase: 'idle' });
+
+  const handleClick = async (): Promise<void> => {
+    setState({ phase: 'clearing' });
+    try {
+      const result = await api.clearTempFolders();
+      setState({ phase: 'done', cleared: result.cleared });
+    } catch (err) {
+      setState({
+        phase: 'error',
+        message: err instanceof Error ? err.message : 'Failed.',
+      });
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-neutral-200">Clear debug temp folders</div>
+        <div className="text-xs text-neutral-500">
+          Removes every per-download workspace under the cache directory.
+        </div>
+        {state.phase === 'done' ? (
+          <div className="mt-0.5 text-xs text-emerald-400">Cleared {state.cleared} folders.</div>
+        ) : state.phase === 'error' ? (
+          <div className="mt-0.5 text-xs text-red-400">{state.message}</div>
+        ) : null}
+      </div>
+      <button
+        type="button"
+        onClick={() => void handleClick()}
+        disabled={state.phase === 'clearing'}
+        className="shrink-0 rounded border border-neutral-800 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        {state.phase === 'clearing' ? 'Clearing…' : 'Clear'}
+      </button>
     </div>
   );
 };

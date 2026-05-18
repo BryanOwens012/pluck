@@ -137,18 +137,30 @@ app.whenReady().then(async () => {
     fetchMetadata(url, runnerDeps, { cookiesFromBrowser: settings.get().cookiesFromBrowser }),
   );
 
+  // Fan a debug log event out to every live window. Same broadcast
+  // pattern as broadcastDownloadUpdate — keeps multi-window safe.
+  const broadcastDebugLog = (event: import('../shared/types').DebugLogEvent): void => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) {
+        window.webContents.send(IpcChannels.DebugLog, event);
+      }
+    }
+  };
+
   const queue = createDownloadQueue({
     // Callable so a settings update takes effect on the next enqueue
     // without rebuilding the queue. In-flight rows keep the folder
     // snapshotted in their Download struct.
     getDefaultOutputFolder: () => settings.get().outputFolder,
     getCookiesFromBrowser: () => settings.get().cookiesFromBrowser,
+    getDebugMode: () => settings.get().debugMode,
     tempBaseDir: PLUCK_CACHE_DIR,
     runnerDeps,
     runDownload,
     metadataCache,
     generateId: generateDownloadId,
     onUpdate: broadcastDownloadUpdate,
+    onDebugLog: broadcastDebugLog,
     onPersistChange: (downloads) => {
       // Fire-and-forget. A write failure logs but doesn't crash the app
       // — history is best-effort. Called on enqueue, every status
@@ -165,7 +177,7 @@ app.whenReady().then(async () => {
   // 'queued' from the prior session to 'failed' (interrupted).
   queue.rehydrate(persistedDownloads);
 
-  registerIpcHandlers({ queue, metadataCache, settings, secrets });
+  registerIpcHandlers({ queue, metadataCache, settings, secrets, tempBaseDir: PLUCK_CACHE_DIR });
   prewarmYtDlp();
   createWindow();
 
