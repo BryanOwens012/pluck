@@ -417,4 +417,85 @@ describe('DownloadQueue', () => {
       'Download failed. The site may be unsupported or the URL may be invalid.',
     );
   });
+
+  it('password-required run flips to needs_password (not failed)', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpPasswordRequiredError('zoom: password required'));
+
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'needs_password');
+    const row = queue.getAll().find((d) => d.id === id);
+    expect(row?.error).toBeUndefined(); // not a "failure", per se
+    expect(row?.passwordAttempts ?? 0).toBe(0); // first natural prompt
+  });
+
+  it('submitPassword re-runs the download with the supplied password', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpPasswordRequiredError());
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'needs_password');
+
+    queue.submitPassword(id, 'secret-123');
+
+    await waitFor(() => fakeRuns.length === 2);
+    expect(fakeRuns[1]?.opts.videoPassword).toBe('secret-123');
+    expect(queue.getAll().find((d) => d.id === id)?.passwordAttempts).toBe(1);
+
+    queue.cancel(id);
+  });
+
+  it('flips to failed after MAX_PASSWORD_ATTEMPTS (3) wrong submissions', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    // First natural prompt — no submission yet, no attempt counted.
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpPasswordRequiredError());
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'needs_password');
+
+    for (let i = 1; i <= 3; i += 1) {
+      queue.submitPassword(id, `wrong-${i}`);
+      await waitFor(() => fakeRuns.length === i + 1);
+      fakeRuns[i]?.reject(new YtDlpPasswordRequiredError());
+      await waitFor(() => {
+        const r = queue.getAll().find((d) => d.id === id);
+        return r?.status === 'needs_password' || (i === 3 && r?.status === 'failed');
+      });
+    }
+
+    const finalRow = queue.getAll().find((d) => d.id === id);
+    expect(finalRow?.status).toBe('failed');
+    expect(finalRow?.error).toBe('Incorrect password (3 attempts).');
+    expect(finalRow?.passwordAttempts).toBe(3);
+  });
+
+  it('submitPassword is a no-op for ids not in needs_password', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Row is in 'downloading'; submitPassword shouldn't queue a re-run.
+    const runsBefore = fakeRuns.length;
+    queue.submitPassword(id, 'whatever');
+    expect(fakeRuns.length).toBe(runsBefore);
+    expect(queue.getAll().find((d) => d.id === id)?.status).toBe('downloading');
+
+    queue.cancel(id);
+  });
+
+  it('cancel on a needs_password row flips to cancelled (no process to kill)', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpPasswordRequiredError());
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'needs_password');
+
+    queue.cancel(id);
+    expect(queue.getAll().find((d) => d.id === id)?.status).toBe('cancelled');
+  });
 });

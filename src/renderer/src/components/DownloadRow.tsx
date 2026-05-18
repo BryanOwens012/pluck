@@ -5,6 +5,11 @@ import { resolveSiteGlyph, SourceSiteIcon } from './SourceSiteIcon';
 
 type Props = {
   download: Download;
+  /** Open the password prompt for this row. App owns the modal state;
+   * the row only signals "user wants to enter the password now". Used
+   * to reopen a dismissed prompt without waiting for the next status
+   * transition. */
+  onOpenPasswordPrompt?: (id: string) => void;
 };
 
 /** Lucide-style folder icon, inlined to avoid pulling in an icon dep just
@@ -29,6 +34,7 @@ const STATUS_LABEL: Record<Download['status'], string> = {
   queued: 'Queued',
   downloading: 'Downloading',
   canceling: 'Canceling…',
+  needs_password: 'Needs password',
   completed: 'Completed',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -38,12 +44,13 @@ const STATUS_LABEL: Record<Download['status'], string> = {
 // Tailwind classes for the small status badge in the row header. Failed gets
 // red so the row reads as broken at a glance even before the user reads the
 // error message below. Canceling/cancelled stay neutral — both are the
-// user's choice, not an error. Error display is always on — never gated
-// on debug mode.
+// user's choice, not an error. Needs-password uses amber to read as
+// "action required" without claiming the row has actually failed.
 const STATUS_BADGE_CLASS: Record<Download['status'], string> = {
   queued: 'text-neutral-400',
   downloading: 'text-neutral-400',
   canceling: 'text-neutral-500',
+  needs_password: 'text-amber-400',
   completed: 'text-neutral-400',
   failed: 'text-red-400',
   cancelled: 'text-neutral-500',
@@ -56,7 +63,7 @@ const formatPercent = (value: number): string =>
 const clampPercent = (value: number): number =>
   Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
 
-export const DownloadRow = ({ download }: Props): React.JSX.Element => {
+export const DownloadRow = ({ download, onOpenPasswordPrompt }: Props): React.JSX.Element => {
   const headerTitle = download.title ?? download.url;
   const percent = clampPercent(download.progress);
   // Once yt-dlp reports any non-zero percent we switch to a determinate
@@ -116,6 +123,27 @@ export const DownloadRow = ({ download }: Props): React.JSX.Element => {
 
         {download.status === 'completed' && download.filePath ? (
           <CompletedFooter filePath={download.filePath} />
+        ) : null}
+
+        {/* needs_password footer: amber to read as "action required" rather
+            than a failure. The auto-popped modal handles the happy path;
+            this button reopens it if the user dismissed. */}
+        {download.status === 'needs_password' && onOpenPasswordPrompt ? (
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-900/70 bg-amber-950/40 p-2.5">
+            <span aria-hidden="true" className="select-none text-sm leading-none text-amber-400">
+              🔒
+            </span>
+            <div className="min-w-0 flex-1 text-xs text-amber-300">
+              This recording is password-protected.
+            </div>
+            <button
+              type="button"
+              onClick={() => onOpenPasswordPrompt(download.id)}
+              className="shrink-0 rounded-md border border-amber-800/70 bg-amber-950/40 px-2 py-0.5 text-xs font-medium text-amber-300 transition hover:bg-amber-900/40 focus:outline-none focus-visible:bg-amber-900/40"
+            >
+              Enter password
+            </button>
+          </div>
         ) : null}
 
         {/* Failed-state error block; always shown regardless of debug mode. */}
