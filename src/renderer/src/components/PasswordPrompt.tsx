@@ -21,8 +21,8 @@ export const PasswordPrompt = ({ download, onDismiss }: Props): React.JSX.Elemen
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Autofocus the password field on mount so the user can type
-  // immediately. Re-runs if the modal swaps to a different download id
-  // (multi-row case) without unmounting.
+  // immediately. App unmounts + remounts the modal per row (single-modal
+  // design), so a fresh mount is all we need.
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -51,8 +51,9 @@ export const PasswordPrompt = ({ download, onDismiss }: Props): React.JSX.Elemen
       aria-labelledby="password-prompt-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={(event) => {
-        // Backdrop click dismisses; clicks inside the panel don't bubble
-        // out thanks to stopPropagation on the panel.
+        // Backdrop click dismisses; clicks inside the form land on form
+        // / input / button elements, so event.target !== currentTarget
+        // (the backdrop div). No stopPropagation needed.
         if (event.target === event.currentTarget) {
           onDismiss();
         }

@@ -280,14 +280,11 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       abortControllers.delete(id);
       activeCount -= 1;
       await removeTempFolder(tempFolder);
-      // Don't drop the password yet when the row is waiting for one —
-      // the user may resubmit the same string (e.g. they re-confirmed
-      // it elsewhere) and we'd lose it between attempts. On any terminal
-      // state, the secret is no longer needed; drop it now.
-      const finalStatus = state.get(id)?.status;
-      if (finalStatus !== 'needs_password') {
-        secrets.delete(id);
-      }
+      // Always drop the secret after a run. submitPassword writes a
+      // fresh one for the next attempt, so survival between runs has
+      // no functional effect — and dropping eagerly keeps the secrets
+      // map bounded to actively-running rows.
+      secrets.delete(id);
       // Terminal status was already persisted via the emit() above;
       // no extra save needed here.
       // Slot opened up — see if another queued row can now start.
