@@ -110,6 +110,14 @@ app.whenReady().then(async () => {
   // Electron's safeStorage adapter for the secrets store. The wrapper
   // shape lets tests inject a fake without booting an Electron context
   // (safeStorage requires app.whenReady, which the test harness lacks).
+  //
+  // IMPORTANT: every safeStorage call MUST happen after app.whenReady().
+  // Calling earlier locks the Keychain service name to "Chromium Safe
+  // Storage" — a bucket shared with every other Electron app on the
+  // machine — instead of the per-app "video.pluck.app Safe Storage"
+  // entry we want. See electron/electron#48206. The construction of
+  // this adapter (and the createSecretsStore call below) sits inside
+  // the whenReady callback specifically for this reason.
   const encryptor: Encryptor = {
     isAvailable: () => safeStorage.isEncryptionAvailable(),
     encrypt: (plaintext) => safeStorage.encryptString(plaintext),
