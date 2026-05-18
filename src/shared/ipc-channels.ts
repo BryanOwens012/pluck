@@ -85,6 +85,12 @@ export const IpcChannels = {
    * Returns { cleared, skippedActive } so the Settings button can
    * tell the user "Cleared N folders" plus "Skipped K active". */
   ClearTempFolders: 'pluck:clear-temp-folders',
+  /** Renderer -> main, invoke. Returns FormatChoice[] for the given
+   * URL — the four static presets with per-URL labels enriched (real
+   * dimensions, fps, container) plus an optional 5th non-mp4 option
+   * when it strictly beats the best mp4. Falls back to the four
+   * static defaults if metadata isn't available. */
+  GetFormatChoices: 'pluck:get-format-choices',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

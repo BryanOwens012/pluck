@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Download, DownloadRequest } from '../shared/types';
+import { type Download, type DownloadRequest, STATIC_FORMAT_CHOICES } from '../shared/types';
 import type { MetadataCache } from './metadata-cache';
 import {
   createDownloadQueue,
@@ -160,7 +160,7 @@ afterEach(async () => {
 
 const buildQueueDeps = (onUpdate: (d: Download) => void) => {
   const runnerDeps: RunnerDeps = { ytDlpPath: '/usr/bin/true', ffmpegPath: '/usr/bin/true' };
-  const fakeMeta: VideoMetadata = { id: 'x', title: 'Fake', extractor: 'youtube' };
+  const fakeMeta: VideoMetadata = { id: 'x', title: 'Fake', extractor: 'youtube', formats: [] };
   const metadataCache: MetadataCache = {
     get: () => Promise.resolve(fakeMeta),
     prefetch: () => {},
@@ -192,7 +192,10 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
   };
 };
 
-const makeRequest = (url = 'https://example.com/x'): DownloadRequest => ({ url, format: 'best' });
+const makeRequest = (url = 'https://example.com/x'): DownloadRequest => ({
+  url,
+  format: STATIC_FORMAT_CHOICES.best,
+});
 
 /** Wait until `predicate` is true or `timeoutMs` elapses. Polls every 10 ms. */
 const waitFor = async (predicate: () => boolean, timeoutMs = 1000): Promise<void> => {
@@ -443,7 +446,7 @@ describe('DownloadQueue', () => {
       {
         id: 'past-1',
         url: 'https://example.com/a',
-        format: 'best',
+        format: STATIC_FORMAT_CHOICES.best,
         outputFolder: outputDir,
         status: 'completed',
         progress: 100,
@@ -452,7 +455,7 @@ describe('DownloadQueue', () => {
       {
         id: 'past-2',
         url: 'https://example.com/b',
-        format: 'best',
+        format: STATIC_FORMAT_CHOICES.best,
         outputFolder: outputDir,
         status: 'failed',
         progress: 0,

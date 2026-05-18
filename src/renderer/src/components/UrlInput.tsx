@@ -5,6 +5,12 @@ import { api } from '../lib/api';
 
 type Props = {
   onSubmit: (url: string) => void;
+  /** Fired on every keystroke so the parent can drive per-URL UI
+   * (format probe, etc.). Already debounced inside this component for
+   * the metadata prefetch, but the parent gets the raw value so it can
+   * apply its own throttling if needed. Optional — components that
+   * just want the submit signal can skip it. */
+  onUrlChange?: (url: string) => void;
 };
 
 // Wait this long after the user stops typing before firing the speculative
@@ -18,22 +24,26 @@ const PREFETCH_DEBOUNCE_MS = 400;
 // resolve anyway.
 const MIN_PREFETCH_URL_LENGTH = 12;
 
-export const UrlInput = ({ onSubmit }: Props): React.JSX.Element => {
+export const UrlInput = ({ onSubmit, onUrlChange }: Props): React.JSX.Element => {
   const [url, setUrl] = useState('');
 
   // Drive the prefetch off a debounced copy of the URL. The effect runs at
   // most once per stability window because `debouncedUrl` only flips after
-  // the user stops typing.
+  // the user stops typing. Parent's per-URL listener (onUrlChange) also
+  // gets the debounced value — it's almost always doing IPC like the
+  // format probe, which should debounce too.
   const debouncedUrl = useDebouncedValue(url.trim(), PREFETCH_DEBOUNCE_MS);
   useEffect(() => {
     if (debouncedUrl.length < MIN_PREFETCH_URL_LENGTH || !isHttpUrl(debouncedUrl)) {
+      onUrlChange?.('');
       return;
     }
     api.prefetchMetadata(debouncedUrl).catch(() => {
       // Prefetch failures are silent — the actual download attempt will
       // surface them via the friendly-error path.
     });
-  }, [debouncedUrl]);
+    onUrlChange?.(debouncedUrl);
+  }, [debouncedUrl, onUrlChange]);
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();

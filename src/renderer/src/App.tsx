@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DebugLogEvent, Download, Format } from '../../shared/types';
+import {
+  type DebugLogEvent,
+  type Download,
+  type FormatChoice,
+  STATIC_FORMAT_CHOICES,
+  STATIC_FORMAT_CHOICES_ORDERED,
+} from '../../shared/types';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { PasswordPrompt } from './components/PasswordPrompt';
@@ -18,7 +24,22 @@ const App = (): React.JSX.Element => {
   // sorted by createdAt descending (newest first). One state owner, one
   // consumer (DownloadQueue) — no need for a global store yet.
   const [downloads, setDownloads] = useState<Map<string, Download>>(() => new Map());
-  const [format, setFormat] = useState<Format>('best');
+  // Currently-selected FormatChoice. Default to the static "Best Quality"
+  // entry; once a URL is probed (Phase B per-URL enrichment, future
+  // work in this PR), App swaps in a richer list and re-resolves the
+  // selection by id to keep the user's pick stable across re-probes.
+  const [format, setFormat] = useState<FormatChoice>(STATIC_FORMAT_CHOICES.best);
+  // Available choices for the dropdown. Starts as the four static
+  // defaults; the per-URL probe (triggered when the URL input changes)
+  // replaces them with enriched labels (real dimensions, fps, container)
+  // plus an optional 5th non-mp4 alternative. Selection is preserved
+  // across re-probes by id — if the user had picked '1080p' and the new
+  // probe still has a '1080p' entry, the dropdown stays on it even
+  // though the label may have changed.
+  const [formatChoices, setFormatChoices] = useState<readonly FormatChoice[]>(
+    STATIC_FORMAT_CHOICES_ORDERED,
+  );
+  const [pendingUrl, setPendingUrl] = useState('');
   // Settings snapshot. Loaded once on mount and refreshed after a save
   // from SettingsPanel. The folder picker lives inside Settings now;
   // App keeps the value so startDownload doesn't need to re-fetch.
@@ -109,6 +130,39 @@ const App = (): React.JSX.Element => {
     };
   }, []);
 
+  // Per-URL format probe. When the user types a URL in UrlInput (which
+  // debounces + calls api.prefetchMetadata), pendingUrl reflects the
+  // current value. We hit api.getFormatChoices to enrich the dropdown.
+  // The IPC handler shares the metadataCache with prefetch, so this is
+  // typically a cache hit (free). Selection is preserved across re-probes
+  // by id — if the new choices include the same id the user had picked,
+  // we keep it; otherwise we fall back to the first entry (Best).
+  useEffect(() => {
+    const url = pendingUrl.trim();
+    if (url.length === 0) {
+      setFormatChoices(STATIC_FORMAT_CHOICES_ORDERED);
+      return;
+    }
+    let cancelled = false;
+    api
+      .getFormatChoices(url)
+      .then((choices) => {
+        if (cancelled || choices.length === 0) {
+          return;
+        }
+        setFormatChoices(choices);
+        // Preserve selection by id; fall back to first choice if the
+        // previously-selected id is no longer in the list.
+        setFormat((prev) => choices.find((c) => c.id === prev.id) ?? choices[0] ?? prev);
+      })
+      .catch((err: unknown) => {
+        console.error('getFormatChoices rejected:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingUrl]);
+
   // Manage the password-prompt modal:
   //   (a) Auto-close if the currently-prompted row left needs_password
   //       (correct password succeeded, user cancelled, or 3rd attempt
@@ -178,8 +232,8 @@ const App = (): React.JSX.Element => {
           </button>
         </header>
         <div className="flex gap-2">
-          <UrlInput onSubmit={handleSubmit} />
-          <FormatSelector value={format} onChange={setFormat} />
+          <UrlInput onSubmit={handleSubmit} onUrlChange={setPendingUrl} />
+          <FormatSelector value={format} onChange={setFormat} choices={formatChoices} />
         </div>
         <DownloadQueue
           rows={rows}

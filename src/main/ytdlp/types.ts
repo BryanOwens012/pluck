@@ -1,5 +1,24 @@
 import type { DownloadRequest } from '../../shared/types';
 
+/** One entry in yt-dlp's `formats` array. Subset of fields we read for
+ * format-selection logic. yt-dlp may emit additional fields per entry
+ * (filesize_approx, language, fragments, etc.) — we ignore them. */
+export type FormatInfo = {
+  /** Container extension, e.g. "mp4", "webm", "m4a". */
+  ext: string;
+  /** yt-dlp's video-codec id; the literal "none" means audio-only. */
+  vcodec: string;
+  /** yt-dlp's audio-codec id; the literal "none" means video-only. */
+  acodec: string;
+  /** Pixel dimensions. Missing for audio-only entries. */
+  width?: number;
+  height?: number;
+  fps?: number;
+  /** Total bitrate (audio + video) in Kbps, used as a tiebreaker when
+   * width/height/fps are equal. yt-dlp may omit this. */
+  tbr?: number;
+};
+
 /**
  * Subset of `yt-dlp -J` metadata we actually consume. yt-dlp returns hundreds
  * of fields; only the ones used by the UI / queue / transcriber appear here.
@@ -14,6 +33,12 @@ export type VideoMetadata = {
   /** Absolute https URL of a preview thumbnail. yt-dlp picks one of several
    * resolutions; we just use whatever it gives us. */
   thumbnailUrl?: string;
+  /** Raw formats array as yt-dlp reported it. Used by format-selector.ts
+   * to compute per-URL FormatChoice labels (real resolution, fps,
+   * container) and to decide whether a non-mp4 alternative deserves the
+   * optional 5th dropdown slot. Empty array when yt-dlp couldn't enumerate
+   * formats (audio-only URL, single-stream extractor). */
+  formats: FormatInfo[];
 };
 
 export const PROGRESS_STATUSES = ['downloading', 'finished', 'error'] as const;
@@ -52,7 +77,12 @@ export type RunnerDeps = {
  * `cancelSignal` is the standard DOM AbortSignal. When it aborts mid-run,
  * the runner sends SIGTERM to the yt-dlp child, schedules SIGKILL after a
  * grace period, and rejects with YtDlpCancelledError. */
-export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder'> & {
+export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder' | 'format'> & {
+  /** Args carried by the chosen FormatChoice. Spread directly into yt-dlp's
+   * argv — caller built them already (either from STATIC_FORMAT_CHOICES
+   * or from format-selector.ts after a per-URL probe). The runner doesn't
+   * inspect or modify these; opaque pass-through. */
+  ytDlpFormatArgs: string[];
   tempFolder: string;
   onProgress?: (event: ProgressEvent) => void;
   cancelSignal?: AbortSignal;

@@ -4,8 +4,75 @@
  * from here.
  */
 
-export const FORMATS = ['best', '1080p', '720p', 'audio_mp3'] as const;
-export type Format = (typeof FORMATS)[number];
+/** Stable ids for the four built-in format presets. The optional 5th
+ * dropdown entry (a non-mp4 alternative when it strictly beats best mp4)
+ * uses the dynamic id 'best_alt'. Any future ids land here too. */
+export const FORMAT_IDS = ['best', '1080p', '720p', 'audio_mp3', 'best_alt'] as const;
+export type FormatId = (typeof FORMAT_IDS)[number];
+
+/** What the renderer picks and what the runner consumes. The id is
+ * stable across UI / IPC / history; the label is presentational and
+ * may include per-URL details ("1080p (1920×1080 mp4, 60fps)"); the
+ * args carry the actual yt-dlp flags to spawn with. Storing the args
+ * frozen at enqueue time means Retry replays the same flag set even
+ * if the source URL's available formats have changed since.
+ *
+ * For video presets the args are like `['-f', '...', '-S', 'res,fps,vcodec']`.
+ * For audio_mp3 they're `['-x', '--audio-format', 'mp3', '--audio-quality', '0']`.
+ * Empty args is valid in principle (would let yt-dlp pick its own
+ * default) but not used today. */
+export type FormatChoice = {
+  id: FormatId;
+  label: string;
+  ytDlpFormatArgs: string[];
+};
+
+/** Static fallback table — used by the renderer before a URL probe
+ * runs, and by history.ts to migrate legacy `format: 'best'` strings
+ * to the new FormatChoice shape. mp4-default args from PR 9.6 Phase A.
+ * Labels are generic ("Best Quality") because we don't know per-URL
+ * dimensions until format-selector runs on a fetched metadata pass. */
+export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, FormatChoice> = {
+  best: {
+    id: 'best',
+    label: 'Best Quality',
+    ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
+  },
+  '1080p': {
+    id: '1080p',
+    label: '1080p',
+    ytDlpFormatArgs: [
+      '-f',
+      'bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]',
+      '-S',
+      'res,fps,vcodec',
+    ],
+  },
+  '720p': {
+    id: '720p',
+    label: '720p',
+    ytDlpFormatArgs: [
+      '-f',
+      'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]',
+      '-S',
+      'res,fps,vcodec',
+    ],
+  },
+  audio_mp3: {
+    id: 'audio_mp3',
+    label: 'Audio Only (MP3)',
+    ytDlpFormatArgs: ['-x', '--audio-format', 'mp3', '--audio-quality', '0'],
+  },
+};
+
+/** Ordered list of the static presets — renderer uses this to populate
+ * the dropdown before any URL probe. */
+export const STATIC_FORMAT_CHOICES_ORDERED: readonly FormatChoice[] = [
+  STATIC_FORMAT_CHOICES.best,
+  STATIC_FORMAT_CHOICES['1080p'],
+  STATIC_FORMAT_CHOICES['720p'],
+  STATIC_FORMAT_CHOICES.audio_mp3,
+];
 
 /** Browsers yt-dlp can pull cookies from. Subset of yt-dlp's full list
  * (chromium, opera, vivaldi, whale also work) — these are the common
@@ -44,7 +111,7 @@ export type DebugLogEvent = {
 
 export type DownloadRequest = {
   url: string;
-  format: Format;
+  format: FormatChoice;
   /** Optional. If omitted, main process falls back to its configured default
    * (~/Downloads/Pluck until PR 6 introduces the settings-driven path). */
   outputFolder?: string;
@@ -72,7 +139,7 @@ export type Download = {
   /** Remote https URL for a preview thumbnail, populated after the metadata
    * pre-pass. Renderer loads it directly; CSP permits `img-src https:`. */
   thumbnailUrl?: string;
-  format: Format;
+  format: FormatChoice;
   outputFolder: string;
   filePath?: string;
   status: DownloadStatus;

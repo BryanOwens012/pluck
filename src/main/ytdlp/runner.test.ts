@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { STATIC_FORMAT_CHOICES } from '../../shared/types';
 import { runDownload } from './runner';
 import { YtDlpCancelledError, YtDlpError } from './types';
 
@@ -30,7 +31,7 @@ describe('runDownload cancellation', () => {
       const promise = runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
           tempFolder: workspace,
           cancelSignal: controller.signal,
         },
@@ -54,7 +55,7 @@ describe('runDownload cancellation', () => {
       const promise = runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
           tempFolder: workspace,
           cancelSignal: controller.signal,
         },
@@ -96,7 +97,7 @@ describe('runDownload --cookies-from-browser pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
           tempFolder: workspace,
           cookiesFromBrowser: 'chrome',
         },
@@ -119,7 +120,7 @@ describe('runDownload --cookies-from-browser pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
           tempFolder: workspace,
         },
         { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
@@ -142,7 +143,7 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
           tempFolder: workspace,
           concurrentFragments: 8,
         },
@@ -163,7 +164,7 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
           tempFolder: workspace,
         },
         { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
@@ -182,16 +183,14 @@ describe('runDownload format-flags (mp4-preferring presets)', () => {
   // candidate streams by res,fps,vcodec so 1080p60 wins over 1080p30
   // when both exist.
 
-  const runAndReadArgv = async (
-    format: 'best' | '1080p' | '720p' | 'audio_mp3',
-  ): Promise<string> => {
+  const runAndReadArgv = async (preset: keyof typeof STATIC_FORMAT_CHOICES): Promise<string> => {
     const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-format-test-'));
     const fakePath = await argvRecorder(workspace);
     try {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format,
+          ytDlpFormatArgs: STATIC_FORMAT_CHOICES[preset].ytDlpFormatArgs,
           tempFolder: workspace,
         },
         { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
@@ -267,7 +266,7 @@ exit 1
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
           tempFolder: workspace,
           onRawLine: (line) => lines.push(line),
         },

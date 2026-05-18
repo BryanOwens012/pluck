@@ -6,6 +6,7 @@ const fakeMeta = (id: string): VideoMetadata => ({
   id,
   title: `Video ${id}`,
   extractor: 'youtube',
+  formats: [],
 });
 
 describe('createMetadataCache', () => {

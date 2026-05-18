@@ -2,7 +2,13 @@ import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
 import type { SecretName } from '../main/secrets';
 import type { Settings } from '../main/settings';
 import { IpcChannels } from '../shared/ipc-channels';
-import type { BrowserName, DebugLogEvent, Download, DownloadRequest } from '../shared/types';
+import type {
+  BrowserName,
+  DebugLogEvent,
+  Download,
+  DownloadRequest,
+  FormatChoice,
+} from '../shared/types';
 
 export type HasApiKeys = { anthropic: boolean; elevenlabs: boolean };
 export type ApiKeyResult = { ok: true } | { ok: false; error: string };
@@ -140,6 +146,14 @@ const api = {
    * button. */
   clearTempFolders: (): Promise<{ cleared: number; skippedActive: number }> =>
     ipcRenderer.invoke(IpcChannels.ClearTempFolders),
+
+  /** Get the per-URL FormatChoice[] for the dropdown. Returns the four
+   * static defaults if the URL is invalid or yt-dlp's metadata can't
+   * be fetched (network down, private video, etc.). Otherwise returns
+   * enriched labels (real dimensions / fps / container) + an optional
+   * 5th non-mp4 alternative when it strictly beats the best mp4. */
+  getFormatChoices: (url: string): Promise<FormatChoice[]> =>
+    ipcRenderer.invoke(IpcChannels.GetFormatChoices, url),
 };
 
 export type PluckAPI = typeof api;

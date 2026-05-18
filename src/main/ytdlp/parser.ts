@@ -1,4 +1,4 @@
-import type { ProgressEvent, VideoMetadata } from './types';
+import type { FormatInfo, ProgressEvent, VideoMetadata } from './types';
 
 /**
  * Shape of one progress line as configured by `--progress-template` in runner.ts.
@@ -86,7 +86,40 @@ export const parseMetadata = (json: string): VideoMetadata => {
     durationSec: duration,
     uploader,
     thumbnailUrl,
+    formats: parseFormats(parsed.formats),
   };
+};
+
+/** Extract the `formats` array from `yt-dlp -J` output. yt-dlp always
+ * includes this for multi-stream extractors (YouTube, Vimeo) and
+ * sometimes for single-stream ones (direct .mp4 URLs). Anything that
+ * isn't an object with at least an `ext` + `vcodec` + `acodec` is
+ * dropped — yt-dlp occasionally emits half-built format entries during
+ * extractor edge cases. */
+const parseFormats = (raw: unknown): FormatInfo[] => {
+  if (!Array.isArray(raw)) {
+    return [];
+  }
+  const out: FormatInfo[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== 'object' || entry === null) {
+      continue;
+    }
+    const e = entry as Record<string, unknown>;
+    if (typeof e.ext !== 'string' || typeof e.vcodec !== 'string' || typeof e.acodec !== 'string') {
+      continue;
+    }
+    out.push({
+      ext: e.ext,
+      vcodec: e.vcodec,
+      acodec: e.acodec,
+      width: typeof e.width === 'number' ? e.width : undefined,
+      height: typeof e.height === 'number' ? e.height : undefined,
+      fps: typeof e.fps === 'number' ? e.fps : undefined,
+      tbr: typeof e.tbr === 'number' ? e.tbr : undefined,
+    });
+  }
+  return out;
 };
 
 /**

@@ -89,6 +89,7 @@ describe('parseMetadata', () => {
       durationSec: 327.5,
       uploader: 'Some Channel',
       thumbnailUrl: 'https://example.com/thumb.jpg',
+      formats: [],
     });
   });
 
@@ -101,7 +102,57 @@ describe('parseMetadata', () => {
       durationSec: undefined,
       uploader: undefined,
       thumbnailUrl: undefined,
+      formats: [],
     });
+  });
+
+  it('extracts the formats array when yt-dlp provides one', () => {
+    const json = JSON.stringify({
+      id: 'x',
+      title: 't',
+      extractor: 'youtube',
+      formats: [
+        {
+          ext: 'mp4',
+          vcodec: 'avc1.640028',
+          acodec: 'mp4a.40.2',
+          width: 1920,
+          height: 1080,
+          fps: 30,
+          tbr: 2500,
+        },
+        {
+          ext: 'webm',
+          vcodec: 'vp9',
+          acodec: 'opus',
+          width: 3840,
+          height: 2160,
+          fps: 60,
+          tbr: 8000,
+        },
+      ],
+    });
+    const meta = parseMetadata(json);
+    expect(meta.formats).toHaveLength(2);
+    expect(meta.formats[0]?.ext).toBe('mp4');
+    expect(meta.formats[1]?.height).toBe(2160);
+  });
+
+  it('drops malformed format entries (missing required fields) without throwing', () => {
+    // yt-dlp occasionally emits half-built entries during extractor
+    // edge cases. They should be skipped, not crash the parser.
+    const json = JSON.stringify({
+      id: 'x',
+      title: 't',
+      extractor: 'youtube',
+      formats: [
+        { ext: 'mp4', vcodec: 'avc1', acodec: 'mp4a', height: 720 }, // valid
+        { ext: 'webm' }, // missing vcodec + acodec — dropped
+        null, // garbage — dropped
+        { vcodec: 'vp9', acodec: 'opus' }, // missing ext — dropped
+      ],
+    });
+    expect(parseMetadata(json).formats).toHaveLength(1);
   });
 
   it('renames yt-dlp `thumbnail` field to `thumbnailUrl` in the output', () => {

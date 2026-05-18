@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
-import type { Download } from '../shared/types';
+import { type Download, type FormatId, STATIC_FORMAT_CHOICES } from '../shared/types';
 import { atomicWriteJson } from './atomic-json';
 
 /** Hard cap on persisted entries. When a write would exceed this, oldest
@@ -68,7 +68,11 @@ export const createHistoryStore = (dir: string): HistoryStore => {
       console.error('history: schema mismatch, starting clean');
       return [];
     }
-    return parsed.downloads.map(promoteInterruptedToFailed);
+    // Two passes: migrate legacy `format: string` rows to FormatChoice
+    // (PR 9.6b changed the shape), then promote any interrupted-by-quit
+    // rows to terminal states. Order matters — promotion expects the
+    // post-migration shape.
+    return parsed.downloads.map(migrateLegacyFormat).map(promoteInterruptedToFailed);
   };
 
   const save = async (downloads: Download[]): Promise<void> => {
@@ -99,6 +103,32 @@ const isHistoryFile = (value: unknown): value is HistoryFile => {
     Array.isArray(obj.downloads) &&
     obj.downloads.every((d) => typeof d === 'object' && d !== null && 'id' in d)
   );
+};
+
+/** Migrate legacy `format: 'best'` (string union from pre-PR-9.6b) into
+ * the new `format: FormatChoice` object shape. Lookup table is the four
+ * static presets — anything else falls back to 'best' to keep retry
+ * working. Exported for testing.
+ *
+ * The cast on `download` is the necessary cost of a runtime migration —
+ * we're explicitly handling the type-shape evolution. */
+export const migrateLegacyFormat = (download: Download): Download => {
+  const fmt = (download as unknown as Record<string, unknown>).format;
+  if (typeof fmt !== 'string') {
+    // Already the new shape (or undefined, which we don't write but
+    // tolerate on read).
+    return download;
+  }
+  // The string was one of FormatId minus 'best_alt'. 'best_alt' only
+  // ever appears as the dynamic 5th option — never written to history
+  // as a string. Anything else (corrupted, manually edited): fall back
+  // to 'best' so the row stays usable.
+  const id = fmt as FormatId;
+  const choice =
+    id === 'best' || id === '1080p' || id === '720p' || id === 'audio_mp3'
+      ? STATIC_FORMAT_CHOICES[id]
+      : STATIC_FORMAT_CHOICES.best;
+  return { ...download, format: choice };
 };
 
 /** Boot-path rewrite: any row left in a non-terminal state at app exit

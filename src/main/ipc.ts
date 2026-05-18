@@ -2,10 +2,17 @@ import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
 import { IpcChannels } from '../shared/ipc-channels';
-import { BROWSER_NAMES, type BrowserName, type DownloadRequest } from '../shared/types';
+import {
+  BROWSER_NAMES,
+  type BrowserName,
+  type DownloadRequest,
+  type FormatChoice,
+  STATIC_FORMAT_CHOICES_ORDERED,
+} from '../shared/types';
 import { isHttpUrl } from '../shared/url';
 import { testApiKey } from './api-key-test';
 import { detectInstalledBrowsers } from './browser-detection';
+import { resolveFormatChoices } from './format-selector';
 import type { MetadataCache } from './metadata-cache';
 import type { DownloadQueue } from './queue';
 import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
@@ -324,4 +331,25 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     );
     return { cleared, skippedActive };
   });
+  ipcMain.handle(
+    IpcChannels.GetFormatChoices,
+    async (_event, url: unknown): Promise<FormatChoice[]> => {
+      // Renderer probes per URL. We reuse the existing metadataCache —
+      // if the URL was prefetched on paste (PR 4.8), this is free; if
+      // not, we trigger a fresh fetch on demand. Silent fallback to the
+      // four static defaults on any failure: invalid URL, network down,
+      // private video without cookies, etc. The actual download attempt
+      // will surface any real error.
+      if (!isHttpUrl(url)) {
+        return [...STATIC_FORMAT_CHOICES_ORDERED];
+      }
+      try {
+        const meta = await deps.metadataCache.get(url);
+        return resolveFormatChoices(meta.formats);
+      } catch (err) {
+        console.error('GetFormatChoices: metadata fetch failed, returning static defaults', err);
+        return [...STATIC_FORMAT_CHOICES_ORDERED];
+      }
+    },
+  );
 };
