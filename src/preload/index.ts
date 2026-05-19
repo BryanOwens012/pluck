@@ -24,7 +24,7 @@ if (!process.contextIsolated) {
 /** The typed surface the renderer sees as `window.pluck`. Keep narrow — every
  * new field is a new IPC handler in main/ipc.ts plus a new channel constant. */
 const api = {
-  startDownload: (request: DownloadRequest): Promise<{ id: string }> =>
+  startDownload: (request: DownloadRequest): Promise<{ id: string } | { error: string }> =>
     ipcRenderer.invoke(IpcChannels.StartDownload, request),
 
   /** Subscribe to push updates for any download. Returns an unsubscribe

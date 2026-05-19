@@ -117,9 +117,21 @@ const isPlaylistOrder = (value: unknown): value is PlaylistOrder =>
 /** Wire all renderer→main and main→renderer IPC. Pure delegation to the
  * queue/cache; this module owns no download lifecycle itself anymore. */
 export const registerIpcHandlers = (deps: IpcDeps): void => {
-  ipcMain.handle(IpcChannels.StartDownload, (_event, request: DownloadRequest) => {
-    return { id: deps.queue.enqueue(request) };
-  });
+  ipcMain.handle(
+    IpcChannels.StartDownload,
+    (_event, request: DownloadRequest): { id: string } | { error: string } => {
+      // Defense in depth: the renderer normalizes + validates URLs
+      // before calling, but a compromised renderer could otherwise
+      // pass `file://` / `javascript:` / arbitrary bytes through
+      // here and have the queue try to spawn yt-dlp on them. Mirror
+      // the same guard `EnumeratePlaylist` / `OpenExternal` /
+      // `PrefetchMetadata` already use.
+      if (!request || typeof request !== 'object' || !isHttpUrl(request.url)) {
+        return { error: 'Invalid URL.' };
+      }
+      return { id: deps.queue.enqueue(request) };
+    },
+  );
   ipcMain.handle(IpcChannels.CancelDownload, (_event, id: unknown) => {
     // Unknown / wrong-type ids are silently ignored — the renderer can
     // race the IPC against a row completing, and we don't want to error

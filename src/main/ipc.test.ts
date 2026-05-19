@@ -283,3 +283,57 @@ describe('StartPlaylistDownload IPC handler', () => {
     expect(enqueueCalls).toEqual([]);
   });
 });
+
+describe('StartDownload IPC handler URL guard', () => {
+  beforeEach(() => {
+    handlersByChannel.clear();
+    registerIpcHandlers(buildFakeDeps());
+  });
+
+  const invokeStartDownload = (payload: unknown): unknown => {
+    const handler = handlersByChannel.get(IpcChannels.StartDownload);
+    if (!handler) {
+      throw new Error('StartDownload handler not registered');
+    }
+    return handler({}, payload);
+  };
+
+  it('enqueues a request with a valid https URL', () => {
+    const result = invokeStartDownload({
+      url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw',
+      format: STATIC_FORMAT_CHOICES.best,
+    });
+    expect(result).toEqual({ id: 'id-1' });
+    expect(enqueueCalls).toHaveLength(1);
+  });
+
+  it('rejects (no enqueue) non-http schemes — file:// / javascript: / data:', () => {
+    // Defense in depth: the renderer normalizes + validates before
+    // calling, but a compromised renderer could otherwise sneak
+    // these past and have the queue try to spawn yt-dlp on them.
+    for (const url of [
+      'file:///etc/passwd',
+      'javascript:alert(1)',
+      'data:text/html,hi',
+      'ftp://example.com/x',
+    ]) {
+      const result = invokeStartDownload({ url, format: STATIC_FORMAT_CHOICES.best });
+      expect(result).toEqual({ error: 'Invalid URL.' });
+    }
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  it('rejects (no enqueue) when url is missing / wrong type / empty', () => {
+    for (const url of [undefined, null, 42, '', 'not a url']) {
+      const result = invokeStartDownload({ url, format: STATIC_FORMAT_CHOICES.best });
+      expect(result).toEqual({ error: 'Invalid URL.' });
+    }
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  it('rejects (no enqueue) on a non-object payload', () => {
+    expect(invokeStartDownload(null)).toEqual({ error: 'Invalid URL.' });
+    expect(invokeStartDownload('not a payload')).toEqual({ error: 'Invalid URL.' });
+    expect(enqueueCalls).toEqual([]);
+  });
+});
