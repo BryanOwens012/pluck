@@ -124,6 +124,11 @@ export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder' | 'format'
    * A parse failure silently falls through to the auto path so a
    * broken override can't wedge new downloads. */
   ytDlpCommandOverride?: string;
+  /** When set, passes `--sleep-requests <n>` to yt-dlp — sleep this
+   * many seconds between extractor requests. Used to smooth the
+   * metadata-fetch burst from playlist rows running in parallel.
+   * Undefined = no sleep (yt-dlp's default). */
+  requestSleepSeconds?: number;
 };
 
 /** Per-call options for the metadata fetch. Same `cookiesFromBrowser`

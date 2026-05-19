@@ -393,6 +393,24 @@ describe('buildDownloadArgs override mode', () => {
     );
     expect(override.args).toContain('--no-playlist');
   });
+
+  it('emits --sleep-requests <n> when requestSleepSeconds is set', () => {
+    const { args } = buildDownloadArgs(optsForPreset('best', { requestSleepSeconds: 1 }), DEPS);
+    const idx = args.indexOf('--sleep-requests');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('1');
+  });
+
+  it('omits --sleep-requests when requestSleepSeconds is unset, zero, or negative', () => {
+    for (const value of [undefined, 0, -1]) {
+      const opts =
+        value === undefined
+          ? optsForPreset('best')
+          : optsForPreset('best', { requestSleepSeconds: value });
+      const { args } = buildDownloadArgs(opts, DEPS);
+      expect(args).not.toContain('--sleep-requests');
+    }
+  });
 });
 
 // ---- buildMetadataArgs --------------------------------------------------

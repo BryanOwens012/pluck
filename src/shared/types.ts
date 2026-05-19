@@ -272,6 +272,21 @@ export type PlaylistEntry = {
  * (`...&playlist_items=51-100`). */
 export const PLAYLIST_ENTRY_CAP = 50;
 
+/** Per-row `-N` cap when a Download row is part of a playlist enqueue.
+ * Multiple playlist rows in flight at once × the user's default -N
+ * (14) trips YouTube's per-IP rate limit fast — at 3 concurrent rows
+ * that's 42 simultaneous fragment connections, well above the
+ * threshold for 429 responses. Capping at 2 fragments per row keeps
+ * the total under a dozen even at the max concurrent-rows setting,
+ * with a modest single-video slowdown but no rate-limit storms.
+ * Single-video downloads (no playlistId) keep the user's setting. */
+export const PLAYLIST_ROW_CONCURRENT_FRAGMENTS = 2;
+
+/** Seconds yt-dlp sleeps between extractor requests for playlist
+ * rows (passed through `--sleep-requests`). Smooths the burst of
+ * metadata fetches that comes from N rows pre-fetching at once. */
+export const PLAYLIST_ROW_REQUEST_SLEEP_SECONDS = 1;
+
 /** Direction the user chose at the playlist prompt — only used for
  * the `enumeratePlaylist` IPC arg; persisted nowhere. */
 export const PLAYLIST_ORDERS = ['oldest_first', 'newest_first'] as const;

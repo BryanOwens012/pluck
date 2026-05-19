@@ -1,6 +1,13 @@
 import { promises as fs } from 'node:fs';
 import { basename } from 'node:path';
-import type { DebugLogEvent, DebugLogPhase, Download, DownloadRequest } from '../shared/types';
+import {
+  type DebugLogEvent,
+  type DebugLogPhase,
+  type Download,
+  type DownloadRequest,
+  PLAYLIST_ROW_CONCURRENT_FRAGMENTS,
+  PLAYLIST_ROW_REQUEST_SLEEP_SECONDS,
+} from '../shared/types';
 import type { MetadataCache } from './metadata-cache';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
@@ -295,14 +302,26 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
 
       const smoother = createProgressSmoother();
       emitDebug(id, 'download:start', `format=${download.format.id}`);
+      // Playlist rows get throttled: a low `-N` cap + an extractor
+      // sleep flag, both keyed off `download.playlistId`. Single-
+      // video downloads keep the user's `concurrentFragments` setting
+      // and no sleep. The math: at the default 3 concurrent rows × 14
+      // fragments per row = 42 simultaneous connections to YouTube,
+      // which trips per-IP rate limits hard. Capping each playlist
+      // row at 2 fragments brings the worst case to 6 connections,
+      // well under YouTube's threshold.
+      const isPlaylistRow = download.playlistId !== undefined;
       const runOpts: RunDownloadOptions = {
         url: download.url,
         ytDlpFormatArgs: download.format.ytDlpFormatArgs,
         tempFolder,
         videoPassword: secrets.get(id),
         cookiesFromBrowser: opts.getCookiesFromBrowser(),
-        concurrentFragments: opts.getConcurrentFragments(),
+        concurrentFragments: isPlaylistRow
+          ? PLAYLIST_ROW_CONCURRENT_FRAGMENTS
+          : opts.getConcurrentFragments(),
         ytDlpCommandOverride: opts.getYtDlpCommandOverride(),
+        requestSleepSeconds: isPlaylistRow ? PLAYLIST_ROW_REQUEST_SLEEP_SECONDS : undefined,
         cancelSignal: abortController.signal,
       };
       // Stamp the exact yt-dlp command on the row before spawn so the

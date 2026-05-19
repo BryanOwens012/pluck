@@ -347,6 +347,14 @@ export const buildDownloadArgs = (
     markerPath,
   ];
 
+  // Playlist-row throttle: insert a `--sleep-requests <n>` flag so
+  // yt-dlp spaces out the extractor calls during the per-row metadata
+  // pre-fetch. Caller (queue) sets this only for rows that belong to
+  // a playlist enqueue. Single-video downloads stay snappy.
+  if (opts.requestSleepSeconds !== undefined && opts.requestSleepSeconds > 0) {
+    framework.push('--sleep-requests', String(opts.requestSleepSeconds));
+  }
+
   const overrideArgs = resolveOverrideArgs(opts);
   if (overrideArgs !== undefined) {
     return { args: [...framework, ...overrideArgs], markerPath };

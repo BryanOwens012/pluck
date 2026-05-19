@@ -648,4 +648,37 @@ describe('DownloadQueue', () => {
     expect(row?.playlistTotal).toBeUndefined();
     queue.cancel(id);
   });
+
+  it('throttles playlist rows: caps -N at 2 and sets --sleep-requests', async () => {
+    // A row with playlistId set bypasses the user's concurrentFragments
+    // setting and uses the PLAYLIST_ROW_CONCURRENT_FRAGMENTS cap.
+    // Single-video downloads keep the user's setting.
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getConcurrentFragments: () => 14,
+    });
+    const id = queue.enqueue({
+      ...makeRequest('https://example.com/playlist-entry'),
+      playlistId: 'PLxxx',
+      playlistTitle: 'My Series',
+      playlistIndex: 1,
+      playlistTotal: 50,
+    });
+    await waitFor(() => fakeRuns.length === 1);
+    expect(fakeRuns[0]?.opts.concurrentFragments).toBe(2);
+    expect(fakeRuns[0]?.opts.requestSleepSeconds).toBe(1);
+    queue.cancel(id);
+  });
+
+  it('non-playlist rows keep the user-configured -N and no sleep', async () => {
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      getConcurrentFragments: () => 14,
+    });
+    const id = queue.enqueue(makeRequest());
+    await waitFor(() => fakeRuns.length === 1);
+    expect(fakeRuns[0]?.opts.concurrentFragments).toBe(14);
+    expect(fakeRuns[0]?.opts.requestSleepSeconds).toBeUndefined();
+    queue.cancel(id);
+  });
 });
