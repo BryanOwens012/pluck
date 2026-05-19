@@ -25,8 +25,8 @@ export type FormatId = (typeof FORMAT_IDS)[number];
  * `best` preset populates this since "1080p" / "720p" are already the
  * label, and audio_mp3 has no resolution; `detail` is the full per-URL
  * specifics ("1920×1080 mp4, 60fps") which the UI only renders in
- * debug mode (or always, for the `best_alt` 5th option whose entire
- * purpose is to surface a different container); `ytDlpFormatArgs`
+ * debug mode (or always, for the trailing `best_alt` entry whose
+ * entire purpose is to surface a different container); `ytDlpFormatArgs`
  * carries the actual yt-dlp flags. Storing the args frozen at enqueue
  * time means Retry replays the same flag set even if the source URL's
  * available formats have changed since.

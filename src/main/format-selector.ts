@@ -12,12 +12,13 @@ import type { FormatInfo } from './ytdlp/types';
  * Output: a dynamic dropdown list built from the probed metadata:
  *   - "Best" with a resolution shorthand attached (e.g. "4K",
  *     "1080p", "720p") so the user sees what they'll get.
- *   - Lower mp4 tiers (1080p / 720p) — included only when (a) an
- *     mp4 stream actually exists at that height and (b) it isn't a
- *     duplicate of the "Best" pick.
+ *   - Lower mp4 tiers (1080p / 720p / 480p / 360p) — included only
+ *     when (a) an mp4 stream actually exists at that height and (b)
+ *     it isn't a duplicate of the "Best" pick.
  *   - "Audio only (mp3)" — always.
- *   - Optional 5th `best_alt` entry labelled by shorthand + container
- *     ("4K (webm)") when a non-mp4 stream strictly beats the best mp4.
+ *   - Optional trailing `best_alt` entry labelled by shorthand +
+ *     container ("4K (webm)") when a non-mp4 stream strictly beats
+ *     the best mp4.
  *
  * AV1-in-mp4 is filtered out across the board because M1 / M2 Macs
  * have no hardware AV1 decode and QuickTime treats some AV1 files as
@@ -86,11 +87,12 @@ export const resolveFormatChoices = (formats: readonly FormatInfo[]): FormatChoi
   }
   choices.push(STATIC_FORMAT_CHOICES.audio_mp3);
 
-  // 5th option: the best non-mp4 unrestricted, IFF it strictly beats
-  // the best unrestricted mp4. "Strictly beats" = higher height, OR
-  // (same height AND higher fps), OR (same height AND fps AND higher
-  // tbr). Equal-quality non-mp4 doesn't earn a slot — there's no
-  // benefit, only the cost of a less-compatible container.
+  // Optional trailing `best_alt`: the best non-mp4 unrestricted, IFF
+  // it strictly beats the best unrestricted mp4. "Strictly beats" =
+  // higher height, OR (same height AND higher fps), OR (same height
+  // AND fps AND higher tbr). Equal-quality non-mp4 doesn't earn a
+  // slot — there's no benefit, only the cost of a less-compatible
+  // container.
   const nonMp4Videos = videoFormats.filter((f) => f.ext !== 'mp4');
   const bestNonMp4 = pickBestVideo(nonMp4Videos);
   if (bestNonMp4 !== undefined && strictlyBeats(bestNonMp4, bestMp4Unrestricted)) {
