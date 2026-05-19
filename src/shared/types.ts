@@ -93,8 +93,8 @@ const VIDEO_SORT_FLAGS = ['-S', 'res,vcodec:h264,fps'] as const;
  * to mp4 container, AV1 codec excluded (M1/M2 can't hardware-decode
  * AV1 well, and QuickTime treats some AV1-in-mp4 files as corrupt).
  * Falls back to a single-file mp4 if the bv*+ba merge isn't
- * available. Pass `undefined` for "unrestricted" (the Best preset). */
-const mp4VideoSelector = (maxHeight: number | undefined): string => {
+ * available. Omit `maxHeight` for "unrestricted" (the Best preset). */
+const mp4VideoSelector = (maxHeight?: number): string => {
   const heightClause = maxHeight === undefined ? '' : `[height<=${maxHeight}]`;
   return `bv*[ext=mp4][vcodec!*=av01]${heightClause}+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]${heightClause}`;
 };
@@ -106,7 +106,7 @@ export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, Format
   best: {
     id: 'best',
     label: 'Best',
-    ytDlpFormatArgs: ['-f', mp4VideoSelector(undefined), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
+    ytDlpFormatArgs: ['-f', mp4VideoSelector(), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   '1080p': {
     id: '1080p',
