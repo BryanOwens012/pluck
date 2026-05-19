@@ -1,17 +1,17 @@
 import type { PlaylistContext, PlaylistEntry } from '../../shared/types';
+import {
+  YtDlpFlatPlaylistEntrySchema,
+  YtDlpFlatPlaylistSchema,
+  YtDlpFormatSchema,
+  YtDlpPlaylistMetadataSchema,
+  YtDlpProgressLineSchema,
+  YtDlpVideoMetadataSchema,
+} from './schemas';
 import type { FormatInfo, ProgressEvent, VideoMetadata } from './types';
 
-/**
- * Shape of one progress line as configured by `--progress-template` in runner.ts.
- * yt-dlp's `_percent_str` includes a trailing "%"; speed/eta can be "Unknown".
- */
-type RawProgress = {
-  status?: string;
-  percent?: string;
-  speed?: string;
-  eta?: string;
-};
-
+/** Tokens yt-dlp emits when a field is missing — we treat any of
+ * these as "unknown" and surface as undefined so downstream UI
+ * doesn't render a literal "N/A" string. */
 const UNKNOWN_TOKENS = new Set(['Unknown', 'N/A', '', 'NA']);
 
 const cleanOptional = (value: string | undefined): string | undefined => {
@@ -23,7 +23,7 @@ const cleanOptional = (value: string | undefined): string | undefined => {
 };
 
 /**
- * Parse a single line off yt-dlp's stderr stream. Returns null for any line
+ * Parse a single line off yt-dlp's stdout stream. Returns null for any line
  * that isn't a JSON progress emission — runner.ts feeds every line through
  * here without prefiltering, which is fine because parsing is cheap and we
  * want a single source of truth for what counts as progress.
@@ -33,29 +33,26 @@ export const parseProgressLine = (line: string): ProgressEvent | null => {
   if (!trimmed.startsWith('{') || !trimmed.endsWith('}')) {
     return null;
   }
-
-  let raw: RawProgress;
+  let raw: unknown;
   try {
-    raw = JSON.parse(trimmed) as RawProgress;
+    raw = JSON.parse(trimmed);
   } catch {
     return null;
   }
-
-  if (raw.status !== 'downloading' && raw.status !== 'finished' && raw.status !== 'error') {
+  const parsed = YtDlpProgressLineSchema.safeParse(raw);
+  if (!parsed.success) {
     return null;
   }
-
   // `_percent_str` is rendered like " 42.3%" or "100%" or "N/A". Strip the "%"
   // and any padding; if it doesn't parse, fall through with NaN so the caller
   // can decide whether to ignore the event.
-  const percentRaw = (raw.percent ?? '').replace('%', '').trim();
+  const percentRaw = (parsed.data.percent ?? '').replace('%', '').trim();
   const percent = Number.parseFloat(percentRaw);
-
   return {
-    status: raw.status,
+    status: parsed.data.status,
     percent: Number.isFinite(percent) ? percent : Number.NaN,
-    speed: cleanOptional(raw.speed),
-    eta: cleanOptional(raw.eta),
+    speed: cleanOptional(parsed.data.speed),
+    eta: cleanOptional(parsed.data.eta),
   };
 };
 
@@ -77,35 +74,35 @@ export const parseProgressLine = (line: string): ProgressEvent | null => {
  *     `playlistContext` with `isExplicitPlaylistUrl: false`.
  */
 export const parseMetadata = (json: string): VideoMetadata => {
-  const parsed = JSON.parse(json) as Record<string, unknown>;
+  const raw = JSON.parse(json) as unknown;
 
-  if (parsed._type === 'playlist') {
-    return parsePlaylistShape(parsed);
+  // Dispatch on `_type` BEFORE validating against the video schema —
+  // the playlist shape doesn't carry the required (id, title,
+  // extractor) fields on its top level the way the video shape does,
+  // so trying to validate it as a video would throw spuriously.
+  if (
+    typeof raw === 'object' &&
+    raw !== null &&
+    (raw as { _type?: unknown })._type === 'playlist'
+  ) {
+    return parsePlaylistShape(raw);
   }
 
-  const id = typeof parsed.id === 'string' ? parsed.id : undefined;
-  const title = typeof parsed.title === 'string' ? parsed.title : undefined;
-  const extractor = typeof parsed.extractor === 'string' ? parsed.extractor : undefined;
-
-  if (!id || !title || !extractor) {
+  const parsed = YtDlpVideoMetadataSchema.safeParse(raw);
+  if (!parsed.success) {
     throw new Error('yt-dlp metadata missing required fields (id, title, extractor)');
   }
-
-  const duration = typeof parsed.duration === 'number' ? parsed.duration : undefined;
-  const uploader = typeof parsed.uploader === 'string' ? parsed.uploader : undefined;
-  const uploadDate = parseUploadDate(parsed.upload_date);
-  const thumbnailUrl = typeof parsed.thumbnail === 'string' ? parsed.thumbnail : undefined;
-
+  const data = parsed.data;
   return {
-    id,
-    title,
-    extractor,
-    durationSec: duration,
-    uploader,
-    uploadDate,
-    thumbnailUrl,
-    formats: parseFormats(parsed.formats),
-    playlistContext: parsePlaylistContextFromVideoRecord(parsed),
+    id: data.id,
+    title: data.title,
+    extractor: data.extractor,
+    durationSec: data.duration,
+    uploader: data.uploader,
+    uploadDate: data.upload_date,
+    thumbnailUrl: data.thumbnail,
+    formats: parseFormats(data.formats),
+    playlistContext: parsePlaylistContextFromVideoRecord(data),
   };
 };
 
@@ -114,26 +111,45 @@ export const parseMetadata = (json: string): VideoMetadata => {
  * from the first entry so callers don't have to special-case this
  * shape — the playlist prompt UI is what actually reads the
  * `playlistContext` and decides what to do. */
-const parsePlaylistShape = (parsed: Record<string, unknown>): VideoMetadata => {
-  const playlistId = typeof parsed.id === 'string' ? parsed.id : '';
-  const playlistTitle = typeof parsed.title === 'string' ? parsed.title : playlistId;
-  const extractor = typeof parsed.extractor === 'string' ? parsed.extractor : 'unknown';
-  const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-  const firstEntry = (entries[0] ?? {}) as Record<string, unknown>;
+const parsePlaylistShape = (raw: unknown): VideoMetadata => {
+  const parsed = YtDlpPlaylistMetadataSchema.safeParse(raw);
+  if (!parsed.success) {
+    // We only get here after the caller verified `_type === 'playlist'`,
+    // so this would only fire if the rest of the playlist shape is
+    // pathological. Throw with the same message the video path uses
+    // so downstream error handling treats both the same.
+    throw new Error('yt-dlp metadata missing required fields (id, title, extractor)');
+  }
+  const data = parsed.data;
+  const playlistId = data.id ?? '';
+  const playlistTitle = data.title ?? playlistId;
+  const extractor = data.extractor ?? 'unknown';
+  const entries = data.entries ?? [];
 
   // Stand in with first-entry data so the row preview the renderer
   // shows before the user picks "first video" vs "whole playlist"
   // isn't blank. If the entries array is empty (rare), the synthetic
   // record falls back to playlist-level fields.
-  const id = typeof firstEntry.id === 'string' ? firstEntry.id : playlistId;
-  const firstTitle = typeof firstEntry.title === 'string' ? firstEntry.title : undefined;
-  const duration = typeof firstEntry.duration === 'number' ? firstEntry.duration : undefined;
-  const uploader = typeof firstEntry.uploader === 'string' ? firstEntry.uploader : undefined;
-  const uploadDate = parseUploadDate(firstEntry.upload_date);
-  const thumbnailUrl = typeof firstEntry.thumbnail === 'string' ? firstEntry.thumbnail : undefined;
+  const firstEntry = (entries[0] ?? null) as Record<string, unknown> | null;
+  const firstParsed = firstEntry
+    ? YtDlpVideoMetadataSchema.partial({
+        id: true,
+        title: true,
+        extractor: true,
+      }).safeParse(firstEntry)
+    : { success: false as const };
+
+  const id = firstParsed.success && firstParsed.data.id ? firstParsed.data.id : playlistId;
+  const firstTitle = firstParsed.success ? firstParsed.data.title : undefined;
+  const duration = firstParsed.success ? firstParsed.data.duration : undefined;
+  const uploader = firstParsed.success ? firstParsed.data.uploader : undefined;
+  const uploadDate = firstParsed.success ? firstParsed.data.upload_date : undefined;
+  const thumbnailUrl = firstParsed.success ? firstParsed.data.thumbnail : undefined;
+  const formatsRaw = firstParsed.success ? firstParsed.data.formats : undefined;
+
   const entryCount =
-    typeof parsed.playlist_count === 'number'
-      ? parsed.playlist_count
+    data.playlist_count !== undefined
+      ? data.playlist_count
       : entries.length > 0
         ? entries.length
         : undefined;
@@ -146,7 +162,7 @@ const parsePlaylistShape = (parsed: Record<string, unknown>): VideoMetadata => {
     uploader,
     uploadDate,
     thumbnailUrl,
-    formats: parseFormats(firstEntry.formats),
+    formats: parseFormats(formatsRaw),
     playlistContext: {
       id: playlistId,
       title: playlistTitle,
@@ -156,65 +172,50 @@ const parsePlaylistShape = (parsed: Record<string, unknown>): VideoMetadata => {
   };
 };
 
-/** Normalize yt-dlp's `upload_date` field. yt-dlp emits an 8-digit
- * YYYYMMDD string when the extractor provides one. We keep that
- * native form here and let the filename builder reshape it into
- * `YYYY-MM-DD` for display. Anything that isn't an 8-digit string
- * comes back as undefined so downstream code can fall through to its
- * default. */
-const parseUploadDate = (raw: unknown): string | undefined => {
-  if (typeof raw !== 'string') {
-    return undefined;
-  }
-  if (!/^\d{8}$/.test(raw)) {
-    return undefined;
-  }
-  return raw;
-};
-
 /** Read `playlist_*` fields off a video-shaped `-J` record. Returns
  * undefined unless yt-dlp surfaced a playlist context — yt-dlp does
  * this whenever the URL carried `&list=Y` even for video-shape
  * downloads. */
-const parsePlaylistContextFromVideoRecord = (
-  parsed: Record<string, unknown>,
-): PlaylistContext | undefined => {
-  const id = typeof parsed.playlist_id === 'string' ? parsed.playlist_id : undefined;
-  if (id === undefined) {
+const parsePlaylistContextFromVideoRecord = (data: {
+  playlist_id?: string;
+  playlist_title?: string;
+  playlist_count?: number;
+}): PlaylistContext | undefined => {
+  if (data.playlist_id === undefined) {
     return undefined;
   }
-  const title = typeof parsed.playlist_title === 'string' ? parsed.playlist_title : id;
-  const entryCount = typeof parsed.playlist_count === 'number' ? parsed.playlist_count : undefined;
-  return { id, title, entryCount, isExplicitPlaylistUrl: false };
+  return {
+    id: data.playlist_id,
+    title: data.playlist_title ?? data.playlist_id,
+    entryCount: data.playlist_count,
+    isExplicitPlaylistUrl: false,
+  };
 };
 
 /** Extract the `formats` array from `yt-dlp -J` output. yt-dlp always
  * includes this for multi-stream extractors (YouTube, Vimeo) and
  * sometimes for single-stream ones (direct .mp4 URLs). Anything that
- * isn't an object with at least an `ext` + `vcodec` + `acodec` is
- * dropped — yt-dlp occasionally emits half-built format entries during
- * extractor edge cases. */
+ * fails the per-entry schema (missing ext / vcodec / acodec, wrong
+ * types) is dropped — yt-dlp occasionally emits half-built format
+ * entries during extractor edge cases. */
 const parseFormats = (raw: unknown): FormatInfo[] => {
   if (!Array.isArray(raw)) {
     return [];
   }
   const out: FormatInfo[] = [];
   for (const entry of raw) {
-    if (typeof entry !== 'object' || entry === null) {
-      continue;
-    }
-    const e = entry as Record<string, unknown>;
-    if (typeof e.ext !== 'string' || typeof e.vcodec !== 'string' || typeof e.acodec !== 'string') {
+    const parsed = YtDlpFormatSchema.safeParse(entry);
+    if (!parsed.success) {
       continue;
     }
     out.push({
-      ext: e.ext,
-      vcodec: e.vcodec,
-      acodec: e.acodec,
-      width: typeof e.width === 'number' ? e.width : undefined,
-      height: typeof e.height === 'number' ? e.height : undefined,
-      fps: typeof e.fps === 'number' ? e.fps : undefined,
-      tbr: typeof e.tbr === 'number' ? e.tbr : undefined,
+      ext: parsed.data.ext,
+      vcodec: parsed.data.vcodec,
+      acodec: parsed.data.acodec,
+      width: parsed.data.width,
+      height: parsed.data.height,
+      fps: parsed.data.fps,
+      tbr: parsed.data.tbr,
     });
   }
   return out;
@@ -268,29 +269,30 @@ export const isCookieAccessDeniedError = (stderr: string): boolean => {
  * single-video URL we can't expand".
  */
 export const parsePlaylistEntries = (json: string): PlaylistEntry[] => {
-  const parsed = JSON.parse(json) as Record<string, unknown>;
-  if (parsed._type !== 'playlist' || !Array.isArray(parsed.entries)) {
+  const raw = JSON.parse(json) as unknown;
+  const parsed = YtDlpFlatPlaylistSchema.safeParse(raw);
+  if (!parsed.success) {
     return [];
   }
+  const rawEntries = parsed.data.entries ?? [];
   const out: PlaylistEntry[] = [];
-  for (let i = 0; i < parsed.entries.length; i += 1) {
-    const entry = parsed.entries[i] as Record<string, unknown> | null;
-    if (entry === null || typeof entry !== 'object') {
+  for (let i = 0; i < rawEntries.length; i += 1) {
+    const entryParsed = YtDlpFlatPlaylistEntrySchema.safeParse(rawEntries[i]);
+    if (!entryParsed.success) {
       continue;
     }
-    const url = typeof entry.url === 'string' ? entry.url : undefined;
-    const title = typeof entry.title === 'string' ? entry.title : undefined;
-    if (url === undefined || title === undefined) {
+    const entry = entryParsed.data;
+    if (entry.url === undefined || entry.title === undefined) {
       // yt-dlp occasionally emits half-built entries for unavailable
       // videos (deleted, private). Skip them — the `-i` flag at
       // download time covers the same intent for the live download.
       continue;
     }
     out.push({
-      url,
-      title,
-      index: typeof entry.playlist_index === 'number' ? entry.playlist_index : i + 1,
-      durationSec: typeof entry.duration === 'number' ? entry.duration : undefined,
+      url: entry.url,
+      title: entry.title,
+      index: entry.playlist_index ?? i + 1,
+      durationSec: entry.duration,
     });
   }
   return out;
@@ -300,20 +302,29 @@ export const parsePlaylistEntries = (json: string): PlaylistEntry[] => {
  * `--flat-playlist` -J output that `parsePlaylistEntries` reads. Used to
  * stamp `playlistTitle` etc. on each enqueued Download row. */
 export const parsePlaylistContextFromFlat = (json: string): PlaylistContext | undefined => {
-  const parsed = JSON.parse(json) as Record<string, unknown>;
-  if (parsed._type !== 'playlist') {
+  const raw = JSON.parse(json) as unknown;
+  const parsed = YtDlpFlatPlaylistSchema.safeParse(raw);
+  if (!parsed.success) {
     return undefined;
   }
-  const id = typeof parsed.id === 'string' ? parsed.id : undefined;
+  // Pull `id` out before the undefined check so TypeScript narrows
+  // it to `string` for the return statement (vs. checking
+  // `parsed.data.id` which TS doesn't always propagate).
+  const id = parsed.data.id;
   if (id === undefined) {
     return undefined;
   }
-  const title = typeof parsed.title === 'string' ? parsed.title : id;
+  const data = parsed.data;
   const entryCount =
-    typeof parsed.playlist_count === 'number'
-      ? parsed.playlist_count
-      : Array.isArray(parsed.entries)
-        ? parsed.entries.length
+    data.playlist_count !== undefined
+      ? data.playlist_count
+      : Array.isArray(data.entries)
+        ? data.entries.length
         : undefined;
-  return { id, title, entryCount, isExplicitPlaylistUrl: true };
+  return {
+    id,
+    title: data.title ?? id,
+    entryCount,
+    isExplicitPlaylistUrl: true,
+  };
 };
