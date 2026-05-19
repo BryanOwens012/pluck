@@ -43,26 +43,43 @@ export type FormatChoice = {
  * atoms (or ID3v2 tags). */
 const AUDIO_EMBED_FLAGS = ['--embed-thumbnail', '--add-metadata'] as const;
 
+/** Languages we grab subs for: the top ~11 spoken languages by global
+ * speaker count, covering most likely use cases without the noise of
+ * `all` (YouTube auto-translates into ~120 languages, mostly bad).
+ * Each entry is a `<lang>.*` wildcard so we match manual uploads,
+ * regional variants, and the `<lang>-orig` code YouTube assigns to
+ * auto-generated original-language captions. Codes follow yt-dlp's
+ * names: `zh.*` covers `zh-Hans` / `zh-Hant` / `zh-CN` / `zh-TW`;
+ * `pt.*` covers `pt-BR`. Unknown codes on non-YouTube sources are
+ * silently ignored. */
+const SUBTITLE_LANGS = [
+  'en.*', // English
+  'zh.*', // Chinese (Simplified + Traditional + regional variants)
+  'es.*', // Spanish
+  'hi.*', // Hindi
+  'ar.*', // Arabic
+  'bn.*', // Bengali
+  'pt.*', // Portuguese (covers Brazilian)
+  'fr.*', // French
+  'de.*', // German
+  'ja.*', // Japanese
+  'ko.*', // Korean
+].join(',');
+
 /** Video-only additions on top of the audio flags. `--embed-subs`
  * embeds subtitle tracks inside the container. `--write-auto-subs`
  * makes yt-dlp also fetch YouTube's auto-generated captions (the
  * default is manually-uploaded subs only, which most YouTube videos
- * lack). `--sub-langs all,-live_chat` grabs every available
- * language — manual + auto + auto-translated — so the user can
- * switch language inside QuickTime instead of having to pick at
- * download time. `-live_chat` strips out the chat-replay track that
- * YouTube tags as a subtitle but is just junk in the menu. Per-track
- * size is a few KB per minute; even a popular video with 120
- * languages adds well under 10 MB to a 100 MB file. Sidecar `.vtt`
- * files are deleted by yt-dlp after embedding (no folder clutter).
- * Exported so format-selector.ts can reuse them on the dynamic
- * best_alt entry. */
+ * lack). `--sub-langs` is a curated list (see `SUBTITLE_LANGS`) so
+ * QuickTime's menu stays usable; sidecar `.vtt` files are deleted
+ * by yt-dlp after embedding (no folder clutter). Exported so
+ * format-selector.ts can reuse them on the dynamic best_alt entry. */
 export const VIDEO_EMBED_FLAGS = [
   ...AUDIO_EMBED_FLAGS,
   '--embed-subs',
   '--write-auto-subs',
   '--sub-langs',
-  'all,-live_chat',
+  SUBTITLE_LANGS,
 ] as const;
 
 /** Sort priority for every video preset: highest resolution first,

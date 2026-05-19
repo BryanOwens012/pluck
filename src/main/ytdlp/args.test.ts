@@ -44,7 +44,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'all,-live_chat',
+      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
@@ -59,7 +59,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'all,-live_chat',
+      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
@@ -74,7 +74,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'all,-live_chat',
+      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
