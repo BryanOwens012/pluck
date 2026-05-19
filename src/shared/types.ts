@@ -47,9 +47,14 @@ const AUDIO_EMBED_FLAGS = ['--embed-thumbnail', '--add-metadata'] as const;
  * embeds subtitle tracks inside the container. `--write-auto-subs`
  * makes yt-dlp also fetch YouTube's auto-generated captions (the
  * default is manually-uploaded subs only, which most YouTube videos
- * lack). `--sub-langs en.*,en-orig` covers English variants + the
- * `en-orig` code YouTube assigns to live-stream auto-captions.
- * Unknown lang codes on non-YouTube sources are silently ignored.
+ * lack). `--sub-langs all,-live_chat` grabs every available
+ * language — manual + auto + auto-translated — so the user can
+ * switch language inside QuickTime instead of having to pick at
+ * download time. `-live_chat` strips out the chat-replay track that
+ * YouTube tags as a subtitle but is just junk in the menu. Per-track
+ * size is a few KB per minute; even a popular video with 120
+ * languages adds well under 10 MB to a 100 MB file. Sidecar `.vtt`
+ * files are deleted by yt-dlp after embedding (no folder clutter).
  * Exported so format-selector.ts can reuse them on the dynamic
  * best_alt entry. */
 export const VIDEO_EMBED_FLAGS = [
@@ -57,7 +62,7 @@ export const VIDEO_EMBED_FLAGS = [
   '--embed-subs',
   '--write-auto-subs',
   '--sub-langs',
-  'en.*,en-orig',
+  'all,-live_chat',
 ] as const;
 
 /** Sort priority for every video preset: highest resolution first,
