@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type DebugLogEvent,
   type Download,
@@ -40,6 +40,9 @@ const PROBING_PLACEHOLDER_CHOICES: readonly FormatChoice[] = [
   },
 ];
 
+const VIEWS = ['main', 'settings'] as const;
+type View = (typeof VIEWS)[number];
+
 const App = (): React.JSX.Element => {
   // Keyed by Download.id so push updates replace by id; rendered as a list
   // sorted by createdAt descending (newest first). One state owner, one
@@ -76,7 +79,12 @@ const App = (): React.JSX.Element => {
   // App keeps the value so startDownload doesn't need to re-fetch.
   const [outputFolder, setOutputFolder] = useState<string | undefined>(undefined);
   const [debugMode, setDebugMode] = useState(false);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  // Two-pane navigation. Keeping it as a simple discriminated state on
+  // App is enough — no need for a routing library for a two-view app.
+  // Switching to 'settings' doesn't unmount the download queue; the
+  // map of downloads keeps living here, so progress pushes from main
+  // continue updating even while the user is on the Settings page.
+  const [view, setView] = useState<View>('main');
   // Per-id log buffers. Only populated when debugMode is true (main
   // gates emits there too). Capped per-id at MAX_LOG_LINES_PER_ID —
   // older lines fall off the front when the buffer fills.
@@ -250,6 +258,15 @@ const App = (): React.JSX.Element => {
     setUrl('');
   };
 
+  // Stable so SettingsPanel's window-level Esc listener doesn't
+  // attach/detach on every App render. App re-renders multiple times
+  // per second during an active download (progress pushes), and Esc
+  // is what closes Settings — we don't want to be re-binding the
+  // listener that often.
+  const handleBackToMain = useCallback((): void => {
+    setView('main');
+  }, []);
+
   const handleDismissPasswordPrompt = (): void => {
     if (passwordPromptId !== undefined) {
       const current = downloads.get(passwordPromptId);
@@ -270,56 +287,59 @@ const App = (): React.JSX.Element => {
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
-      <div className="mx-auto max-w-2xl space-y-4 p-6">
-        <header className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Pluck</h1>
-          <button
-            type="button"
-            onClick={() => setSettingsOpen(true)}
-            aria-label="Open settings"
-            title="Settings"
-            className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
-          >
-            <GearIcon />
-          </button>
-        </header>
-        <form onSubmit={handleSubmit} className="space-y-2">
-          <UrlInput value={url} onChange={setUrl} />
-          {urlIsValid ? (
-            <div className="flex gap-2">
-              <FormatSelector
-                value={format}
-                onChange={setFormat}
-                choices={formatChoices}
-                debugMode={debugMode}
-              />
-              <button
-                type="submit"
-                className="flex-1 rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
-              >
-                Download
-              </button>
-            </div>
-          ) : null}
-        </form>
-        <DownloadQueue
-          rows={rows}
-          onOpenPasswordPrompt={handleOpenPasswordPrompt}
-          debugMode={debugMode}
-          debugLogs={debugLogs}
-        />
-      </div>
-      {promptDownload ? (
-        <PasswordPrompt download={promptDownload} onDismiss={handleDismissPasswordPrompt} />
-      ) : null}
-      {settingsOpen && outputFolder !== undefined ? (
+      {view === 'settings' && outputFolder !== undefined ? (
         <SettingsPanel
           outputFolder={outputFolder}
           onOutputFolderChange={setOutputFolder}
           debugMode={debugMode}
           onDebugModeChange={setDebugMode}
-          onClose={() => setSettingsOpen(false)}
+          onBack={handleBackToMain}
         />
+      ) : (
+        <div className="mx-auto max-w-2xl space-y-4 p-6">
+          <header className="flex items-center justify-between">
+            <h1 className="text-2xl font-semibold tracking-tight">Pluck</h1>
+            <button
+              type="button"
+              onClick={() => setView('settings')}
+              aria-label="Open settings"
+              title="Settings"
+              className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
+            >
+              <GearIcon />
+            </button>
+          </header>
+          <form onSubmit={handleSubmit} className="space-y-2">
+            <UrlInput value={url} onChange={setUrl} />
+            {urlIsValid ? (
+              <div className="flex gap-2">
+                <FormatSelector
+                  value={format}
+                  onChange={setFormat}
+                  choices={formatChoices}
+                  debugMode={debugMode}
+                />
+                <button
+                  type="submit"
+                  className="flex-1 rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
+                >
+                  Download
+                </button>
+              </div>
+            ) : null}
+          </form>
+          <DownloadQueue
+            rows={rows}
+            onOpenPasswordPrompt={handleOpenPasswordPrompt}
+            debugMode={debugMode}
+            debugLogs={debugLogs}
+          />
+        </div>
+      )}
+      {/* Password prompt is a JIT interrupt, not navigation — stays a
+          modal that floats over whichever view is active. */}
+      {promptDownload ? (
+        <PasswordPrompt download={promptDownload} onDismiss={handleDismissPasswordPrompt} />
       ) : null}
     </main>
   );

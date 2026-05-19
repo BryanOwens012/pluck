@@ -64,6 +64,12 @@ export type Settings = {
    * settings). The text is stored verbatim — no normalisation — so the
    * Settings panel renders exactly what the user typed. */
   ytDlpCommandOverride?: string;
+  /** Whether the Developer accordion in Settings is expanded. Persists
+   * across restarts so a power user who's poking at debug flags doesn't
+   * have to re-open the section every launch. Default is closed
+   * (false) so first-launch users aren't faced with a wall of advanced
+   * controls when they open Settings to change their output folder. */
+  developerSectionOpen: boolean;
 };
 
 type SettingsFile = {
@@ -147,6 +153,10 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
   if (s.ytDlpCommandOverride !== undefined && typeof s.ytDlpCommandOverride !== 'string') {
     return false;
   }
+  // developerSectionOpen is optional on disk; defaults below.
+  if (s.developerSectionOpen !== undefined && typeof s.developerSectionOpen !== 'boolean') {
+    return false;
+  }
   return true;
 };
 
@@ -161,6 +171,7 @@ export const createSettingsStore = async (dir: string): Promise<SettingsStore> =
     debugMode: false,
     concurrentFragments: DEFAULT_CONCURRENT_FRAGMENTS,
     concurrentDownloads: DEFAULT_CONCURRENT_DOWNLOADS,
+    developerSectionOpen: false,
   };
   let current: Settings = defaults;
 

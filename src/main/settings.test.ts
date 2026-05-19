@@ -315,6 +315,24 @@ describe('createSettingsStore', () => {
     expect(reloaded.get().ytDlpCommandOverride).toBe("yt-dlp -f 'unterminated");
   });
 
+  it('round-trips developerSectionOpen through update → reload', async () => {
+    const store = await createSettingsStore(dir);
+    expect(store.get().developerSectionOpen).toBe(false); // default
+    await store.update({ developerSectionOpen: true });
+    const reloaded = await createSettingsStore(dir);
+    expect(reloaded.get().developerSectionOpen).toBe(true);
+  });
+
+  it('defaults developerSectionOpen to false when missing from disk', async () => {
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({ version: 1, settings: { outputFolder: '/tmp/x' } }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    expect(store.get().developerSectionOpen).toBe(false);
+  });
+
   it('rejects a non-string ytDlpCommandOverride at the schema layer', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await fs.writeFile(
