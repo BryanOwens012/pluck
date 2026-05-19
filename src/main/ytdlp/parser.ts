@@ -93,6 +93,7 @@ export const parseMetadata = (json: string): VideoMetadata => {
 
   const duration = typeof parsed.duration === 'number' ? parsed.duration : undefined;
   const uploader = typeof parsed.uploader === 'string' ? parsed.uploader : undefined;
+  const uploadDate = parseUploadDate(parsed.upload_date);
   const thumbnailUrl = typeof parsed.thumbnail === 'string' ? parsed.thumbnail : undefined;
 
   return {
@@ -101,6 +102,7 @@ export const parseMetadata = (json: string): VideoMetadata => {
     extractor,
     durationSec: duration,
     uploader,
+    uploadDate,
     thumbnailUrl,
     formats: parseFormats(parsed.formats),
     playlistContext: parsePlaylistContextFromVideoRecord(parsed),
@@ -127,6 +129,7 @@ const parsePlaylistShape = (parsed: Record<string, unknown>): VideoMetadata => {
   const firstTitle = typeof firstEntry.title === 'string' ? firstEntry.title : undefined;
   const duration = typeof firstEntry.duration === 'number' ? firstEntry.duration : undefined;
   const uploader = typeof firstEntry.uploader === 'string' ? firstEntry.uploader : undefined;
+  const uploadDate = parseUploadDate(firstEntry.upload_date);
   const thumbnailUrl = typeof firstEntry.thumbnail === 'string' ? firstEntry.thumbnail : undefined;
   const entryCount =
     typeof parsed.playlist_count === 'number'
@@ -141,6 +144,7 @@ const parsePlaylistShape = (parsed: Record<string, unknown>): VideoMetadata => {
     extractor,
     durationSec: duration,
     uploader,
+    uploadDate,
     thumbnailUrl,
     formats: parseFormats(firstEntry.formats),
     playlistContext: {
@@ -150,6 +154,22 @@ const parsePlaylistShape = (parsed: Record<string, unknown>): VideoMetadata => {
       isExplicitPlaylistUrl: true,
     },
   };
+};
+
+/** Normalize yt-dlp's `upload_date` field. yt-dlp emits an 8-digit
+ * YYYYMMDD string when the extractor provides one. We keep that
+ * native form here and let the filename builder reshape it into
+ * `YYYY-MM-DD` for display. Anything that isn't an 8-digit string
+ * comes back as undefined so downstream code can fall through to its
+ * default. */
+const parseUploadDate = (raw: unknown): string | undefined => {
+  if (typeof raw !== 'string') {
+    return undefined;
+  }
+  if (!/^\d{8}$/.test(raw)) {
+    return undefined;
+  }
+  return raw;
 };
 
 /** Read `playlist_*` fields off a video-shaped `-J` record. Returns
