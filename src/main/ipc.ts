@@ -1,36 +1,33 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions, shell } from 'electron';
+import { z } from 'zod';
 import { IpcChannels } from '../shared/ipc-channels';
 import {
-  BROWSER_NAMES,
-  type BrowserName,
-  type DownloadRequest,
   type FormatChoice,
   type ParseYtDlpCommandResult,
   PLAYLIST_ENTRY_CAP,
-  PLAYLIST_ORDERS,
   type PlaylistContext,
   type PlaylistEntry,
-  type PlaylistOrder,
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../shared/types';
-import { isHttpUrl } from '../shared/url';
 import { testApiKey } from './api-key-test';
 import { detectInstalledBrowsers } from './browser-detection';
 import type { DownloadQueue } from './downloader/queue';
 import { resolveFormatChoices } from './downloader/video/format-selector';
-import type { MetadataCache } from './metadata-cache';
-import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
 import {
-  MAX_CONCURRENT_DOWNLOADS,
-  MAX_CONCURRENT_FRAGMENTS,
-  MIN_CONCURRENT_DOWNLOADS,
-  MIN_CONCURRENT_FRAGMENTS,
-  type Settings,
-  type SettingsStore,
-} from './settings';
+  ApiKeyCredentialsSchema,
+  DownloadRequestSchema,
+  HttpUrlSchema,
+  NonEmptyStringSchema,
+  SecretNameSchema,
+  StartPlaylistDownloadSchema,
+  UpdateSettingsPatchSchema,
+} from './ipc-schemas';
+import type { MetadataCache } from './metadata-cache';
+import type { SecretsStore } from './secrets';
+import type { Settings, SettingsStore } from './settings';
 import {
   buildDownloadArgs,
   extractKnownFlags,
@@ -101,130 +98,109 @@ export type IpcDeps = {
   ) => Promise<{ entries: PlaylistEntry[]; context: PlaylistContext | undefined }>;
 };
 
-/** Type-guard so the IPC layer can reject unknown provider names from a
- * compromised renderer rather than blindly calling SecretsStore. */
-const isSecretName = (value: unknown): value is SecretName =>
-  typeof value === 'string' && (SECRET_NAMES as readonly string[]).includes(value);
-
-/** Same guard idea for the cookiesFromBrowser dropdown value — an invalid
- * string would silently break the next yt-dlp invocation otherwise. */
-const isBrowserName = (value: unknown): value is BrowserName =>
-  typeof value === 'string' && (BROWSER_NAMES as readonly string[]).includes(value);
-
-const isPlaylistOrder = (value: unknown): value is PlaylistOrder =>
-  typeof value === 'string' && (PLAYLIST_ORDERS as readonly string[]).includes(value);
-
 /** Wire all renderer→main and main→renderer IPC. Pure delegation to the
- * queue/cache; this module owns no download lifecycle itself anymore. */
+ * queue/cache; this module owns no download lifecycle itself anymore.
+ * Every renderer→main handler `safeParse`s its payload against a Zod
+ * schema from `ipc-schemas.ts` — a compromised renderer can send
+ * arbitrary bytes through `ipcRenderer.invoke`, so the boundary
+ * uniformly rejects (returns an error-shape result, or silently
+ * no-ops on race-tolerant fire-and-forget handlers) before touching
+ * any downstream state. */
 export const registerIpcHandlers = (deps: IpcDeps): void => {
   ipcMain.handle(
     IpcChannels.StartDownload,
-    (_event, request: DownloadRequest): { id: string } | { error: string } => {
-      // Defense in depth: the renderer normalizes + validates URLs
-      // before calling, but a compromised renderer could otherwise
-      // pass `file://` / `javascript:` / arbitrary bytes through
-      // here and have the queue try to spawn yt-dlp on them. Mirror
-      // the same guard `EnumeratePlaylist` / `OpenExternal` /
-      // `PrefetchMetadata` already use.
-      if (!request || typeof request !== 'object' || !isHttpUrl(request.url)) {
+    (_event, payload: unknown): { id: string } | { error: string } => {
+      const parsed = DownloadRequestSchema.safeParse(payload);
+      if (!parsed.success) {
         return { error: 'Invalid URL.' };
       }
-      return { id: deps.queue.enqueue(request) };
+      return { id: deps.queue.enqueue(parsed.data) };
     },
   );
   ipcMain.handle(IpcChannels.CancelDownload, (_event, id: unknown) => {
     // Unknown / wrong-type ids are silently ignored — the renderer can
     // race the IPC against a row completing, and we don't want to error
     // on the loser of that race.
-    if (typeof id !== 'string') {
+    const parsed = NonEmptyStringSchema.safeParse(id);
+    if (!parsed.success) {
       return;
     }
-    deps.queue.cancel(id);
+    deps.queue.cancel(parsed.data);
   });
   ipcMain.handle(IpcChannels.GetInitialState, () => deps.queue.getAll());
-  ipcMain.handle(IpcChannels.ShowInFinder, (_event, filePath: string) => {
+  ipcMain.handle(IpcChannels.ShowInFinder, (_event, filePath: unknown) => {
     // macOS "Reveal in Finder" — opens the parent folder with the file
     // selected. No-op on a missing path (Electron handles internally).
-    shell.showItemInFolder(filePath);
+    const parsed = NonEmptyStringSchema.safeParse(filePath);
+    if (!parsed.success) {
+      return;
+    }
+    shell.showItemInFolder(parsed.data);
   });
   ipcMain.handle(IpcChannels.OpenExternal, async (_event, url: unknown) => {
-    // isHttpUrl gate: a compromised renderer could otherwise pass `file://`
-    // and trick the OS into opening arbitrary local files.
-    if (!isHttpUrl(url)) {
+    // HttpUrlSchema rejects non-http schemes (file://, javascript:,
+    // etc.) so a compromised renderer can't trick the OS into
+    // opening arbitrary local resources.
+    const parsed = HttpUrlSchema.safeParse(url);
+    if (!parsed.success) {
       return;
     }
-    await shell.openExternal(url);
+    await shell.openExternal(parsed.data);
   });
   ipcMain.handle(IpcChannels.PrefetchMetadata, (_event, url: unknown) => {
-    // Same gate as OpenExternal — never invoke yt-dlp on arbitrary schemes.
-    if (!isHttpUrl(url)) {
+    const parsed = HttpUrlSchema.safeParse(url);
+    if (!parsed.success) {
       return;
     }
-    deps.metadataCache.prefetch(url);
+    deps.metadataCache.prefetch(parsed.data);
   });
   ipcMain.handle(IpcChannels.GetSettings, () => deps.settings.get());
   ipcMain.handle(IpcChannels.UpdateSettings, (_event, patch: unknown) => {
-    // Defense in depth: only the keys we accept are forwarded to disk.
-    // A compromised renderer shouldn't be able to write arbitrary
-    // properties to settings.json. Each key is validated for shape
-    // before merging.
-    if (typeof patch !== 'object' || patch === null) {
+    // Validate the full patch shape against the schema; bail to the
+    // unchanged settings on any field that violates (rather than
+    // dropping that one field — a renderer that sent garbage probably
+    // sent more garbage, and surfacing a no-op response is the safer
+    // default). Per-field "clear vs. leave alone" semantics (where the
+    // renderer signals "clear this field" by sending null or empty
+    // string under the key) are intrinsic to the patch API — Zod
+    // can't distinguish key-absent from key-undefined in its parse
+    // output, so we read the raw payload's keys here for that one
+    // distinction.
+    const parsed = UpdateSettingsPatchSchema.safeParse(patch);
+    if (!parsed.success || patch === null || typeof patch !== 'object') {
       return deps.settings.get();
     }
-    const patchObj = patch as Record<string, unknown>;
+    const rawKeys = new Set(Object.keys(patch as object));
     const sanitized: Partial<Settings> = {};
-    const folder = patchObj.outputFolder;
-    if (typeof folder === 'string' && folder.length > 0) {
-      sanitized.outputFolder = folder;
+    if (parsed.data.outputFolder !== undefined) {
+      sanitized.outputFolder = parsed.data.outputFolder;
     }
-    // For cookiesFromBrowser the "clear" intent matters as much as the
-    // "set" intent — the user picks 'None' to stop sending the flag.
-    // We detect intent by *key presence* (renderer sends the key with
-    // a null/undefined value to clear); a missing key means "no change
-    // to this field". Both null and undefined survive structured-clone
-    // IPC with the key intact, so this check is the wire-safe one.
-    if ('cookiesFromBrowser' in patchObj) {
-      const cookies = patchObj.cookiesFromBrowser;
-      if (cookies === null || cookies === undefined) {
-        sanitized.cookiesFromBrowser = undefined;
-      } else if (isBrowserName(cookies)) {
-        sanitized.cookiesFromBrowser = cookies;
-      }
+    // cookies: explicit null OR key-present-with-undefined OR key
+    // present at all + parse-value-null → clear. A BrowserName value
+    // → set.
+    if (rawKeys.has('cookiesFromBrowser')) {
+      sanitized.cookiesFromBrowser = parsed.data.cookiesFromBrowser ?? undefined;
     }
-    if (typeof patchObj.debugMode === 'boolean') {
-      sanitized.debugMode = patchObj.debugMode;
+    if (parsed.data.debugMode !== undefined) {
+      sanitized.debugMode = parsed.data.debugMode;
     }
-    if (
-      typeof patchObj.concurrentFragments === 'number' &&
-      Number.isInteger(patchObj.concurrentFragments) &&
-      patchObj.concurrentFragments >= MIN_CONCURRENT_FRAGMENTS &&
-      patchObj.concurrentFragments <= MAX_CONCURRENT_FRAGMENTS
-    ) {
-      sanitized.concurrentFragments = patchObj.concurrentFragments;
+    if (parsed.data.concurrentFragments !== undefined) {
+      sanitized.concurrentFragments = parsed.data.concurrentFragments;
     }
-    if (
-      typeof patchObj.concurrentDownloads === 'number' &&
-      Number.isInteger(patchObj.concurrentDownloads) &&
-      patchObj.concurrentDownloads >= MIN_CONCURRENT_DOWNLOADS &&
-      patchObj.concurrentDownloads <= MAX_CONCURRENT_DOWNLOADS
-    ) {
-      sanitized.concurrentDownloads = patchObj.concurrentDownloads;
+    if (parsed.data.concurrentDownloads !== undefined) {
+      sanitized.concurrentDownloads = parsed.data.concurrentDownloads;
     }
-    // ytDlpCommandOverride: empty string and undefined / null both
-    // mean "clear the override" (auto mode). Any non-empty string is
-    // accepted as-is; contents are validated at use time by the
-    // tokenizer, not here, so users can save partial / in-progress
-    // commands without the IPC bouncing the update.
-    if ('ytDlpCommandOverride' in patchObj) {
-      const override = patchObj.ytDlpCommandOverride;
-      if (override === null || override === undefined || override === '') {
-        sanitized.ytDlpCommandOverride = undefined;
-      } else if (typeof override === 'string') {
-        sanitized.ytDlpCommandOverride = override;
-      }
+    // override: same key-presence-means-touch semantics as cookies.
+    // Empty string is normalized to "clear" (undefined) so users can
+    // save partial / in-progress commands without the IPC bouncing
+    // the update.
+    if (rawKeys.has('ytDlpCommandOverride')) {
+      const override = parsed.data.ytDlpCommandOverride;
+      sanitized.ytDlpCommandOverride =
+        override === null || override === undefined || override === '' ? undefined : override;
     }
-    if (typeof patchObj.developerSectionOpen === 'boolean') {
-      sanitized.developerSectionOpen = patchObj.developerSectionOpen;
+    if (parsed.data.developerSectionOpen !== undefined) {
+      sanitized.developerSectionOpen = parsed.data.developerSectionOpen;
     }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
@@ -255,10 +231,11 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     return picked;
   });
   ipcMain.handle(IpcChannels.RetryDownload, (_event, id: unknown) => {
-    if (typeof id !== 'string') {
+    const parsed = NonEmptyStringSchema.safeParse(id);
+    if (!parsed.success) {
       return { id: undefined };
     }
-    const original = deps.queue.getAll().find((d) => d.id === id);
+    const original = deps.queue.getAll().find((d) => d.id === parsed.data);
     if (!original) {
       return { id: undefined };
     }
@@ -270,30 +247,34 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     return { id: newId };
   });
   ipcMain.handle(IpcChannels.SubmitPassword, (_event, id: unknown, password: unknown) => {
-    // Both shape-check and length-check. An empty password is meaningless
-    // and would just waste an attempt; silently ignore. Same race-tolerant
-    // pattern as Cancel — unknown ids are no-ops.
-    if (typeof id !== 'string' || typeof password !== 'string' || password.length === 0) {
+    // An empty password is meaningless and would just waste an
+    // attempt; silently ignore (both args must be non-empty strings).
+    // Same race-tolerant pattern as Cancel — unknown ids are no-ops.
+    const parsedId = NonEmptyStringSchema.safeParse(id);
+    const parsedPassword = NonEmptyStringSchema.safeParse(password);
+    if (!parsedId.success || !parsedPassword.success) {
       return;
     }
-    deps.queue.submitPassword(id, password);
+    deps.queue.submitPassword(parsedId.data, parsedPassword.data);
   });
   ipcMain.handle(IpcChannels.HasApiKeys, () => ({
     anthropic: deps.secrets.hasKey('anthropic'),
     elevenlabs: deps.secrets.hasKey('elevenlabs'),
   }));
   ipcMain.handle(IpcChannels.TestApiKey, (_event, name: unknown, key: unknown) => {
-    if (!isSecretName(name) || typeof key !== 'string' || key.length === 0) {
+    const parsed = ApiKeyCredentialsSchema.safeParse({ name, key });
+    if (!parsed.success) {
       return { ok: false, error: 'Missing provider or key.' };
     }
-    return testApiKey(name, key);
+    return testApiKey(parsed.data.name, parsed.data.key);
   });
   ipcMain.handle(IpcChannels.SaveApiKey, async (_event, name: unknown, key: unknown) => {
-    if (!isSecretName(name) || typeof key !== 'string' || key.length === 0) {
+    const parsed = ApiKeyCredentialsSchema.safeParse({ name, key });
+    if (!parsed.success) {
       return { ok: false, error: 'Missing provider or key.' };
     }
     try {
-      await deps.secrets.setKey(name, key);
+      await deps.secrets.setKey(parsed.data.name, parsed.data.key);
       return { ok: true };
     } catch (err) {
       // EncryptionUnavailableError is the user-facing case; anything else
@@ -304,27 +285,29 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
   });
   ipcMain.handle(IpcChannels.DeleteApiKey, async (_event, name: unknown) => {
     // `name === undefined` (or any non-SecretName value) means "delete
-    // all keys" — the Settings panel's reset flow. A specific name
-    // deletes only that one.
+    // all keys" — the Settings panel's reset flow. A specific
+    // SecretName deletes only that one.
     if (name === undefined || name === null) {
       await deps.secrets.deleteAll();
       return;
     }
-    if (isSecretName(name)) {
-      await deps.secrets.deleteKey(name);
+    const parsed = SecretNameSchema.safeParse(name);
+    if (parsed.success) {
+      await deps.secrets.deleteKey(parsed.data);
     }
   });
   ipcMain.handle(IpcChannels.GetAppVersion, () => app.getVersion());
   ipcMain.handle(IpcChannels.DetectInstalledBrowsers, () => detectInstalledBrowsers());
   ipcMain.handle(IpcChannels.OpenTempFolder, async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.length === 0) {
+    const parsed = NonEmptyStringSchema.safeParse(id);
+    if (!parsed.success) {
       return { ok: false, error: 'Invalid download id.' };
     }
     // The id is filesystem-safe by construction (generateDownloadId
     // sanitises segments). Still, validate that the resolved path
     // stays under the temp base — defense against any future id
     // generator that lets `..` through.
-    const target = join(deps.tempBaseDir, id);
+    const target = join(deps.tempBaseDir, parsed.data);
     if (!target.startsWith(`${deps.tempBaseDir}/`)) {
       return { ok: false, error: 'Path escape blocked.' };
     }
@@ -385,10 +368,11 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
   ipcMain.handle(
     IpcChannels.ParseYtDlpCommand,
     (_event, input: unknown): ParseYtDlpCommandResult => {
-      if (typeof input !== 'string') {
+      const parsedInput = z.string().safeParse(input);
+      if (!parsedInput.success) {
         return { ok: false, error: 'Expected a string.' };
       }
-      const parsed = parseYtDlpCommand(input);
+      const parsed = parseYtDlpCommand(parsedInput.data);
       if (!parsed.ok) {
         return parsed;
       }
@@ -403,7 +387,8 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     // ahead of time — tempFolder and the ffmpeg binary path — so
     // the user sees one stable command instead of a per-row tempdir
     // shuffle.
-    const targetUrl = typeof url === 'string' && url.length > 0 ? url : URL_PLACEHOLDER_TOKEN;
+    const parsedUrl = NonEmptyStringSchema.safeParse(url);
+    const targetUrl = parsedUrl.success ? parsedUrl.data : URL_PLACEHOLDER_TOKEN;
     const settings = deps.settings.get();
     const { args } = buildDownloadArgs(
       {
@@ -427,11 +412,12 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       | { ok: true; entries: PlaylistEntry[]; context: PlaylistContext | undefined }
       | { ok: false; error: string }
     > => {
-      if (!isHttpUrl(url)) {
+      const parsed = HttpUrlSchema.safeParse(url);
+      if (!parsed.success) {
         return { ok: false, error: 'Invalid URL.' };
       }
       try {
-        const result = await deps.enumeratePlaylist(url);
+        const result = await deps.enumeratePlaylist(parsed.data);
         return { ok: true, entries: result.entries, context: result.context };
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Failed to expand the playlist.';
@@ -442,20 +428,15 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
   ipcMain.handle(
     IpcChannels.StartPlaylistDownload,
     (_event, payload: unknown): { ids: string[]; enqueued: number; skipped: number } => {
-      // Defensive shape check — any of these missing means the
-      // renderer sent malformed payload; bail out with an empty
-      // result instead of mutating queue state.
-      if (typeof payload !== 'object' || payload === null) {
+      // Whole-payload schema validation — rejects empty entries
+      // arrays, missing format / context, unknown PlaylistOrder
+      // values, malformed entry URLs. The handler's own logic then
+      // re-orders + slices the validated entries.
+      const parsed = StartPlaylistDownloadSchema.safeParse(payload);
+      if (!parsed.success) {
         return { ids: [], enqueued: 0, skipped: 0 };
       }
-      const obj = payload as Record<string, unknown>;
-      const entries = Array.isArray(obj.entries) ? (obj.entries as PlaylistEntry[]) : [];
-      const format = obj.format as FormatChoice | undefined;
-      const context = obj.playlistContext as PlaylistContext | undefined;
-      const order = isPlaylistOrder(obj.order) ? obj.order : 'oldest_first';
-      if (entries.length === 0 || !format || !context) {
-        return { ids: [], enqueued: 0, skipped: 0 };
-      }
+      const { entries, format, playlistContext, order } = parsed.data;
       // Newest-first = reverse the playlist-ordered enumeration.
       const ordered = order === 'newest_first' ? [...entries].reverse() : entries;
       // Cap at PLAYLIST_ENTRY_CAP. The renderer warns the user when
@@ -466,15 +447,19 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       const ids: string[] = [];
       for (let i = 0; i < limited.length; i += 1) {
         const entry = limited[i];
-        if (!entry || !isHttpUrl(entry.url)) {
+        if (!entry || !HttpUrlSchema.safeParse(entry.url).success) {
+          // The outer schema validates entry SHAPE; per-entry URL is
+          // re-validated here so a single bad URL from a quirky
+          // enumerate result skips just that row instead of tanking
+          // the whole batch.
           continue;
         }
         ids.push(
           deps.queue.enqueue({
             url: entry.url,
             format,
-            playlistId: context.id,
-            playlistTitle: context.title,
+            playlistId: playlistContext.id,
+            playlistTitle: playlistContext.title,
             playlistIndex: i + 1,
             playlistTotal: total,
           }),
@@ -484,13 +469,15 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     },
   );
   ipcMain.handle(IpcChannels.FileExists, async (_event, filePath: unknown): Promise<boolean> => {
-    // Defensive: only stat absolute paths owned by a download row.
-    // A compromised renderer otherwise could probe arbitrary fs.
-    if (typeof filePath !== 'string' || filePath.length === 0 || !filePath.startsWith('/')) {
+    // Defensive: only stat absolute paths. A compromised renderer
+    // could otherwise probe arbitrary fs (e.g. via a relative path
+    // resolved against electron's cwd).
+    const parsed = NonEmptyStringSchema.safeParse(filePath);
+    if (!parsed.success || !parsed.data.startsWith('/')) {
       return false;
     }
     try {
-      await fs.access(filePath);
+      await fs.access(parsed.data);
       return true;
     } catch {
       return false;
@@ -510,11 +497,12 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       // will surface any real error. The metadata's `playlistContext`
       // is bubbled up alongside the choices so the renderer can pop the
       // PlaylistPrompt modal when the user clicks Download.
-      if (!isHttpUrl(url)) {
+      const parsed = HttpUrlSchema.safeParse(url);
+      if (!parsed.success) {
         return { choices: [...STATIC_FORMAT_CHOICES_ORDERED] };
       }
       try {
-        const meta = await deps.metadataCache.get(url);
+        const meta = await deps.metadataCache.get(parsed.data);
         return {
           choices: resolveFormatChoices(meta.formats),
           playlistContext: meta.playlistContext,
