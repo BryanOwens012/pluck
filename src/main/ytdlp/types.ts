@@ -30,6 +30,11 @@ export type VideoMetadata = {
   extractor: string;
   durationSec?: number;
   uploader?: string;
+  /** yt-dlp's `upload_date` field, kept in its native `YYYYMMDD`
+   * string form. Some extractors omit it (livestreams, certain non-
+   * YouTube sources); undefined in that case. Consumed by the
+   * filename builder to format the `(YYYY-MM-DD)` suffix. */
+  uploadDate?: string;
   /** Absolute https URL of a preview thumbnail. yt-dlp picks one of several
    * resolutions; we just use whatever it gives us. */
   thumbnailUrl?: string;

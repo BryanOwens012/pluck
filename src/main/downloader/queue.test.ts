@@ -743,4 +743,142 @@ describe('DownloadQueue', () => {
     await waitFor(() => fakeRuns.length === 2);
     expect(queue.getAll().filter((d) => d.status === 'downloading')).toHaveLength(2);
   });
+
+  // ---- filename + per-playlist subfolder (PR 9.6g) ---------------------
+
+  /** Drive a queued row to 'completed' by writing a fake post-merge file
+   * into the runner's tempFolder and resolving the first fake run.
+   * Returns the final Download record. */
+  const driveToCompletion = async (
+    queue: ReturnType<typeof createDownloadQueue>,
+    id: string,
+    fakeBasename = 'fake.mp4',
+  ): Promise<Download> => {
+    await waitFor(() => fakeRuns.length === 1);
+    const run = fakeRuns[0];
+    if (!run) {
+      throw new Error('expected a fake run to be captured');
+    }
+    const fakeFile = join(run.opts.tempFolder, fakeBasename);
+    await fs.writeFile(fakeFile, 'x');
+    run.resolve({ filePath: fakeFile });
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'completed', 3000);
+    const finalRow = queue.getAll().find((d) => d.id === id);
+    if (!finalRow) {
+      throw new Error('expected the completed row in queue.getAll()');
+    }
+    return finalRow;
+  };
+
+  /** Build queue deps with a custom VideoMetadata returned by the cache.
+   * Lets each test pin uploader / uploadDate / title independently of
+   * the module-level `fakeMeta`. */
+  const buildQueueDepsWithMeta = (meta: VideoMetadata) => {
+    const deps = buildQueueDeps(() => {});
+    return {
+      ...deps,
+      metadataCache: {
+        get: (): Promise<VideoMetadata> => Promise.resolve(meta),
+        prefetch: (): void => {},
+        size: (): number => 0,
+      },
+    };
+  };
+
+  it('renames single-video downloads to `<Uploader> - <Title> (YYYY-MM-DD).<ext>` in the output folder', async () => {
+    const queue = createDownloadQueue(
+      buildQueueDepsWithMeta({
+        id: 'vid-1',
+        title: 'How Bitcoin Works',
+        extractor: 'youtube',
+        uploader: 'Coinbase',
+        uploadDate: '20251002',
+        formats: [],
+      }),
+    );
+    const id = queue.enqueue(makeRequest());
+    const row = await driveToCompletion(queue, id);
+
+    expect(row.filePath).toBe(join(outputDir, 'Coinbase - How Bitcoin Works (2025-10-02).mp4'));
+  });
+
+  it('routes playlist rows into a per-playlist subfolder named after the playlist title', async () => {
+    const queue = createDownloadQueue(
+      buildQueueDepsWithMeta({
+        id: 'vid-1',
+        title: 'Episode One',
+        extractor: 'youtube',
+        uploader: 'Coinbase',
+        uploadDate: '20250112',
+        formats: [],
+      }),
+    );
+    const id = queue.enqueue({
+      ...makeRequest(),
+      playlistId: 'PLxxx',
+      playlistTitle: 'Coinbase Trading Series',
+      playlistIndex: 1,
+      playlistTotal: 47,
+    });
+    const row = await driveToCompletion(queue, id);
+
+    expect(row.filePath).toBe(
+      join(outputDir, 'Coinbase Trading Series', '01 Coinbase - Episode One (2025-01-12).mp4'),
+    );
+  });
+
+  it('uses today as the date when uploadDate is missing (so filenames are never date-less)', async () => {
+    const queue = createDownloadQueue(
+      buildQueueDepsWithMeta({
+        id: 'vid-1',
+        title: 'Live Now',
+        extractor: 'youtube',
+        uploader: 'NewsCo',
+        // no uploadDate
+        formats: [],
+      }),
+    );
+    const id = queue.enqueue(makeRequest());
+    const row = await driveToCompletion(queue, id);
+
+    const filename = row.filePath?.split('/').at(-1) ?? '';
+    // Today's date in YYYY-MM-DD: just regex-match the date shape so
+    // this test isn't timezone-flaky.
+    expect(filename).toMatch(/^NewsCo - Live Now \(\d{4}-\d{2}-\d{2}\)\.mp4$/);
+  });
+
+  it('drops the `<Uploader> - ` prefix when the source has no uploader', async () => {
+    const queue = createDownloadQueue(
+      buildQueueDepsWithMeta({
+        id: 'vid-1',
+        title: 'Standalone',
+        extractor: 'generic',
+        // no uploader
+        uploadDate: '20251002',
+        formats: [],
+      }),
+    );
+    const id = queue.enqueue(makeRequest());
+    const row = await driveToCompletion(queue, id);
+
+    expect(row.filePath).toBe(join(outputDir, 'Standalone (2025-10-02).mp4'));
+  });
+
+  it('stamps uploader + uploadDate on the Download row from the metadata fetch', async () => {
+    const queue = createDownloadQueue(
+      buildQueueDepsWithMeta({
+        id: 'vid-1',
+        title: 'T',
+        extractor: 'youtube',
+        uploader: 'Channel',
+        uploadDate: '20250101',
+        formats: [],
+      }),
+    );
+    const id = queue.enqueue(makeRequest());
+    const row = await driveToCompletion(queue, id);
+
+    expect(row.uploader).toBe('Channel');
+    expect(row.uploadDate).toBe('20250101');
+  });
 });

@@ -1,5 +1,5 @@
 import { promises as fs } from 'node:fs';
-import { basename } from 'node:path';
+import { extname, join } from 'node:path';
 import type { DebugLogEvent, DebugLogPhase, Download, DownloadRequest } from '../../shared/types';
 import type { MetadataCache } from '../metadata-cache';
 import { createProgressSmoother } from '../progress-smoother';
@@ -11,6 +11,7 @@ import {
   YtDlpCookieAccessDeniedError,
   YtDlpPasswordRequiredError,
 } from '../ytdlp/types';
+import { buildFinalFilename, buildPlaylistFolderName } from './filename';
 import { PLAYLIST_ROW_CONCURRENT_DOWNLOADS, resolvePlaylistThrottle } from './playlist/throttle';
 
 // Max concurrent downloads is now a user setting (Settings → Developer
@@ -311,6 +312,13 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
         sourceSite: meta.extractor,
         durationSec: meta.durationSec,
         thumbnailUrl: meta.thumbnailUrl,
+        // Captured here so the filename builder below has the same
+        // uploader + upload_date values yt-dlp's `-J` reported. Stamped
+        // on the row in case history.json wants to re-render the name
+        // later (e.g. a future Retry flow that doesn't re-fetch
+        // metadata).
+        uploader: meta.uploader,
+        uploadDate: meta.uploadDate,
       });
       emitDebug(id, 'metadata:done', `${meta.extractor}: ${meta.title}`);
 
@@ -382,8 +390,42 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       );
       emitDebug(id, 'download:done', result.filePath);
 
-      emitDebug(id, 'move:start', outputFolder);
-      const finalPath = await resolveAvailablePath(outputFolder, basename(result.filePath));
+      // Compose the user-visible filename + destination folder.
+      // Playlist rows land in a per-playlist subfolder under the
+      // user's output folder; single-video rows go directly into the
+      // output folder. The filename pattern itself
+      // (`<Uploader> - <Title> (YYYY-MM-DD).<ext>` plus an optional
+      // zero-padded `<NN>` index prefix for playlists) lives in
+      // `downloader/filename.ts`.
+      const destFolder =
+        download.playlistId !== undefined
+          ? join(
+              outputFolder,
+              buildPlaylistFolderName({
+                playlistTitle: download.playlistTitle,
+                playlistId: download.playlistId,
+              }),
+            )
+          : outputFolder;
+      await fs.mkdir(destFolder, { recursive: true });
+
+      // `extname` returns ".mp4" with the leading dot; the filename
+      // builder expects the bare extension, so strip it. yt-dlp's
+      // marker-file path already reflects the post-merge container
+      // (no .part / .temp suffixes), so this is safe.
+      const ext = extname(result.filePath).replace(/^\./, '');
+      const desiredBasename = buildFinalFilename({
+        title: meta.title,
+        videoId: meta.id,
+        uploader: meta.uploader,
+        uploadDate: meta.uploadDate,
+        ext,
+        playlistIndex: download.playlistIndex,
+        playlistTotal: download.playlistTotal,
+      });
+
+      emitDebug(id, 'move:start', destFolder);
+      const finalPath = await resolveAvailablePath(destFolder, desiredBasename);
       await moveFile(result.filePath, finalPath);
       emitDebug(id, 'move:done', finalPath);
 

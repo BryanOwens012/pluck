@@ -267,6 +267,14 @@ export type Download = {
   title?: string;
   sourceSite?: string;
   durationSec?: number;
+  /** From `VideoMetadata.uploader`. Captured at metadata-fetch time
+   * inside the queue and stamped on the row so the filename builder
+   * (and any future Retry / re-name flow) can reach it without
+   * re-querying yt-dlp. */
+  uploader?: string;
+  /** yt-dlp's `upload_date`, kept in `YYYYMMDD` form. Same capture
+   * timing as `uploader`. */
+  uploadDate?: string;
   /** Remote https URL for a preview thumbnail, populated after the metadata
    * pre-pass. Renderer loads it directly; CSP permits `img-src https:`. */
   thumbnailUrl?: string;
