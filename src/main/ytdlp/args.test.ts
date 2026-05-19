@@ -44,7 +44,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'en.*,zh.*,es.*,fr.*,de.*',
+      'en.*,zh.*,es.*,fr.*',
     ]);
   });
 
@@ -59,7 +59,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'en.*,zh.*,es.*,fr.*,de.*',
+      'en.*,zh.*,es.*,fr.*',
     ]);
   });
 
@@ -74,7 +74,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'en.*,zh.*,es.*,fr.*,de.*',
+      'en.*,zh.*,es.*,fr.*',
     ]);
   });
 

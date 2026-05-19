@@ -72,7 +72,6 @@ const SUBTITLE_LANGS = [
   'zh.*', // Chinese (Simplified + Traditional + regional variants)
   'es.*', // Spanish
   'fr.*', // French
-  'de.*', // German
 ].join(',');
 
 /** Video-only additions on top of the audio flags. `--embed-subs`
