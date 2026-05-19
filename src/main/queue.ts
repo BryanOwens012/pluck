@@ -456,6 +456,10 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       status: 'queued',
       progress: 0,
       createdAt: Date.now(),
+      playlistId: request.playlistId,
+      playlistTitle: request.playlistTitle,
+      playlistIndex: request.playlistIndex,
+      playlistTotal: request.playlistTotal,
     };
     state.set(id, download);
     if (request.videoPassword) {

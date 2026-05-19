@@ -10,3 +10,23 @@
 export const isHttpUrl = (value: unknown): value is string => {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
 };
+
+/** Cheap pre-check for "this URL might be a playlist". Inspects only the
+ * URL shape — no network. Used by the renderer to decide whether to even
+ * bother running the playlist-aware prompt path; the authoritative signal
+ * is the `playlistContext` field on the metadata fetch result. */
+export const looksLikePlaylistUrl = (url: string): boolean => {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  if (parsed.searchParams.has('list')) {
+    return true;
+  }
+  if (/\/playlist$/.test(parsed.pathname)) {
+    return true;
+  }
+  return false;
+};

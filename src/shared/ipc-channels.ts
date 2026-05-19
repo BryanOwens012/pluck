@@ -111,6 +111,20 @@ export const IpcChannels = {
    * decide which dependent controls to gray out and what values to
    * surface as informational. */
   ParseYtDlpCommand: 'pluck:parse-yt-dlp-command',
+  /** Renderer -> main, invoke. Runs `yt-dlp -J --yes-playlist
+   * --flat-playlist <url>` to expand a playlist URL into its
+   * constituent video entries. Returns the entry list + the parent
+   * playlist's id/title/count. The renderer uses this AFTER the user
+   * picks "All videos" in the PlaylistPrompt modal — never on paste,
+   * to avoid surprising network cost. */
+  EnumeratePlaylist: 'pluck:enumerate-playlist',
+  /** Renderer -> main, invoke. Enqueues a playlist of N entries as N
+   * separate Download rows. Each row inherits the chosen FormatChoice
+   * and gets `playlistId` / `playlistTitle` / `playlistIndex` /
+   * `playlistTotal` set so the renderer can group them under a
+   * playlist header. Returns the list of new download ids in enqueue
+   * order so the caller can correlate UI state. */
+  StartPlaylistDownload: 'pluck:start-playlist-download',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

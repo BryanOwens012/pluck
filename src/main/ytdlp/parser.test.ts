@@ -3,6 +3,8 @@ import {
   isCookieAccessDeniedError,
   isPasswordRequiredError,
   parseMetadata,
+  parsePlaylistContextFromFlat,
+  parsePlaylistEntries,
   parseProgressLine,
 } from './parser';
 
@@ -279,5 +281,176 @@ describe('isCookieAccessDeniedError', () => {
   it('handles empty / whitespace input', () => {
     expect(isCookieAccessDeniedError('')).toBe(false);
     expect(isCookieAccessDeniedError('   \n  ')).toBe(false);
+  });
+});
+
+// ---- playlist context on parseMetadata --------------------------------
+
+describe('parseMetadata playlist handling', () => {
+  it('returns playlistContext for a video-in-playlist record', () => {
+    // yt-dlp on `watch?v=X&list=Y` emits a video shape with extra
+    // playlist_* fields. We project them into `playlistContext` and
+    // mark `isExplicitPlaylistUrl: false` because the URL was a video
+    // URL that happened to carry playlist context.
+    const json = JSON.stringify({
+      id: 'vid-x',
+      title: 'Episode 3',
+      extractor: 'youtube',
+      duration: 600,
+      playlist_id: 'PLxxx',
+      playlist_title: 'My Series',
+      playlist_count: 12,
+    });
+    const meta = parseMetadata(json);
+    expect(meta.playlistContext).toEqual({
+      id: 'PLxxx',
+      title: 'My Series',
+      entryCount: 12,
+      isExplicitPlaylistUrl: false,
+    });
+  });
+
+  it('returns playlistContext for an explicit playlist URL (_type: playlist)', () => {
+    // `playlist?list=Y` URLs return a `_type: 'playlist'` shape with
+    // an entries array. parseMetadata synthesizes a uniform video
+    // record from the first entry, with isExplicitPlaylistUrl: true.
+    const json = JSON.stringify({
+      _type: 'playlist',
+      id: 'PLxxx',
+      title: 'JS Conf 2024',
+      extractor: 'youtube:playlist',
+      playlist_count: 47,
+      entries: [
+        { id: 'first-vid', title: 'Opening Keynote', duration: 1800 },
+        { id: 'second-vid', title: 'State of the Language', duration: 2400 },
+      ],
+    });
+    const meta = parseMetadata(json);
+    expect(meta.title).toBe('Opening Keynote');
+    expect(meta.id).toBe('first-vid');
+    expect(meta.playlistContext).toEqual({
+      id: 'PLxxx',
+      title: 'JS Conf 2024',
+      entryCount: 47,
+      isExplicitPlaylistUrl: true,
+    });
+  });
+
+  it('returns undefined playlistContext for a plain single video', () => {
+    const json = JSON.stringify({
+      id: 'vid-x',
+      title: 'A standalone video',
+      extractor: 'youtube',
+    });
+    expect(parseMetadata(json).playlistContext).toBeUndefined();
+  });
+
+  it('falls back entryCount to entries.length when playlist_count is missing', () => {
+    const json = JSON.stringify({
+      _type: 'playlist',
+      id: 'PLxxx',
+      title: 'No Count Playlist',
+      extractor: 'youtube:playlist',
+      entries: [
+        { id: 'a', title: 'A', url: 'https://x/a' },
+        { id: 'b', title: 'B', url: 'https://x/b' },
+        { id: 'c', title: 'C', url: 'https://x/c' },
+      ],
+    });
+    expect(parseMetadata(json).playlistContext?.entryCount).toBe(3);
+  });
+});
+
+// ---- parsePlaylistEntries -----------------------------------------------
+
+describe('parsePlaylistEntries', () => {
+  it('returns one PlaylistEntry per entry, preserving order', () => {
+    const json = JSON.stringify({
+      _type: 'playlist',
+      id: 'PLxxx',
+      title: 'A',
+      entries: [
+        { url: 'https://x/1', title: 'One', duration: 100, playlist_index: 1 },
+        { url: 'https://x/2', title: 'Two', duration: 200, playlist_index: 2 },
+        { url: 'https://x/3', title: 'Three', duration: 300, playlist_index: 3 },
+      ],
+    });
+    expect(parsePlaylistEntries(json)).toEqual([
+      { url: 'https://x/1', title: 'One', durationSec: 100, index: 1 },
+      { url: 'https://x/2', title: 'Two', durationSec: 200, index: 2 },
+      { url: 'https://x/3', title: 'Three', durationSec: 300, index: 3 },
+    ]);
+  });
+
+  it('returns [] for a non-playlist record (single video)', () => {
+    const json = JSON.stringify({ id: 'x', title: 't', extractor: 'youtube' });
+    expect(parsePlaylistEntries(json)).toEqual([]);
+  });
+
+  it('skips entries missing url or title (yt-dlp half-built records for unavailable videos)', () => {
+    const json = JSON.stringify({
+      _type: 'playlist',
+      id: 'PLxxx',
+      title: 'A',
+      entries: [
+        { url: 'https://x/1', title: 'One' },
+        { id: 'broken' /* no url, no title */ },
+        null, // entirely missing
+        { url: 'https://x/2', title: 'Two' },
+      ],
+    });
+    expect(parsePlaylistEntries(json)).toHaveLength(2);
+  });
+
+  it('falls back to array index (1-based) when entry lacks playlist_index', () => {
+    const json = JSON.stringify({
+      _type: 'playlist',
+      id: 'PLxxx',
+      title: 'A',
+      entries: [
+        { url: 'https://x/1', title: 'One' },
+        { url: 'https://x/2', title: 'Two' },
+      ],
+    });
+    const entries = parsePlaylistEntries(json);
+    expect(entries[0]?.index).toBe(1);
+    expect(entries[1]?.index).toBe(2);
+  });
+});
+
+// ---- parsePlaylistContextFromFlat ---------------------------------------
+
+describe('parsePlaylistContextFromFlat', () => {
+  it('extracts id + title + count from a flat-playlist record', () => {
+    const json = JSON.stringify({
+      _type: 'playlist',
+      id: 'PLxxx',
+      title: 'My Series',
+      playlist_count: 12,
+      entries: [],
+    });
+    expect(parsePlaylistContextFromFlat(json)).toEqual({
+      id: 'PLxxx',
+      title: 'My Series',
+      entryCount: 12,
+      isExplicitPlaylistUrl: true,
+    });
+  });
+
+  it('falls back entryCount to entries.length when playlist_count is missing', () => {
+    const json = JSON.stringify({
+      _type: 'playlist',
+      id: 'PLxxx',
+      title: 'My Series',
+      entries: [
+        { url: 'a', title: 'A' },
+        { url: 'b', title: 'B' },
+      ],
+    });
+    expect(parsePlaylistContextFromFlat(json)?.entryCount).toBe(2);
+  });
+
+  it('returns undefined for non-playlist records', () => {
+    expect(parsePlaylistContextFromFlat(JSON.stringify({ id: 'x', title: 't' }))).toBeUndefined();
   });
 });
