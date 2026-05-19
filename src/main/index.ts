@@ -13,7 +13,7 @@ import { binPath } from './paths';
 import { createDownloadQueue } from './queue';
 import { createSecretsStore, type Encryptor } from './secrets';
 import { createSettingsStore } from './settings';
-import { fetchMetadata, runDownload } from './ytdlp/runner';
+import { fetchMetadata, fetchPlaylistEntries, runDownload } from './ytdlp/runner';
 
 const createWindow = (): void => {
   const mainWindow = new BrowserWindow({
@@ -180,7 +180,17 @@ app.whenReady().then(async () => {
   // 'queued' from the prior session to 'failed' (interrupted).
   queue.rehydrate(persistedDownloads);
 
-  registerIpcHandlers({ queue, metadataCache, settings, secrets, tempBaseDir: PLUCK_CACHE_DIR });
+  registerIpcHandlers({
+    queue,
+    metadataCache,
+    settings,
+    secrets,
+    tempBaseDir: PLUCK_CACHE_DIR,
+    enumeratePlaylist: (url) =>
+      fetchPlaylistEntries(url, runnerDeps, {
+        cookiesFromBrowser: settings.get().cookiesFromBrowser,
+      }),
+  });
   prewarmYtDlp();
   createWindow();
 

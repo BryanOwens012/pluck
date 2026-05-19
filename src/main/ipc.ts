@@ -8,6 +8,11 @@ import {
   type DownloadRequest,
   type FormatChoice,
   type ParseYtDlpCommandResult,
+  PLAYLIST_ENTRY_CAP,
+  PLAYLIST_ORDERS,
+  type PlaylistContext,
+  type PlaylistEntry,
+  type PlaylistOrder,
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../shared/types';
@@ -88,6 +93,12 @@ export type IpcDeps = {
   /** Per-download temp-folder root. Used by OpenTempFolder +
    * ClearTempFolders. Per-id subfolders live directly underneath. */
   tempBaseDir: string;
+  /** Closure over the runner's `fetchPlaylistEntries` — wired up by
+   * main/index.ts so this module stays unaware of yt-dlp binary paths.
+   * Reads the current `cookiesFromBrowser` setting at call time. */
+  enumeratePlaylist: (
+    url: string,
+  ) => Promise<{ entries: PlaylistEntry[]; context: PlaylistContext | undefined }>;
 };
 
 /** Type-guard so the IPC layer can reject unknown provider names from a
@@ -99,6 +110,9 @@ const isSecretName = (value: unknown): value is SecretName =>
  * string would silently break the next yt-dlp invocation otherwise. */
 const isBrowserName = (value: unknown): value is BrowserName =>
   typeof value === 'string' && (BROWSER_NAMES as readonly string[]).includes(value);
+
+const isPlaylistOrder = (value: unknown): value is PlaylistOrder =>
+  typeof value === 'string' && (PLAYLIST_ORDERS as readonly string[]).includes(value);
 
 /** Wire all renderer→main and main→renderer IPC. Pure delegation to the
  * queue/cache; this module owns no download lifecycle itself anymore. */
@@ -392,6 +406,71 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     );
     return formatInvocationForDisplay(args);
   });
+  ipcMain.handle(
+    IpcChannels.EnumeratePlaylist,
+    async (
+      _event,
+      url: unknown,
+    ): Promise<
+      | { ok: true; entries: PlaylistEntry[]; context: PlaylistContext | undefined }
+      | { ok: false; error: string }
+    > => {
+      if (!isHttpUrl(url)) {
+        return { ok: false, error: 'Invalid URL.' };
+      }
+      try {
+        const result = await deps.enumeratePlaylist(url);
+        return { ok: true, entries: result.entries, context: result.context };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to expand the playlist.';
+        return { ok: false, error: message };
+      }
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.StartPlaylistDownload,
+    (_event, payload: unknown): { ids: string[]; enqueued: number; skipped: number } => {
+      // Defensive shape check — any of these missing means the
+      // renderer sent malformed payload; bail out with an empty
+      // result instead of mutating queue state.
+      if (typeof payload !== 'object' || payload === null) {
+        return { ids: [], enqueued: 0, skipped: 0 };
+      }
+      const obj = payload as Record<string, unknown>;
+      const entries = Array.isArray(obj.entries) ? (obj.entries as PlaylistEntry[]) : [];
+      const format = obj.format as FormatChoice | undefined;
+      const context = obj.playlistContext as PlaylistContext | undefined;
+      const order = isPlaylistOrder(obj.order) ? obj.order : 'oldest_first';
+      if (entries.length === 0 || !format || !context) {
+        return { ids: [], enqueued: 0, skipped: 0 };
+      }
+      // Newest-first = reverse the playlist-ordered enumeration.
+      const ordered = order === 'newest_first' ? [...entries].reverse() : entries;
+      // Cap at PLAYLIST_ENTRY_CAP. The renderer warns the user when
+      // this kicks in; we enforce it here too as defense in depth.
+      const limited = ordered.slice(0, PLAYLIST_ENTRY_CAP);
+      const skipped = ordered.length - limited.length;
+      const total = limited.length;
+      const ids: string[] = [];
+      for (let i = 0; i < limited.length; i += 1) {
+        const entry = limited[i];
+        if (!entry || !isHttpUrl(entry.url)) {
+          continue;
+        }
+        ids.push(
+          deps.queue.enqueue({
+            url: entry.url,
+            format,
+            playlistId: context.id,
+            playlistTitle: context.title,
+            playlistIndex: i + 1,
+            playlistTotal: total,
+          }),
+        );
+      }
+      return { ids, enqueued: ids.length, skipped };
+    },
+  );
   ipcMain.handle(IpcChannels.FileExists, async (_event, filePath: unknown): Promise<boolean> => {
     // Defensive: only stat absolute paths owned by a download row.
     // A compromised renderer otherwise could probe arbitrary fs.
@@ -407,22 +486,30 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
   });
   ipcMain.handle(
     IpcChannels.GetFormatChoices,
-    async (_event, url: unknown): Promise<FormatChoice[]> => {
+    async (
+      _event,
+      url: unknown,
+    ): Promise<{ choices: FormatChoice[]; playlistContext?: PlaylistContext }> => {
       // Renderer probes per URL. We reuse the existing metadataCache —
       // if the URL was prefetched on paste this is free; if not, we
       // trigger a fresh fetch on demand. Silent fallback to the four
       // static defaults on any failure: invalid URL, network down,
       // private video without cookies, etc. The actual download attempt
-      // will surface any real error.
+      // will surface any real error. The metadata's `playlistContext`
+      // is bubbled up alongside the choices so the renderer can pop the
+      // PlaylistPrompt modal when the user clicks Download.
       if (!isHttpUrl(url)) {
-        return [...STATIC_FORMAT_CHOICES_ORDERED];
+        return { choices: [...STATIC_FORMAT_CHOICES_ORDERED] };
       }
       try {
         const meta = await deps.metadataCache.get(url);
-        return resolveFormatChoices(meta.formats);
+        return {
+          choices: resolveFormatChoices(meta.formats),
+          playlistContext: meta.playlistContext,
+        };
       } catch (err) {
         console.error('GetFormatChoices: metadata fetch failed, returning static defaults', err);
-        return [...STATIC_FORMAT_CHOICES_ORDERED];
+        return { choices: [...STATIC_FORMAT_CHOICES_ORDERED] };
       }
     },
   );

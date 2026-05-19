@@ -1,4 +1,4 @@
-import type { DownloadRequest } from '../../shared/types';
+import type { DownloadRequest, PlaylistContext } from '../../shared/types';
 
 /** One entry in yt-dlp's `formats` array. Subset of fields we read for
  * format-selection logic. yt-dlp may emit additional fields per entry
@@ -39,6 +39,17 @@ export type VideoMetadata = {
    * optional 5th dropdown slot. Empty array when yt-dlp couldn't enumerate
    * formats (audio-only URL, single-stream extractor). */
   formats: FormatInfo[];
+  /** Set when the metadata fetch reports a playlist context.
+   *   - For a video-in-playlist URL (`watch?v=X&list=Y`): yt-dlp's `-J`
+   *     output gives the single video's metadata plus a `playlist` /
+   *     `playlist_id` / `playlist_title` / `playlist_count` field — we
+   *     project those here so the renderer can prompt "just this video
+   *     or the whole playlist?"
+   *   - For an explicit playlist URL (`playlist?list=Y`): yt-dlp emits
+   *     `_type: 'playlist'` with an `entries` array; parseMetadata
+   *     surfaces the same shape so the prompt UX is uniform.
+   * Undefined for plain single-video URLs. */
+  playlistContext?: PlaylistContext;
 };
 
 export const PROGRESS_STATUSES = ['downloading', 'finished', 'error'] as const;

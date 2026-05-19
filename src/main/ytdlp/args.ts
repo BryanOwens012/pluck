@@ -277,6 +277,24 @@ export const buildMetadataArgs = (url: string, options: FetchMetadataOptions): s
   return args;
 };
 
+/** Build the argv for `yt-dlp -J --no-download --yes-playlist
+ * --flat-playlist <url>` — the playlist enumeration pass. `--yes-playlist`
+ * forces yt-dlp to honor the playlist context (default for `watch?v=X&list=Y`
+ * is to fetch only the single video). `--flat-playlist` short-circuits the
+ * per-video metadata pre-fetch so the call returns in seconds even for a
+ * 200-entry playlist; each entry is a stub (url, id, title, duration). */
+export const buildPlaylistEnumerationArgs = (
+  url: string,
+  options: FetchMetadataOptions,
+): string[] => {
+  const args = ['-J', '--no-download', '--yes-playlist', '--flat-playlist'];
+  if (options.cookiesFromBrowser) {
+    args.push('--cookies-from-browser', options.cookiesFromBrowser);
+  }
+  args.push(url);
+  return args;
+};
+
 /** Build the argv for a full `yt-dlp` download invocation. The marker
  * path is returned alongside the args because the runner needs it to
  * read the final filepath yt-dlp writes via `--print-to-file`.

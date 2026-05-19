@@ -3,6 +3,8 @@ import {
   type DebugLogEvent,
   type Download,
   type FormatChoice,
+  type PlaylistContext,
+  type PlaylistOrder,
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../../shared/types';
@@ -10,6 +12,7 @@ import { isHttpUrl } from '../../shared/url';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { PasswordPrompt } from './components/PasswordPrompt';
+import { PlaylistPrompt } from './components/PlaylistPrompt';
 import { SettingsPanel } from './components/SettingsPanel';
 import { UrlInput } from './components/UrlInput';
 import { useDebouncedValue } from './hooks/useDebouncedValue';
@@ -190,25 +193,46 @@ const App = (): React.JSX.Element => {
     }
   }, [trimmedUrl, urlIsValid]);
 
+  // Currently-known playlist context for the URL the user is typing.
+  // Populated by the format-probe IPC alongside the choices; undefined
+  // for plain single-video URLs. Used to decide whether to pop the
+  // PlaylistPrompt modal when the user clicks Download.
+  const [playlistContext, setPlaylistContext] = useState<PlaylistContext | undefined>(undefined);
+  // Pending prompt — the format the user picked (the modal commits a
+  // FormatChoice + URL to either the single-download IPC or the
+  // playlist-enumerate-then-enqueue IPC). When non-null, the modal is
+  // visible. Reset to null on resolve / dismiss.
+  const [pendingPlaylistPrompt, setPendingPlaylistPrompt] = useState<
+    { context: PlaylistContext; url: string; format: FormatChoice } | undefined
+  >(undefined);
+
   // Per-URL format probe. Driven off the debounced URL so we don't IPC
   // on every keystroke. The IPC handler shares the metadataCache with
   // UrlInput's prefetch warm, so this is typically a cache hit (free).
   // When choices land, we preserve selection by id — usually the user
   // is still on 'best' from the placeholder, which maps cleanly to the
-  // probed 'best' choice.
+  // probed 'best' choice. We also pick up the playlist context here so
+  // a Download click can pop the modal without an extra IPC round-trip.
   useEffect(() => {
     if (debouncedUrl.length === 0) {
+      setPlaylistContext(undefined);
       return;
     }
     let cancelled = false;
     api
       .getFormatChoices(debouncedUrl)
-      .then((choices) => {
-        if (cancelled || choices.length === 0) {
+      .then((result) => {
+        if (cancelled) {
           return;
         }
-        setFormatChoices(choices);
-        setFormat((prev) => choices.find((c) => c.id === prev.id) ?? choices[0] ?? prev);
+        setPlaylistContext(result.playlistContext);
+        if (result.choices.length === 0) {
+          return;
+        }
+        setFormatChoices(result.choices);
+        setFormat(
+          (prev) => result.choices.find((c) => c.id === prev.id) ?? result.choices[0] ?? prev,
+        );
       })
       .catch((err: unknown) => {
         console.error('getFormatChoices rejected:', err);
@@ -252,10 +276,61 @@ const App = (): React.JSX.Element => {
     if (!urlIsValid) {
       return;
     }
+    // Playlist branch: hold off enqueuing and pop the prompt. The
+    // modal's callbacks dispatch to either the single-video path
+    // (--no-playlist semantics — same IPC, the user just doesn't
+    // want the playlist) or the enumerate-then-enqueue path. We
+    // snapshot the format + URL on the pending prompt so re-fetches
+    // mid-prompt don't change what gets enqueued.
+    if (playlistContext) {
+      setPendingPlaylistPrompt({ context: playlistContext, url: trimmedUrl, format });
+      setUrl('');
+      return;
+    }
     api.startDownload({ url: trimmedUrl, format }).catch((err: unknown) => {
       console.error('startDownload rejected:', err);
     });
     setUrl('');
+  };
+
+  const handlePlaylistJustOne = (): void => {
+    if (!pendingPlaylistPrompt) {
+      return;
+    }
+    const { url: pendingUrl, format: pendingFormat } = pendingPlaylistPrompt;
+    setPendingPlaylistPrompt(undefined);
+    api.startDownload({ url: pendingUrl, format: pendingFormat }).catch((err: unknown) => {
+      console.error('startDownload rejected:', err);
+    });
+  };
+
+  const handlePlaylistWhole = (order: PlaylistOrder): void => {
+    if (!pendingPlaylistPrompt) {
+      return;
+    }
+    const { url: pendingUrl, format: pendingFormat, context } = pendingPlaylistPrompt;
+    setPendingPlaylistPrompt(undefined);
+    // Enumerate then enqueue. Failures bubble to console — a friendly
+    // toast surface could be added later. The single-download path
+    // stays a fallback if enumeration returns zero entries (rare —
+    // happens on yt-dlp extractor edge cases).
+    api
+      .enumeratePlaylist(pendingUrl)
+      .then((result) => {
+        if (!result.ok || result.entries.length === 0 || !result.context) {
+          console.error('enumeratePlaylist returned no entries', result);
+          return;
+        }
+        return api.startPlaylistDownload({
+          entries: result.entries,
+          format: pendingFormat,
+          playlistContext: result.context ?? context,
+          order,
+        });
+      })
+      .catch((err: unknown) => {
+        console.error('playlist enqueue rejected:', err);
+      });
   };
 
   // Stable so SettingsPanel's window-level Esc listener doesn't
@@ -340,6 +415,17 @@ const App = (): React.JSX.Element => {
           modal that floats over whichever view is active. */}
       {promptDownload ? (
         <PasswordPrompt download={promptDownload} onDismiss={handleDismissPasswordPrompt} />
+      ) : null}
+      {/* Playlist prompt — same modal pattern, fires when the user
+          clicks Download on a URL whose metadata had a playlist
+          context. The three buttons dispatch to either single-video
+          or whole-playlist (in either order) enqueue. */}
+      {pendingPlaylistPrompt ? (
+        <PlaylistPrompt
+          context={pendingPlaylistPrompt.context}
+          onJustOne={handlePlaylistJustOne}
+          onWholePlaylist={handlePlaylistWhole}
+        />
       ) : null}
     </main>
   );

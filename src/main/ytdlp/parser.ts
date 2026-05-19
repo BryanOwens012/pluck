@@ -1,3 +1,4 @@
+import type { PlaylistContext, PlaylistEntry } from '../../shared/types';
 import type { FormatInfo, ProgressEvent, VideoMetadata } from './types';
 
 /**
@@ -63,9 +64,24 @@ export const parseProgressLine = (line: string): ProgressEvent | null => {
  * the input isn't valid JSON or is missing the required identifier fields.
  * yt-dlp emits a huge object (hundreds of keys); we project to the subset we
  * actually use.
+ *
+ * Handles two shapes:
+ *   - `_type: 'playlist'` with an `entries` array — the URL was an
+ *     explicit playlist (`playlist?list=Y`). We synthesize a video-like
+ *     record from the first entry so the rest of the app keeps a
+ *     uniform shape, and attach the playlist info as `playlistContext`
+ *     with `isExplicitPlaylistUrl: true`.
+ *   - A normal video record with optional `playlist_id` /
+ *     `playlist_title` / `playlist_count` fields (yt-dlp populates
+ *     these when the URL was `watch?v=X&list=Y`). Those fields land in
+ *     `playlistContext` with `isExplicitPlaylistUrl: false`.
  */
 export const parseMetadata = (json: string): VideoMetadata => {
   const parsed = JSON.parse(json) as Record<string, unknown>;
+
+  if (parsed._type === 'playlist') {
+    return parsePlaylistShape(parsed);
+  }
 
   const id = typeof parsed.id === 'string' ? parsed.id : undefined;
   const title = typeof parsed.title === 'string' ? parsed.title : undefined;
@@ -87,7 +103,69 @@ export const parseMetadata = (json: string): VideoMetadata => {
     uploader,
     thumbnailUrl,
     formats: parseFormats(parsed.formats),
+    playlistContext: parsePlaylistContextFromVideoRecord(parsed),
   };
+};
+
+/** Build a uniform `VideoMetadata` from an explicit-playlist `-J`
+ * record (`_type: 'playlist'`). We synthesize the video-level fields
+ * from the first entry so callers don't have to special-case this
+ * shape — the playlist prompt UI is what actually reads the
+ * `playlistContext` and decides what to do. */
+const parsePlaylistShape = (parsed: Record<string, unknown>): VideoMetadata => {
+  const playlistId = typeof parsed.id === 'string' ? parsed.id : '';
+  const playlistTitle = typeof parsed.title === 'string' ? parsed.title : playlistId;
+  const extractor = typeof parsed.extractor === 'string' ? parsed.extractor : 'unknown';
+  const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+  const firstEntry = (entries[0] ?? {}) as Record<string, unknown>;
+
+  // Stand in with first-entry data so the row preview the renderer
+  // shows before the user picks "first video" vs "whole playlist"
+  // isn't blank. If the entries array is empty (rare), the synthetic
+  // record falls back to playlist-level fields.
+  const id = typeof firstEntry.id === 'string' ? firstEntry.id : playlistId;
+  const firstTitle = typeof firstEntry.title === 'string' ? firstEntry.title : undefined;
+  const duration = typeof firstEntry.duration === 'number' ? firstEntry.duration : undefined;
+  const uploader = typeof firstEntry.uploader === 'string' ? firstEntry.uploader : undefined;
+  const thumbnailUrl = typeof firstEntry.thumbnail === 'string' ? firstEntry.thumbnail : undefined;
+  const entryCount =
+    typeof parsed.playlist_count === 'number'
+      ? parsed.playlist_count
+      : entries.length > 0
+        ? entries.length
+        : undefined;
+
+  return {
+    id,
+    title: firstTitle ?? playlistTitle,
+    extractor,
+    durationSec: duration,
+    uploader,
+    thumbnailUrl,
+    formats: parseFormats(firstEntry.formats),
+    playlistContext: {
+      id: playlistId,
+      title: playlistTitle,
+      entryCount,
+      isExplicitPlaylistUrl: true,
+    },
+  };
+};
+
+/** Read `playlist_*` fields off a video-shaped `-J` record. Returns
+ * undefined unless yt-dlp surfaced a playlist context — yt-dlp does
+ * this whenever the URL carried `&list=Y` even for video-shape
+ * downloads. */
+const parsePlaylistContextFromVideoRecord = (
+  parsed: Record<string, unknown>,
+): PlaylistContext | undefined => {
+  const id = typeof parsed.playlist_id === 'string' ? parsed.playlist_id : undefined;
+  if (id === undefined) {
+    return undefined;
+  }
+  const title = typeof parsed.playlist_title === 'string' ? parsed.playlist_title : id;
+  const entryCount = typeof parsed.playlist_count === 'number' ? parsed.playlist_count : undefined;
+  return { id, title, entryCount, isExplicitPlaylistUrl: false };
 };
 
 /** Extract the `formats` array from `yt-dlp -J` output. yt-dlp always
@@ -153,4 +231,69 @@ export const isCookieAccessDeniedError = (stderr: string): boolean => {
   const cookieSignal = /(cookie|keychain|keyring)/i.test(stderr);
   const denialSignal = /(denied|decrypt|permission|cancell|aborted)/i.test(stderr);
   return cookieSignal && denialSignal;
+};
+
+/**
+ * Parse the JSON object emitted by `yt-dlp -J --no-download --yes-playlist
+ * --flat-playlist <url>`. Returns a flat list of `PlaylistEntry`s — one per
+ * video in the playlist. Throws if the input isn't valid JSON.
+ *
+ * `--flat-playlist` short-circuits per-video metadata fetching, so each entry
+ * is a stub (url, id, title, optional duration). The full metadata fetch
+ * happens per row at runOne time via the existing metadata cache, same as a
+ * single-video download.
+ *
+ * Returns an empty array (rather than throwing) for non-playlist shapes —
+ * lets the caller decide whether that's an error or just "user pasted a
+ * single-video URL we can't expand".
+ */
+export const parsePlaylistEntries = (json: string): PlaylistEntry[] => {
+  const parsed = JSON.parse(json) as Record<string, unknown>;
+  if (parsed._type !== 'playlist' || !Array.isArray(parsed.entries)) {
+    return [];
+  }
+  const out: PlaylistEntry[] = [];
+  for (let i = 0; i < parsed.entries.length; i += 1) {
+    const entry = parsed.entries[i] as Record<string, unknown> | null;
+    if (entry === null || typeof entry !== 'object') {
+      continue;
+    }
+    const url = typeof entry.url === 'string' ? entry.url : undefined;
+    const title = typeof entry.title === 'string' ? entry.title : undefined;
+    if (url === undefined || title === undefined) {
+      // yt-dlp occasionally emits half-built entries for unavailable
+      // videos (deleted, private). Skip them — the `-i` flag at
+      // download time covers the same intent for the live download.
+      continue;
+    }
+    out.push({
+      url,
+      title,
+      index: typeof entry.playlist_index === 'number' ? entry.playlist_index : i + 1,
+      durationSec: typeof entry.duration === 'number' ? entry.duration : undefined,
+    });
+  }
+  return out;
+};
+
+/** Compose the playlist-level context (id, title, count) from the same
+ * `--flat-playlist` -J output that `parsePlaylistEntries` reads. Used to
+ * stamp `playlistTitle` etc. on each enqueued Download row. */
+export const parsePlaylistContextFromFlat = (json: string): PlaylistContext | undefined => {
+  const parsed = JSON.parse(json) as Record<string, unknown>;
+  if (parsed._type !== 'playlist') {
+    return undefined;
+  }
+  const id = typeof parsed.id === 'string' ? parsed.id : undefined;
+  if (id === undefined) {
+    return undefined;
+  }
+  const title = typeof parsed.title === 'string' ? parsed.title : id;
+  const entryCount =
+    typeof parsed.playlist_count === 'number'
+      ? parsed.playlist_count
+      : Array.isArray(parsed.entries)
+        ? parsed.entries.length
+        : undefined;
+  return { id, title, entryCount, isExplicitPlaylistUrl: true };
 };

@@ -2,9 +2,11 @@ import { execFile, spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
+import type { PlaylistContext, PlaylistEntry } from '../../shared/types';
 import {
   buildDownloadArgs,
   buildMetadataArgs,
+  buildPlaylistEnumerationArgs,
   CANCEL_FORCE_KILL_AFTER_MS,
   MAX_STDERR_RETENTION_LINES,
   METADATA_MAX_BUFFER,
@@ -13,6 +15,8 @@ import {
   isCookieAccessDeniedError,
   isPasswordRequiredError,
   parseMetadata,
+  parsePlaylistContextFromFlat,
+  parsePlaylistEntries,
   parseProgressLine,
 } from './parser';
 import {
@@ -59,6 +63,44 @@ export const fetchMetadata = async (
         throw new YtDlpPasswordRequiredError(err.stderr);
       }
       throw new YtDlpError(`yt-dlp metadata fetch failed: ${err.message}`, err.stderr);
+    }
+    throw err;
+  }
+};
+
+/**
+ * Run `yt-dlp -J --no-download --yes-playlist --flat-playlist` to enumerate
+ * a playlist's entries without per-video metadata round-trips. Used by the
+ * "All videos in playlist" path to learn what to enqueue. Returns the parsed
+ * entries plus the playlist's own id/title/count for the row labels.
+ *
+ * Throws the same friendly errors as `fetchMetadata` (cookies denied,
+ * password required, generic) so the caller can route them through the
+ * same UI message paths.
+ */
+export const fetchPlaylistEntries = async (
+  url: string,
+  deps: RunnerDeps,
+  options: FetchMetadataOptions = {},
+): Promise<{ entries: PlaylistEntry[]; context: PlaylistContext | undefined }> => {
+  const args = buildPlaylistEnumerationArgs(url, options);
+  try {
+    const { stdout } = await execFileAsync(deps.ytDlpPath, args, {
+      maxBuffer: METADATA_MAX_BUFFER,
+    });
+    return {
+      entries: parsePlaylistEntries(stdout),
+      context: parsePlaylistContextFromFlat(stdout),
+    };
+  } catch (err) {
+    if (err instanceof Error && 'stderr' in err && typeof err.stderr === 'string') {
+      if (options.cookiesFromBrowser && isCookieAccessDeniedError(err.stderr)) {
+        throw new YtDlpCookieAccessDeniedError(options.cookiesFromBrowser, err.stderr);
+      }
+      if (isPasswordRequiredError(err.stderr)) {
+        throw new YtDlpPasswordRequiredError(err.stderr);
+      }
+      throw new YtDlpError(`yt-dlp playlist enumeration failed: ${err.message}`, err.stderr);
     }
     throw err;
   }

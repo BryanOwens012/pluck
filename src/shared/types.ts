@@ -183,7 +183,64 @@ export type DownloadRequest = {
    * user-configured default output folder from settings. */
   outputFolder?: string;
   videoPassword?: string;
+  /** Set when this request is one entry inside a playlist enqueue.
+   * The id is the same `Playlist.id` shared by every entry of the
+   * playlist (typically yt-dlp's `playlist_id`), so the renderer
+   * can group rows visually. Undefined for plain single-video
+   * downloads. */
+  playlistId?: string;
+  /** Display label for the playlist this request belongs to. Copied
+   * onto the Download by the queue so the renderer can render the
+   * group header without an extra lookup. */
+  playlistTitle?: string;
+  /** 1-based position of this entry within its playlist. */
+  playlistIndex?: number;
+  /** Total count of entries in the parent playlist. */
+  playlistTotal?: number;
 };
+
+/** Lightweight summary of the playlist a video belongs to. Just enough
+ * for the prompt UI to read "<title> (47 videos)". The full per-entry
+ * enumeration is a separate fetch (yt-dlp -J --flat-playlist on the
+ * playlist URL). */
+export type PlaylistContext = {
+  /** yt-dlp's `playlist_id` — e.g. YouTube's `list=` param value. */
+  id: string;
+  /** yt-dlp's `playlist_title`. May fall back to the id when missing. */
+  title: string;
+  /** yt-dlp's `playlist_count`. May be undefined for some extractors
+   * that don't pre-count. */
+  entryCount?: number;
+  /** True when the URL is an EXPLICIT playlist URL (`playlist?list=Y`
+   * shape — yt-dlp returned `_type: 'playlist'`). False when it's a
+   * video URL that happens to carry playlist context. Changes the
+   * "Just this video" button copy to "Just the first video". */
+  isExplicitPlaylistUrl: boolean;
+};
+
+/** One entry returned by enumeratePlaylist — a single video the user
+ * will enqueue as part of a playlist. Just URL + title + duration; the
+ * full per-video metadata (formats, thumbnail) gets fetched at runOne
+ * time same as a single-video download. */
+export type PlaylistEntry = {
+  url: string;
+  title: string;
+  /** yt-dlp's `playlist_index` (1-based). Preserved so the renderer
+   * can show "3 of 47" per row. */
+  index: number;
+  durationSec?: number;
+};
+
+/** Hard cap on how many entries we enqueue from a playlist in one go.
+ * Larger playlists prompt a warning in the modal and only the first N
+ * are queued. Power users can re-submit with a slice URL
+ * (`...&playlist_items=51-100`). */
+export const PLAYLIST_ENTRY_CAP = 50;
+
+/** Direction the user chose at the playlist prompt — only used for
+ * the `enumeratePlaylist` IPC arg; persisted nowhere. */
+export const PLAYLIST_ORDERS = ['oldest_first', 'newest_first'] as const;
+export type PlaylistOrder = (typeof PLAYLIST_ORDERS)[number];
 
 export const DOWNLOAD_STATUSES = [
   'queued',
@@ -235,6 +292,21 @@ export type Download = {
    * debug-mode row to show "size + duration" alongside the saved-to
    * path. Undefined on failure paths (no file landed). */
   fileSizeBytes?: number;
+  /** Set when this row was enqueued as part of a playlist. Same id is
+   * shared across every entry of the playlist so the renderer can
+   * group + render a playlist header above the constituent rows.
+   * Undefined for plain single-video downloads. */
+  playlistId?: string;
+  /** Display label for the playlist this row belongs to. Copied from
+   * the PlaylistContext at enqueue time so the renderer can render
+   * the group header without needing to look it up. */
+  playlistTitle?: string;
+  /** 1-based position of this entry inside the playlist. Used in the
+   * row UI ("3 of 47"). */
+  playlistIndex?: number;
+  /** Total count of entries in the parent playlist at enqueue time.
+   * Used alongside `playlistIndex` for the row UI. */
+  playlistTotal?: number;
 };
 
 export type TranscriptionStatus =

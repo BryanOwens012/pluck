@@ -620,4 +620,32 @@ describe('DownloadQueue', () => {
     queue.cancel(id);
     expect(queue.getAll().find((d) => d.id === id)?.status).toBe('cancelled');
   });
+
+  it('enqueue copies playlist fields from the request onto the Download', () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue({
+      ...makeRequest('https://example.com/playlist-entry-1'),
+      playlistId: 'PLxxx',
+      playlistTitle: 'My Series',
+      playlistIndex: 3,
+      playlistTotal: 47,
+    });
+    const row = queue.getAll().find((d) => d.id === id);
+    expect(row?.playlistId).toBe('PLxxx');
+    expect(row?.playlistTitle).toBe('My Series');
+    expect(row?.playlistIndex).toBe(3);
+    expect(row?.playlistTotal).toBe(47);
+    queue.cancel(id);
+  });
+
+  it('enqueue leaves playlist fields undefined when the request omits them', () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+    const row = queue.getAll().find((d) => d.id === id);
+    expect(row?.playlistId).toBeUndefined();
+    expect(row?.playlistTitle).toBeUndefined();
+    expect(row?.playlistIndex).toBeUndefined();
+    expect(row?.playlistTotal).toBeUndefined();
+    queue.cancel(id);
+  });
 });

@@ -9,6 +9,9 @@ import type {
   DownloadRequest,
   FormatChoice,
   ParseYtDlpCommandResult,
+  PlaylistContext,
+  PlaylistEntry,
+  PlaylistOrder,
 } from '../shared/types';
 
 export type HasApiKeys = { anthropic: boolean; elevenlabs: boolean };
@@ -152,8 +155,13 @@ const api = {
    * static defaults if the URL is invalid or yt-dlp's metadata can't
    * be fetched (network down, private video, etc.). Otherwise returns
    * enriched labels (real dimensions / fps / container) + an optional
-   * 5th non-mp4 alternative when it strictly beats the best mp4. */
-  getFormatChoices: (url: string): Promise<FormatChoice[]> =>
+   * 5th non-mp4 alternative when it strictly beats the best mp4. Also
+   * returns `playlistContext` when the URL resolved with a playlist
+   * field — the renderer uses that to pop the PlaylistPrompt modal
+   * when the user clicks Download. */
+  getFormatChoices: (
+    url: string,
+  ): Promise<{ choices: FormatChoice[]; playlistContext?: PlaylistContext }> =>
     ipcRenderer.invoke(IpcChannels.GetFormatChoices, url),
 
   /** Whether the file at `filePath` exists on disk. Used to detect
@@ -177,6 +185,30 @@ const api = {
    * shown inline next to the override textarea. */
   parseYtDlpCommand: (input: string): Promise<ParseYtDlpCommandResult> =>
     ipcRenderer.invoke(IpcChannels.ParseYtDlpCommand, input),
+
+  /** Expand a playlist URL into its constituent video entries. Used
+   * AFTER the user picks "All videos" in the PlaylistPrompt modal —
+   * not on paste. Resolves with the flat entry list + the parent
+   * playlist's id/title/count, or a friendly error. */
+  enumeratePlaylist: (
+    url: string,
+  ): Promise<
+    | { ok: true; entries: PlaylistEntry[]; context: PlaylistContext | undefined }
+    | { ok: false; error: string }
+  > => ipcRenderer.invoke(IpcChannels.EnumeratePlaylist, url),
+
+  /** Enqueue an N-entry playlist as N separate Download rows. Each row
+   * inherits `format` and gets `playlistId` / `playlistTitle` /
+   * `playlistIndex` / `playlistTotal` set so the renderer can group
+   * them. Returns the new download ids in enqueue order plus a count
+   * of entries skipped because of the PLAYLIST_ENTRY_CAP. */
+  startPlaylistDownload: (payload: {
+    entries: PlaylistEntry[];
+    format: FormatChoice;
+    playlistContext: PlaylistContext;
+    order: PlaylistOrder;
+  }): Promise<{ ids: string[]; enqueued: number; skipped: number }> =>
+    ipcRenderer.invoke(IpcChannels.StartPlaylistDownload, payload),
 };
 
 export type PluckAPI = typeof api;
