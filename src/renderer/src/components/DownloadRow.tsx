@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { DebugLogEvent, Download } from '../../../shared/types';
 import { api } from '../lib/api';
 import { LogBox } from './LogBox';
 import { resolveSiteGlyph, SourceSiteIcon } from './SourceSiteIcon';
+
+const MISSING_FILE_TOOLTIP = 'The video cannot be found, as it might have been moved or deleted.';
 
 type Props = {
   download: Download;
@@ -304,23 +306,63 @@ const CancelButton = ({ id }: { id: string }): React.JSX.Element => {
 
 /** Saved-to line plus a folder-icon button that reveals the file in Finder.
  * Extracted so the narrowed `filePath: string` (vs the parent's optional)
- * stays clean inside the button's click handler. */
+ * stays clean inside the button's click handler. The button is disabled
+ * with an explanatory tooltip when the file is missing from disk — the
+ * user moved it via Finder, sent it to the Trash, or otherwise deleted
+ * it out of band. Existence is rechecked on window focus so coming back
+ * from a Finder cleanup session picks up the new state without a
+ * re-render. */
 const CompletedFooter = ({ filePath }: { filePath: string }): React.JSX.Element => {
+  // undefined = haven't checked yet (treat as present until proven
+  // otherwise so the button doesn't flicker disabled on every render).
+  const [exists, setExists] = useState<boolean | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    const check = (): void => {
+      api
+        .fileExists(filePath)
+        .then((value) => {
+          if (!cancelled) {
+            setExists(value);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setExists(false);
+          }
+        });
+    };
+    check();
+    window.addEventListener('focus', check);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', check);
+    };
+  }, [filePath]);
+
   const handleReveal = (): void => {
     api.showInFinder(filePath).catch((err: unknown) => {
       console.error('showInFinder rejected:', err);
     });
   };
 
+  const isMissing = exists === false;
+
   return (
     <div className="mt-2 flex items-start gap-2">
-      <div className="min-w-0 flex-1 break-words text-xs text-emerald-400">Saved to {filePath}</div>
+      <div
+        className={`min-w-0 flex-1 break-words text-xs ${isMissing ? 'text-neutral-500 line-through' : 'text-emerald-400'}`}
+      >
+        Saved to {filePath}
+      </div>
       <button
         type="button"
         onClick={handleReveal}
-        title="Show in Finder"
-        aria-label="Show in Finder"
-        className="shrink-0 rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
+        disabled={isMissing}
+        title={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
+        aria-label={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
+        className="shrink-0 rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 disabled:cursor-not-allowed disabled:text-neutral-700 disabled:hover:bg-transparent disabled:hover:text-neutral-700"
       >
         <FolderIcon />
       </button>

@@ -2,13 +2,13 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Download } from '../shared/types';
+import { type Download, STATIC_FORMAT_CHOICES } from '../shared/types';
 import { capToMax, createHistoryStore, promoteInterruptedToFailed } from './history';
 
 const makeDownload = (overrides: Partial<Download> = {}): Download => ({
   id: 'youtube-x-20260516-204530-aaa111',
   url: 'https://youtube.com/watch?v=x',
-  format: 'best',
+  format: STATIC_FORMAT_CHOICES.best,
   outputFolder: '/tmp/out',
   status: 'completed',
   progress: 100,

@@ -68,6 +68,9 @@ export const createHistoryStore = (dir: string): HistoryStore => {
       console.error('history: schema mismatch, starting clean');
       return [];
     }
+    // Promote any rows still in a non-terminal state at app exit to
+    // terminal ones — there's no live process to ever push the real
+    // terminal update.
     return parsed.downloads.map(promoteInterruptedToFailed);
   };
 

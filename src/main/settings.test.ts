@@ -80,8 +80,8 @@ describe('createSettingsStore', () => {
     expect(b.get().debugMode).toBe(true);
   });
 
-  it('legacy settings.json without debugMode loads as debugMode: false', async () => {
-    // Forward-compat: a file written before this PR has no debugMode
+  it('settings.json missing debugMode loads as debugMode: false', async () => {
+    // A partially-written or hand-edited file may omit debugMode
     // key. The defaults-spread in createSettingsStore should fill it
     // in as false rather than carrying `undefined` forward.
     await fs.writeFile(
@@ -141,7 +141,7 @@ describe('createSettingsStore', () => {
     errorSpy.mockRestore();
   });
 
-  it('legacy settings.json without concurrentFragments loads as default 14', async () => {
+  it('settings.json missing concurrentFragments loads as default 14', async () => {
     await fs.writeFile(
       join(dir, 'settings.json'),
       JSON.stringify({ version: 1, settings: { outputFolder: '/tmp/x' } }),

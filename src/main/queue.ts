@@ -289,11 +289,11 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       emitDebug(id, 'metadata:done', `${meta.extractor}: ${meta.title}`);
 
       const smoother = createProgressSmoother();
-      emitDebug(id, 'download:start', `format=${download.format}`);
+      emitDebug(id, 'download:start', `format=${download.format.id}`);
       const result = await opts.runDownload(
         {
           url: download.url,
-          format: download.format,
+          ytDlpFormatArgs: download.format.ytDlpFormatArgs,
           tempFolder,
           videoPassword: secrets.get(id),
           cookiesFromBrowser: opts.getCookiesFromBrowser(),

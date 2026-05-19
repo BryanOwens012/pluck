@@ -4,8 +4,93 @@
  * from here.
  */
 
-export const FORMATS = ['best', '1080p', '720p', 'audio_mp3'] as const;
-export type Format = (typeof FORMATS)[number];
+/** Stable ids for the four built-in format presets. The optional 5th
+ * dropdown entry (a non-mp4 alternative when it strictly beats best mp4)
+ * uses the dynamic id 'best_alt'. Any future ids land here too. */
+export const FORMAT_IDS = ['best', '1080p', '720p', 'audio_mp3', 'best_alt'] as const;
+export type FormatId = (typeof FORMAT_IDS)[number];
+
+/** What the renderer picks and what the runner consumes. The id is
+ * stable across UI / IPC / history; `label` is the always-visible base
+ * name ("Best quality"); `shorthand` is a terse resolution bucket
+ * ("4K", "1080p") shown next to the label in non-debug mode — only the
+ * `best` preset populates this since "1080p" / "720p" are already the
+ * label, and audio_mp3 has no resolution; `detail` is the full per-URL
+ * specifics ("1920×1080 mp4, 60fps") which the UI only renders in
+ * debug mode (or always, for the `best_alt` 5th option whose entire
+ * purpose is to surface a different container); `ytDlpFormatArgs`
+ * carries the actual yt-dlp flags. Storing the args frozen at enqueue
+ * time means Retry replays the same flag set even if the source URL's
+ * available formats have changed since.
+ *
+ * For video presets the args are like `['-f', '...', '-S', 'res,vcodec:h264,fps']`.
+ * For audio_mp3 they're `['-x', '--audio-format', 'mp3', '--audio-quality', '0']`.
+ * Empty args is valid in principle (would let yt-dlp pick its own
+ * default) but not used today. */
+export type FormatChoice = {
+  id: FormatId;
+  label: string;
+  shorthand?: string;
+  detail?: string;
+  ytDlpFormatArgs: string[];
+};
+
+/** Static fallback table — used by the renderer before a URL probe
+ * runs. Labels are generic ("Best quality") because we don't know
+ * per-URL dimensions until format-selector runs on a fetched metadata
+ * pass. */
+export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, FormatChoice> = {
+  best: {
+    id: 'best',
+    label: 'Best quality',
+    // `vcodec!*=av01` excludes AV1-in-mp4 streams. M1 / M2 Macs have no
+    // hardware AV1 decode, so AV1 files play back stuttery and macOS
+    // QuickTime treats some of them as corrupt. M3+ would be fine but
+    // we're optimising for the lowest-common-denominator M-series Mac.
+    // The 5th `best_alt` option still surfaces a higher-quality non-mp4
+    // alternative (typically vp9-webm 1080p60) when one exists.
+    ytDlpFormatArgs: [
+      '-f',
+      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+      '-S',
+      'res,vcodec:h264,fps',
+    ],
+  },
+  '1080p': {
+    id: '1080p',
+    label: '1080p',
+    ytDlpFormatArgs: [
+      '-f',
+      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
+      '-S',
+      'res,vcodec:h264,fps',
+    ],
+  },
+  '720p': {
+    id: '720p',
+    label: '720p',
+    ytDlpFormatArgs: [
+      '-f',
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
+      '-S',
+      'res,vcodec:h264,fps',
+    ],
+  },
+  audio_mp3: {
+    id: 'audio_mp3',
+    label: 'Audio only (mp3)',
+    ytDlpFormatArgs: ['-x', '--audio-format', 'mp3', '--audio-quality', '0'],
+  },
+};
+
+/** Ordered list of the static presets — renderer uses this to populate
+ * the dropdown before any URL probe. */
+export const STATIC_FORMAT_CHOICES_ORDERED: readonly FormatChoice[] = [
+  STATIC_FORMAT_CHOICES.best,
+  STATIC_FORMAT_CHOICES['1080p'],
+  STATIC_FORMAT_CHOICES['720p'],
+  STATIC_FORMAT_CHOICES.audio_mp3,
+];
 
 /** Browsers yt-dlp can pull cookies from. Subset of yt-dlp's full list
  * (chromium, opera, vivaldi, whale also work) — these are the common
@@ -44,9 +129,9 @@ export type DebugLogEvent = {
 
 export type DownloadRequest = {
   url: string;
-  format: Format;
-  /** Optional. If omitted, main process falls back to its configured default
-   * (~/Downloads/Pluck until PR 6 introduces the settings-driven path). */
+  format: FormatChoice;
+  /** Optional. If omitted, the main process falls back to the
+   * user-configured default output folder from settings. */
   outputFolder?: string;
   videoPassword?: string;
 };
@@ -72,7 +157,7 @@ export type Download = {
   /** Remote https URL for a preview thumbnail, populated after the metadata
    * pre-pass. Renderer loads it directly; CSP permits `img-src https:`. */
   thumbnailUrl?: string;
-  format: Format;
+  format: FormatChoice;
   outputFolder: string;
   filePath?: string;
   status: DownloadStatus;

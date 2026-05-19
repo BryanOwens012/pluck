@@ -85,9 +85,10 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
   if (typeof s !== 'object' || s === null) {
     return false;
   }
-  // Only outputFolder is required. Future additive fields are merged
-  // under defaults in createSettingsStore so a legacy file missing a
-  // newer key reads cleanly rather than carrying `undefined` forward.
+  // Only outputFolder is required. Other fields are merged under
+  // defaults in createSettingsStore so a partially-written file (or
+  // one missing a field) reads cleanly rather than carrying
+  // `undefined` forward.
   if (typeof s.outputFolder !== 'string') {
     return false;
   }

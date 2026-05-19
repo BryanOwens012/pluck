@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Download, DownloadRequest } from '../shared/types';
+import { type Download, type DownloadRequest, STATIC_FORMAT_CHOICES } from '../shared/types';
 import type { MetadataCache } from './metadata-cache';
 import {
   createDownloadQueue,
@@ -57,9 +57,10 @@ describe('friendlyErrorMessage', () => {
   });
 
   it('maps YtDlpPasswordRequiredError to a password-specific hint', () => {
-    // The full Zoom password modal lands in PR 7. Until then, the row's
-    // error block at least tells the user *why* it failed instead of
-    // blaming yt-dlp or the URL.
+    // This is the fallback message — the queue routes password-required
+    // errors through 'needs_password' status instead so the password
+    // prompt modal opens. The friendly string only surfaces if some
+    // non-queue caller bypasses that path.
     expect(friendlyErrorMessage(new YtDlpPasswordRequiredError())).toBe(
       'This recording requires a password.',
     );
@@ -160,7 +161,7 @@ afterEach(async () => {
 
 const buildQueueDeps = (onUpdate: (d: Download) => void) => {
   const runnerDeps: RunnerDeps = { ytDlpPath: '/usr/bin/true', ffmpegPath: '/usr/bin/true' };
-  const fakeMeta: VideoMetadata = { id: 'x', title: 'Fake', extractor: 'youtube' };
+  const fakeMeta: VideoMetadata = { id: 'x', title: 'Fake', extractor: 'youtube', formats: [] };
   const metadataCache: MetadataCache = {
     get: () => Promise.resolve(fakeMeta),
     prefetch: () => {},
@@ -192,7 +193,10 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
   };
 };
 
-const makeRequest = (url = 'https://example.com/x'): DownloadRequest => ({ url, format: 'best' });
+const makeRequest = (url = 'https://example.com/x'): DownloadRequest => ({
+  url,
+  format: STATIC_FORMAT_CHOICES.best,
+});
 
 /** Wait until `predicate` is true or `timeoutMs` elapses. Polls every 10 ms. */
 const waitFor = async (predicate: () => boolean, timeoutMs = 1000): Promise<void> => {
@@ -443,7 +447,7 @@ describe('DownloadQueue', () => {
       {
         id: 'past-1',
         url: 'https://example.com/a',
-        format: 'best',
+        format: STATIC_FORMAT_CHOICES.best,
         outputFolder: outputDir,
         status: 'completed',
         progress: 100,
@@ -452,7 +456,7 @@ describe('DownloadQueue', () => {
       {
         id: 'past-2',
         url: 'https://example.com/b',
-        format: 'best',
+        format: STATIC_FORMAT_CHOICES.best,
         outputFolder: outputDir,
         status: 'failed',
         progress: 0,

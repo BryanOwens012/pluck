@@ -2,6 +2,7 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { STATIC_FORMAT_CHOICES } from '../../shared/types';
 import { runDownload } from './runner';
 import { YtDlpCancelledError, YtDlpError } from './types';
 
@@ -30,7 +31,12 @@ describe('runDownload cancellation', () => {
       const promise = runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: [
+            '-f',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+            '-S',
+            'res,vcodec:h264,fps',
+          ],
           tempFolder: workspace,
           cancelSignal: controller.signal,
         },
@@ -54,7 +60,12 @@ describe('runDownload cancellation', () => {
       const promise = runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: [
+            '-f',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+            '-S',
+            'res,vcodec:h264,fps',
+          ],
           tempFolder: workspace,
           cancelSignal: controller.signal,
         },
@@ -96,7 +107,12 @@ describe('runDownload --cookies-from-browser pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: [
+            '-f',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+            '-S',
+            'res,vcodec:h264,fps',
+          ],
           tempFolder: workspace,
           cookiesFromBrowser: 'chrome',
         },
@@ -119,7 +135,12 @@ describe('runDownload --cookies-from-browser pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: [
+            '-f',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+            '-S',
+            'res,vcodec:h264,fps',
+          ],
           tempFolder: workspace,
         },
         { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
@@ -142,7 +163,12 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: [
+            '-f',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+            '-S',
+            'res,vcodec:h264,fps',
+          ],
           tempFolder: workspace,
           concurrentFragments: 8,
         },
@@ -163,7 +189,12 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: [
+            '-f',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+            '-S',
+            'res,vcodec:h264,fps',
+          ],
           tempFolder: workspace,
         },
         { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
@@ -177,21 +208,21 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
 });
 
 describe('runDownload format-flags (mp4-preferring presets)', () => {
-  // Spec PR 9.6 Phase A: every video preset must (a) prefer mp4
-  // container so the file plays in QuickTime/iMessage, and (b) sort
-  // candidate streams by res,fps,vcodec so 1080p60 wins over 1080p30
-  // when both exist.
+  // Every video preset must (a) prefer mp4 container so the file plays
+  // in QuickTime/iMessage, and (b) sort candidate streams by
+  // res,vcodec:h264,fps — h264 preference is weighted ahead of fps so
+  // a 1080p30 h264 stream wins over a 1080p60 av1-in-mp4 stream that
+  // QuickTime can't decode well on M1/M2 Macs. The [vcodec!*=av01]
+  // filter is also belt-and-suspenders against av1-in-mp4.
 
-  const runAndReadArgv = async (
-    format: 'best' | '1080p' | '720p' | 'audio_mp3',
-  ): Promise<string> => {
+  const runAndReadArgv = async (preset: keyof typeof STATIC_FORMAT_CHOICES): Promise<string> => {
     const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-format-test-'));
     const fakePath = await argvRecorder(workspace);
     try {
       await runDownload(
         {
           url: 'https://example.com/x',
-          format,
+          ytDlpFormatArgs: STATIC_FORMAT_CHOICES[preset].ytDlpFormatArgs,
           tempFolder: workspace,
         },
         { ytDlpPath: fakePath, ffmpegPath: '/usr/bin/true' },
@@ -204,20 +235,24 @@ describe('runDownload format-flags (mp4-preferring presets)', () => {
 
   it('best: -f filters to mp4 video + m4a audio, falls back to single mp4', async () => {
     const argv = await runAndReadArgv('best');
-    expect(argv).toContain('bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]');
-    expect(argv).toMatch(/-S res,fps,vcodec/);
+    expect(argv).toContain('bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]');
+    expect(argv).toMatch(/-S res,vcodec:h264,fps/);
   });
 
   it('1080p: caps height inside the mp4 filter', async () => {
     const argv = await runAndReadArgv('1080p');
-    expect(argv).toContain('bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]');
-    expect(argv).toMatch(/-S res,fps,vcodec/);
+    expect(argv).toContain(
+      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
+    );
+    expect(argv).toMatch(/-S res,vcodec:h264,fps/);
   });
 
   it('720p: caps height inside the mp4 filter', async () => {
     const argv = await runAndReadArgv('720p');
-    expect(argv).toContain('bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]');
-    expect(argv).toMatch(/-S res,fps,vcodec/);
+    expect(argv).toContain(
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
+    );
+    expect(argv).toMatch(/-S res,vcodec:h264,fps/);
   });
 
   it('audio_mp3: extraction path, no -S sort (container-agnostic by design)', async () => {
@@ -227,13 +262,12 @@ describe('runDownload format-flags (mp4-preferring presets)', () => {
     expect(argv).toContain('--audio-quality 0');
     // -S is for video container/codec sorting; mp3 extraction
     // re-encodes regardless of source container, so -S would be wasted.
-    expect(argv).not.toMatch(/-S res,fps,vcodec/);
+    expect(argv).not.toMatch(/-S res,vcodec:h264,fps/);
   });
 
-  it('regression: old format strings (no [ext=mp4] filter) are NOT used', async () => {
-    // The bare `bv*+ba/b` would let YouTube serve vp9/webm by default;
-    // PR 9.6 forces mp4. If this regresses, downloads play in VLC but
-    // break in QuickTime/iMessage/iMovie.
+  it('never emits a bare `-f bv*+ba/b` selector (must specify mp4 container)', async () => {
+    // A bare selector lets YouTube serve vp9/webm by default; we always
+    // pin mp4 so the file plays in QuickTime / iMessage / iMovie.
     const argv = await runAndReadArgv('best');
     expect(argv).not.toMatch(/-f bv\*\+ba\/b\s/);
   });
@@ -267,7 +301,12 @@ exit 1
       await runDownload(
         {
           url: 'https://example.com/x',
-          format: 'best',
+          ytDlpFormatArgs: [
+            '-f',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+            '-S',
+            'res,vcodec:h264,fps',
+          ],
           tempFolder: workspace,
           onRawLine: (line) => lines.push(line),
         },
