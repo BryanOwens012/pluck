@@ -72,6 +72,12 @@ export const PlaylistPrompt = ({
         ) : null}
         <div className="mt-4 space-y-2">
           <button
+            // Autofocus this button so Esc fires the div-level keydown
+            // handler immediately (the dialog needs focus inside it
+            // for Esc to dispatch). Also gives keyboard users a
+            // sensible default action.
+            // biome-ignore lint/a11y/noAutofocus: modal entry-point focus
+            autoFocus
             type="button"
             onClick={onJustOne}
             className="w-full rounded-md bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300"

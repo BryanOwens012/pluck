@@ -114,8 +114,10 @@ const renderGroupedRows = (
 };
 
 /** Header + indented body for one playlist's rows. Header reads
- * "<playlist title> · N of M" where N is the count of completed
- * entries and M is the playlistTotal stamped at enqueue. */
+ * "<playlist title> · X of M" where X is the count of rows in THIS
+ * section (active or history) and M is the playlistTotal stamped at
+ * enqueue. Active + history counts sum to ≤ M (rows that haven't
+ * finished are in active; terminal rows are in history). */
 const PlaylistGroup = ({
   rows,
   renderRow,
@@ -129,14 +131,13 @@ const PlaylistGroup = ({
   }
   const title = first.playlistTitle ?? 'Playlist';
   const total = first.playlistTotal ?? rows.length;
-  const completed = rows.filter((r) => r.status === 'completed').length;
 
   return (
     <section className="space-y-2 rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
       <header className="flex items-baseline justify-between gap-2">
         <h3 className="min-w-0 break-words text-xs font-semibold text-neutral-300">{title}</h3>
         <span className="shrink-0 text-xs text-neutral-500">
-          {completed} of {total}
+          {rows.length} of {total}
         </span>
       </header>
       <div className="space-y-2">{rows.map(renderRow)}</div>
