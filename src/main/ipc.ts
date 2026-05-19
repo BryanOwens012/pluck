@@ -197,6 +197,9 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
         sanitized.ytDlpCommandOverride = override;
       }
     }
+    if (typeof patchObj.developerSectionOpen === 'boolean') {
+      sanitized.developerSectionOpen = patchObj.developerSectionOpen;
+    }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
     }

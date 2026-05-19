@@ -17,19 +17,22 @@ type Props = {
   debugMode: boolean;
   /** Called when the user toggles debug mode in the Developer section. */
   onDebugModeChange: (next: boolean) => void;
-  /** Called to close the panel. */
-  onClose: () => void;
+  /** Called when the user clicks the back arrow or presses Esc. App
+   * flips its view state back to 'main'. */
+  onBack: () => void;
 };
 
-/** Backdrop + modal wrapper. Centered, max-width-md, dismissable via
- * backdrop click or Esc. Pattern matches PasswordPrompt — kept inline
- * rather than extracting a Modal component until we have a 3rd modal. */
+/** Full-page Settings view. Replaces the main download UI when the
+ * user clicks the gear icon — no backdrop, no modal scaffolding. The
+ * back arrow + Esc both return to main. Esc is wired via a window-
+ * level keydown listener (not the page div) so it fires regardless
+ * of which focusable child is active. */
 export const SettingsPanel = ({
   outputFolder,
   onOutputFolderChange,
   debugMode,
   onDebugModeChange,
-  onClose,
+  onBack,
 }: Props): React.JSX.Element => {
   // Override is hoisted here so the dependent rows (cookies, concurrent
   // fragments) can render disabled with the extracted value when an
@@ -57,86 +60,189 @@ export const SettingsPanel = ({
     setOverrideExtracted(next);
   }, []);
 
+  // Window-level Esc → back. Attached to window (not the page div)
+  // so the keypress fires regardless of which control inside has
+  // focus. Cleaned up when the page unmounts (i.e. on view switch).
+  useEffect(() => {
+    const handleKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        onBack();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [onBack]);
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="settings-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-      onClick={(event) => {
-        if (event.target === event.currentTarget) {
-          onClose();
-        }
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          onClose();
-        }
-      }}
-    >
-      <div className="flex max-h-[calc(100vh-2rem)] w-full max-w-md flex-col rounded-lg border border-neutral-800 bg-neutral-900 shadow-xl">
-        <header className="flex items-center justify-between border-b border-neutral-800 px-4 py-3">
-          <h2 id="settings-title" className="text-sm font-semibold text-neutral-100">
-            Settings
-          </h2>
+    <div className="min-h-screen bg-neutral-950">
+      <div className="mx-auto max-w-2xl space-y-6 p-6">
+        <header className="flex items-center gap-3">
           <button
             type="button"
-            onClick={onClose}
-            aria-label="Close settings"
-            className="rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
+            onClick={onBack}
+            aria-label="Back to downloads"
+            title="Back"
+            className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
           >
-            <CloseIcon />
+            <BackIcon />
           </button>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-100">Settings</h1>
         </header>
-        <div className="flex-1 space-y-6 overflow-y-auto px-4 py-4">
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            Default output folder
+          </h3>
+          <OutputFolderPicker outputFolder={outputFolder} onChange={onOutputFolderChange} />
+        </section>
+        <section className="space-y-2">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            Browser cookies
+          </h3>
+          <CookiesSection overrideExtracted={overrideExtracted} />
+        </section>
+        {AI_FEATURES_ENABLED ? (
           <section className="space-y-2">
             <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-              Default output folder
+              API keys
             </h3>
-            <OutputFolderPicker outputFolder={outputFolder} onChange={onOutputFolderChange} />
+            <p className="text-xs text-neutral-500">
+              Optional. Pluck will prompt you the first time a feature needs a key.
+            </p>
+            <ApiKeyRow
+              provider="elevenlabs"
+              label="ElevenLabs"
+              help="Powers transcription (Transcribe button on completed downloads)."
+            />
+            <ApiKeyRow
+              provider="anthropic"
+              label="Anthropic"
+              help="Powers AI prompt suggestions (coming soon)."
+            />
           </section>
-          <section className="space-y-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-              Browser cookies
-            </h3>
-            <CookiesSection overrideExtracted={overrideExtracted} />
-          </section>
-          {AI_FEATURES_ENABLED ? (
-            <section className="space-y-2">
-              <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-                API keys
-              </h3>
-              <p className="text-xs text-neutral-500">
-                Optional. Pluck will prompt you the first time a feature needs a key.
-              </p>
-              <ApiKeyRow
-                provider="elevenlabs"
-                label="ElevenLabs"
-                help="Powers transcription (Transcribe button on completed downloads)."
-              />
-              <ApiKeyRow
-                provider="anthropic"
-                label="Anthropic"
-                help="Powers AI prompt suggestions (coming soon)."
-              />
-            </section>
-          ) : null}
-          <section className="space-y-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-              Developer
-            </h3>
-            <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
-            <ConcurrentDownloadsRow />
-            <ConcurrentFragmentsRow overrideExtracted={overrideExtracted} />
-            <YtDlpCommandOverrideRow onExtractedChange={handleOverrideExtractedChange} />
-            <ClearTempFoldersRow />
-          </section>
-        </div>
+        ) : null}
+        <DeveloperSection
+          debugMode={debugMode}
+          onDebugModeChange={onDebugModeChange}
+          overrideExtracted={overrideExtracted}
+          onOverrideExtractedChange={handleOverrideExtractedChange}
+        />
         <VersionFooter />
       </div>
     </div>
   );
 };
+
+/** Lucide-style back arrow. Inlined so we don't pull a full icon dep
+ * for a one-off page navigation affordance. */
+const BackIcon = (): React.JSX.Element => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    className="h-5 w-5"
+  >
+    <path d="M19 12H5" />
+    <path d="m12 19-7-7 7-7" />
+  </svg>
+);
+
+/** Collapsible Developer section. Closed by default; the open/closed
+ * state persists in `Settings.developerSectionOpen` so a power user
+ * who's been poking at debug flags doesn't have to re-open it every
+ * launch. When closed, the inner rows are unmounted — their
+ * useEffects (settings fetches, browser detection, override boot)
+ * don't fire until the user expands the section, so the casual-user
+ * Settings open stays fast and side-effect free. */
+const DeveloperSection = ({
+  debugMode,
+  onDebugModeChange,
+  overrideExtracted,
+  onOverrideExtractedChange,
+}: {
+  debugMode: boolean;
+  onDebugModeChange: (next: boolean) => void;
+  overrideExtracted: ExtractedFlags | undefined;
+  onOverrideExtractedChange: (next: ExtractedFlags | undefined) => void;
+}): React.JSX.Element => {
+  // `open` mirrors the persisted value. We initialize from
+  // api.getSettings() on mount; until that resolves we render closed
+  // (the safer default — avoids a flash-of-open).
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    api
+      .getSettings()
+      .then((s) => {
+        setOpen(s.developerSectionOpen);
+      })
+      .catch((err: unknown) => {
+        console.error('developer section boot rejected:', err);
+      });
+  }, []);
+
+  const toggle = (): void => {
+    const next = !open;
+    setOpen(next);
+    api.updateSettings({ developerSectionOpen: next }).catch((err: unknown) => {
+      console.error('updateSettings(developerSectionOpen) rejected:', err);
+      // Revert on save failure so the persisted state matches the UI.
+      setOpen(!next);
+    });
+  };
+
+  return (
+    <section className="space-y-2">
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={open}
+        className="flex w-full items-center gap-2 rounded-md py-1 text-left transition hover:bg-neutral-900"
+      >
+        <ChevronRightIcon
+          className={`h-3 w-3 text-neutral-500 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+        />
+        <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Developer</h3>
+      </button>
+      {/* Inner rows are conditionally rendered — when closed, their
+          useEffects don't fire (no IPC traffic for users who never
+          open this section). */}
+      {open ? (
+        <div className="space-y-2">
+          <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
+          <ConcurrentDownloadsRow />
+          <ConcurrentFragmentsRow overrideExtracted={overrideExtracted} />
+          <YtDlpCommandOverrideRow onExtractedChange={onOverrideExtractedChange} />
+          <ClearTempFoldersRow />
+        </div>
+      ) : null}
+    </section>
+  );
+};
+
+/** Lucide-style right-pointing chevron, used by the Developer section
+ * accordion header. Rotated 90deg via a className when open. */
+const ChevronRightIcon = ({ className }: { className?: string }): React.JSX.Element => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+    className={className}
+  >
+    <path d="m9 18 6-6-6-6" />
+  </svg>
+);
 
 // ---- developer section ----------------------------------------------
 
@@ -278,7 +384,9 @@ const ConcurrencyRow = ({
         </select>
       </div>
       {overridden ? (
-        <p className="text-xs text-neutral-500">Locked by yt-dlp command override below.</p>
+        <p className="text-xs text-neutral-500">
+          Locked by yt-dlp command override in Developer settings.
+        </p>
       ) : null}
       {error ? <p className="text-xs text-red-400">{error}</p> : null}
     </div>
@@ -502,22 +610,6 @@ const ClearTempFoldersRow = (): React.JSX.Element => {
   );
 };
 
-const CloseIcon = (): React.JSX.Element => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-    className="h-4 w-4"
-  >
-    <path d="M18 6L6 18M6 6l12 12" />
-  </svg>
-);
-
 // ---- cookies ----------------------------------------------------------
 
 type CookiesState = { phase: 'idle' } | { phase: 'saving' } | { phase: 'error'; message: string };
@@ -632,7 +724,9 @@ const CookiesSection = ({
         ))}
       </select>
       {overridden ? (
-        <p className="text-xs text-neutral-500">Locked by yt-dlp command override below.</p>
+        <p className="text-xs text-neutral-500">
+          Locked by yt-dlp command override in Developer settings.
+        </p>
       ) : null}
       <p className="text-xs text-neutral-500">
         {noBrowsersDetected
