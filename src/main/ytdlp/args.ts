@@ -334,6 +334,22 @@ export const buildDownloadArgs = (
     // per-entry enqueue flow, so it doesn't need playlist-mode
     // here either.
     '--no-playlist',
+    // Space out subtitle downloads — we fetch ~20 sub files per
+    // video (11 language patterns × multiple variants each) and
+    // YouTube rate-limits the burst with HTTP 429 once you hit a
+    // few requests in a single second. 1s sleep keeps us safely
+    // under the threshold without dramatically slowing the sub
+    // phase. Applies to every download, single-video or playlist
+    // row, because both paths pull the same sub set.
+    '--sleep-subtitles',
+    '1',
+    // Retry on transient errors (the default is 10) with linear
+    // backoff between attempts. Belt-and-suspenders against the
+    // occasional 429 that slips through despite the sleep flags:
+    // a slow climb is much less likely to keep tripping the rate
+    // limiter than yt-dlp's default exponential burst.
+    '--retry-sleep',
+    'linear=2:10',
     '--ffmpeg-location',
     deps.ffmpegPath,
     '--paths',

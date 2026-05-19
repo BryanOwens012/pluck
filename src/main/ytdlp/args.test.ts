@@ -394,6 +394,26 @@ describe('buildDownloadArgs override mode', () => {
     expect(override.args).toContain('--no-playlist');
   });
 
+  it('always emits --sleep-subtitles 1 to space out the subtitle download burst', () => {
+    // We fetch ~20 sub files per video (11 lang patterns × variants),
+    // which trips YouTube's 429 rate limit if downloaded in rapid
+    // succession. 1s sleep keeps the burst under the threshold.
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--sleep-subtitles');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('1');
+  });
+
+  it('always emits --retry-sleep with linear backoff for transient errors', () => {
+    // yt-dlp's default retry backoff is exponential — fast enough to
+    // keep tripping 429 in a row. linear=2:10 starts slower and tops
+    // out at 10s, giving the rate limiter time to relax.
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--retry-sleep');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('linear=2:10');
+  });
+
   it('emits --sleep-requests <n> when requestSleepSeconds is set', () => {
     const { args } = buildDownloadArgs(optsForPreset('best', { requestSleepSeconds: 1 }), DEPS);
     const idx = args.indexOf('--sleep-requests');
