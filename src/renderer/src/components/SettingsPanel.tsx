@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SecretName } from '../../../main/secrets';
 import type { Settings } from '../../../main/settings';
+import { AI_FEATURES_ENABLED } from '../../../shared/flags';
 import { BROWSER_NAMES, type BrowserName, type ExtractedFlags } from '../../../shared/types';
 import { api } from '../lib/api';
 import { OutputFolderPicker } from './OutputFolderPicker';
@@ -98,33 +99,35 @@ export const SettingsPanel = ({
             <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
               Browser cookies
             </h3>
-            <CookiesSection overriddenValue={overrideExtracted?.cookiesFromBrowser} />
+            <CookiesSection overrideExtracted={overrideExtracted} />
           </section>
-          <section className="space-y-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-              API keys
-            </h3>
-            <p className="text-xs text-neutral-500">
-              Optional. Pluck will prompt you the first time a feature needs a key.
-            </p>
-            <ApiKeyRow
-              provider="elevenlabs"
-              label="ElevenLabs"
-              help="Powers transcription (Transcribe button on completed downloads)."
-            />
-            <ApiKeyRow
-              provider="anthropic"
-              label="Anthropic"
-              help="Powers AI prompt suggestions (coming soon)."
-            />
-          </section>
+          {AI_FEATURES_ENABLED ? (
+            <section className="space-y-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                API keys
+              </h3>
+              <p className="text-xs text-neutral-500">
+                Optional. Pluck will prompt you the first time a feature needs a key.
+              </p>
+              <ApiKeyRow
+                provider="elevenlabs"
+                label="ElevenLabs"
+                help="Powers transcription (Transcribe button on completed downloads)."
+              />
+              <ApiKeyRow
+                provider="anthropic"
+                label="Anthropic"
+                help="Powers AI prompt suggestions (coming soon)."
+              />
+            </section>
+          ) : null}
           <section className="space-y-2">
             <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
               Developer
             </h3>
             <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
             <ConcurrentDownloadsRow />
-            <ConcurrentFragmentsRow overriddenValue={overrideExtracted?.concurrentFragments} />
+            <ConcurrentFragmentsRow overrideExtracted={overrideExtracted} />
             <YtDlpCommandOverrideRow onExtractedChange={handleOverrideExtractedChange} />
             <ClearTempFoldersRow />
           </section>
@@ -194,11 +197,12 @@ type ConcurrencyRowProps = {
   min: number;
   max: number;
   initialDefault: number;
-  /** When defined, the row renders disabled and shows this value
-   * instead of the saved setting. Used to surface the value parsed
-   * out of an active yt-dlp command override so the user can see
-   * what their override decoded to. */
-  overriddenValue?: number;
+  /** Extracted flags from an active yt-dlp command override. When
+   * defined (object present, even if empty), the row locks because
+   * the override controls what runs — the saved setting won't take
+   * effect. If the row's flag is pinned, its value is what we show;
+   * otherwise we fall back to the saved value with the lock hint. */
+  overrideExtracted?: ExtractedFlags;
 };
 
 /** Shared scaffold for the two concurrency dropdowns. Both load from
@@ -212,7 +216,7 @@ const ConcurrencyRow = ({
   min,
   max,
   initialDefault,
-  overriddenValue,
+  overrideExtracted,
 }: ConcurrencyRowProps): React.JSX.Element => {
   const [value, setValue] = useState<number>(initialDefault);
   const [loaded, setLoaded] = useState(false);
@@ -244,13 +248,14 @@ const ConcurrencyRow = ({
   };
 
   const options = Array.from({ length: max - min + 1 }, (_, i) => min + i);
-  const overridden = overriddenValue !== undefined;
-  // When an override is active and pins this row's flag, render the
-  // override's value (not the saved setting) and lock the control. If
-  // the override is active but doesn't pin this flag, we still want
-  // to lock the control because the user's override might effectively
-  // shadow it anyway — but the saved value is what'd take effect.
-  const displayValue = overridden ? overriddenValue : loaded ? value : initialDefault;
+  // Lock whenever an override is active (the saved value won't take
+  // effect — yt-dlp runs whatever the override says). When the override
+  // pins this row's flag, surface the parsed value; otherwise fall back
+  // to the saved value so the row stays readable.
+  const overridden = overrideExtracted !== undefined;
+  const overrideForThisRow =
+    settingKey === 'concurrentFragments' ? overrideExtracted?.concurrentFragments : undefined;
+  const displayValue = overrideForThisRow ?? (loaded ? value : initialDefault);
 
   return (
     <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
@@ -281,9 +286,9 @@ const ConcurrencyRow = ({
 };
 
 const ConcurrentFragmentsRow = ({
-  overriddenValue,
+  overrideExtracted,
 }: {
-  overriddenValue?: number;
+  overrideExtracted?: ExtractedFlags;
 }): React.JSX.Element => (
   <ConcurrencyRow
     settingKey="concurrentFragments"
@@ -292,7 +297,7 @@ const ConcurrentFragmentsRow = ({
     min={MIN_CONCURRENT_FRAGMENTS}
     max={MAX_CONCURRENT_FRAGMENTS}
     initialDefault={DEFAULT_CONCURRENT_FRAGMENTS}
-    overriddenValue={overriddenValue}
+    overrideExtracted={overrideExtracted}
   />
 );
 
@@ -528,9 +533,9 @@ type CookiesState = { phase: 'idle' } | { phase: 'saving' } | { phase: 'error'; 
  * we keep it in the list with a "(not detected)" suffix so they can
  * see and change it. */
 const CookiesSection = ({
-  overriddenValue,
+  overrideExtracted,
 }: {
-  overriddenValue?: BrowserName;
+  overrideExtracted?: ExtractedFlags;
 }): React.JSX.Element => {
   const [value, setValue] = useState<BrowserName | ''>('');
   const [state, setState] = useState<CookiesState>({ phase: 'idle' });
@@ -600,14 +605,16 @@ const CookiesSection = ({
   // Empty-state message when no supported browser is found on disk.
   const noBrowsersDetected = installed.length === 0;
 
-  const overridden = overriddenValue !== undefined;
-  // Mirror the override's value in the dropdown so the user can see
-  // what their override decoded to. If the override pins a browser
-  // that isn't in `installed`, surface it so the row reads sensibly.
-  if (overridden && !options.some((o) => o.name === overriddenValue)) {
-    options.push({ name: overriddenValue, label: BROWSER_LABEL[overriddenValue] });
+  // Lock whenever an override is active — the saved cookies setting
+  // won't take effect because the override path skips it entirely. If
+  // the override pins --cookies-from-browser, surface that browser;
+  // otherwise show "None" since the override doesn't include cookies.
+  const overridden = overrideExtracted !== undefined;
+  const overrideCookies = overrideExtracted?.cookiesFromBrowser;
+  if (overrideCookies !== undefined && !options.some((o) => o.name === overrideCookies)) {
+    options.push({ name: overrideCookies, label: BROWSER_LABEL[overrideCookies] });
   }
-  const displayValue: BrowserName | '' = overridden ? overriddenValue : value;
+  const displayValue: BrowserName | '' = overridden ? (overrideCookies ?? '') : value;
 
   return (
     <div className="space-y-1.5">

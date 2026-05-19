@@ -46,11 +46,10 @@ const PROGRESS_TEMPLATE = [
  * out of Finder by default. */
 export const FINAL_PATH_MARKER_FILENAME = '.pluck-final-path';
 
-// Format args are no longer constructed per-preset here. They live on
-// FormatChoice in shared/types.ts (STATIC_FORMAT_CHOICES for the four
-// default presets; format-selector.ts builds per-URL choices including
-// the optional 5th non-mp4 alternative). buildDownloadArgs receives
-// the already-built args as opts.ytDlpFormatArgs and spreads them
+// Format args live on FormatChoice in shared/types.ts (STATIC_FORMAT_CHOICES
+// for the four default presets; format-selector.ts builds per-URL choices
+// including the optional 5th non-mp4 alternative). buildDownloadArgs
+// receives the already-built args as opts.ytDlpFormatArgs and spreads them
 // straight into argv — runner stays oblivious to format semantics.
 
 /** Token used inside a yt-dlp override string to mark where the URL
