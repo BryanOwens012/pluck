@@ -34,13 +34,22 @@ const FORMAT_PROBE_DEBOUNCE_MS = 100;
  * before the metadata probe has resolved. The user can still click
  * Download and gets the static "best" args (mp4-preferring, av1-
  * excluded) — yt-dlp picks the right stream without us needing the
- * probe result. Real choices replace this when the probe lands. */
+ * probe result. We show the full static-preset list so the user can
+ * immediately pick a specific tier (e.g., 720p for a bandwidth save)
+ * without waiting on the probe. Only the "Best" entry gets a "(TBD)"
+ * suffix because we don't know the actual top resolution yet — the
+ * other tiers' labels already say their height. Each preset's
+ * `ytDlpFormatArgs` selects the highest mp4 ≤ its tier height, so
+ * clicking "720p" before the probe lands still produces the right
+ * file. The dropdown swaps in enriched + deduplicated choices when
+ * the probe resolves. */
 const PROBING_PLACEHOLDER_CHOICES: readonly FormatChoice[] = [
-  {
-    id: 'best',
-    label: 'Best (TBD)',
-    ytDlpFormatArgs: STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs,
-  },
+  { ...STATIC_FORMAT_CHOICES.best, label: 'Best (TBD)' },
+  STATIC_FORMAT_CHOICES['1080p'],
+  STATIC_FORMAT_CHOICES['720p'],
+  STATIC_FORMAT_CHOICES['480p'],
+  STATIC_FORMAT_CHOICES['360p'],
+  STATIC_FORMAT_CHOICES.audio_mp3,
 ];
 
 const VIEWS = ['main', 'settings'] as const;

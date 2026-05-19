@@ -3,6 +3,7 @@ import {
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
   VIDEO_EMBED_FLAGS,
+  VIDEO_TIER_PRESETS,
 } from '../shared/types';
 import type { FormatInfo } from './ytdlp/types';
 
@@ -11,12 +12,13 @@ import type { FormatInfo } from './ytdlp/types';
  * Output: a dynamic dropdown list built from the probed metadata:
  *   - "Best" with a resolution shorthand attached (e.g. "4K",
  *     "1080p", "720p") so the user sees what they'll get.
- *   - Lower mp4 tiers (1080p / 720p) — included only when (a) an
- *     mp4 stream actually exists at that height and (b) it isn't a
- *     duplicate of the "Best" pick.
+ *   - Lower mp4 tiers (1080p / 720p / 480p / 360p) — included only
+ *     when (a) an mp4 stream actually exists at that height and (b)
+ *     it isn't a duplicate of the "Best" pick.
  *   - "Audio only (mp3)" — always.
- *   - Optional 5th `best_alt` entry labelled by shorthand + container
- *     ("4K (webm)") when a non-mp4 stream strictly beats the best mp4.
+ *   - Optional trailing `best_alt` entry labelled by shorthand +
+ *     container ("4K (webm)") when a non-mp4 stream strictly beats
+ *     the best mp4.
  *
  * AV1-in-mp4 is filtered out across the board because M1 / M2 Macs
  * have no hardware AV1 decode and QuickTime treats some AV1 files as
@@ -53,42 +55,44 @@ export const resolveFormatChoices = (formats: readonly FormatInfo[]): FormatChoi
     return [...STATIC_FORMAT_CHOICES_ORDERED];
   }
 
-  // For each height cap, find the best mp4 within it. "Best" here is
-  // (height, fps, tbr) descending. We pre-pick so labels can describe
-  // the actual file that lands on disk, not the theoretical max.
+  // For each height-capped tier, find the best mp4 within it. "Best"
+  // here is (height, fps, tbr) descending. We pre-pick so labels can
+  // describe the actual file that lands on disk, not the theoretical
+  // max.
   const bestMp4Unrestricted = pickBestVideo(mp4Videos);
-  const bestMp41080 = pickBestVideo(mp4Videos.filter((f) => (f.height ?? 0) <= 1080));
-  const bestMp4720 = pickBestVideo(mp4Videos.filter((f) => (f.height ?? 0) <= 720));
 
-  // Enrich the static-default labels with whatever we found. If no
-  // mp4 exists in a tier, keep the static base unchanged (no `detail`)
-  // — yt-dlp will fall back through its `b[ext=mp4]` selector. Only
-  // 'best' gets a shorthand bucket because the 1080p / 720p entries
-  // already say their resolution in the label.
+  // Enrich the "Best" entry with a shorthand bucket ("4K", "1080p")
+  // computed from the actual top-pick height; the lower tiers carry
+  // their resolution in the label already so no shorthand needed.
   const best = enrich(STATIC_FORMAT_CHOICES.best, bestMp4Unrestricted, { withShorthand: true });
-  const p1080 = enrich(STATIC_FORMAT_CHOICES['1080p'], bestMp41080);
-  const p720 = enrich(STATIC_FORMAT_CHOICES['720p'], bestMp4720);
-  const audio = STATIC_FORMAT_CHOICES.audio_mp3;
 
-  // Lower tiers are filtered against what's actually available:
+  // Lower-tier inclusion is filtered against what's actually available:
   //   1. Drop tier if its shorthand matches "Best"'s — no duplicate row.
   //   2. Drop tier if the URL doesn't offer an mp4 stream at (or above)
   //      that height. Otherwise picking the tier would silently fall
   //      back to a lower-res stream and confuse the user.
+  // VIDEO_TIER_PRESETS lists tiers in descending order (1080p, 720p,
+  // 480p, 360p), which is the same order they're displayed in the
+  // dropdown.
   const choices: FormatChoice[] = [best];
-  if (best.shorthand !== '1080p' && (bestMp41080?.height ?? 0) >= 1080) {
-    choices.push(p1080);
+  for (const tier of VIDEO_TIER_PRESETS) {
+    if (best.shorthand === tier.id) {
+      continue;
+    }
+    const tierMp4 = pickBestVideo(mp4Videos.filter((f) => (f.height ?? 0) <= tier.height));
+    if ((tierMp4?.height ?? 0) < tier.height) {
+      continue;
+    }
+    choices.push(enrich(STATIC_FORMAT_CHOICES[tier.id], tierMp4));
   }
-  if (best.shorthand !== '720p' && (bestMp4720?.height ?? 0) >= 720) {
-    choices.push(p720);
-  }
-  choices.push(audio);
+  choices.push(STATIC_FORMAT_CHOICES.audio_mp3);
 
-  // 5th option: the best non-mp4 unrestricted, IFF it strictly beats
-  // the best unrestricted mp4. "Strictly beats" = higher height, OR
-  // (same height AND higher fps), OR (same height AND fps AND higher
-  // tbr). Equal-quality non-mp4 doesn't earn a slot — there's no
-  // benefit, only the cost of a less-compatible container.
+  // Optional trailing `best_alt`: the best non-mp4 unrestricted, IFF
+  // it strictly beats the best unrestricted mp4. "Strictly beats" =
+  // higher height, OR (same height AND higher fps), OR (same height
+  // AND fps AND higher tbr). Equal-quality non-mp4 doesn't earn a
+  // slot — there's no benefit, only the cost of a less-compatible
+  // container.
   const nonMp4Videos = videoFormats.filter((f) => f.ext !== 'mp4');
   const bestNonMp4 = pickBestVideo(nonMp4Videos);
   if (bestNonMp4 !== undefined && strictlyBeats(bestNonMp4, bestMp4Unrestricted)) {
