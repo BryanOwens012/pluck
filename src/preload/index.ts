@@ -88,6 +88,16 @@ const api = {
   retryDownload: (id: string): Promise<{ id: string | undefined }> =>
     ipcRenderer.invoke(IpcChannels.RetryDownload, id),
 
+  /** Kick off the transcription pipeline for a completed download
+   * (audio extract → ElevenLabs → write `.srt` next to the video).
+   * Returns immediately; progress flows back via the existing
+   * `onDownloadUpdate` stream as each step patches the row's
+   * `transcriptionStatus`. Resolves `{ ok: false, error }` for
+   * synchronous failures (unknown id, no API key, not yet
+   * completed). */
+  transcribeDownload: (id: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke(IpcChannels.TranscribeDownload, id),
+
   /** Deliver a password for a row that's waiting in 'needs_password'.
    * Main re-runs the download with the password as `--video-password`.
    * Empty passwords are silently ignored (no attempt is consumed). */

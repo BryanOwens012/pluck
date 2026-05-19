@@ -191,6 +191,7 @@ app.whenReady().then(async () => {
     secrets,
     tempBaseDir: PLUCK_CACHE_DIR,
     enumeratePlaylist,
+    ffmpegPath: runnerDeps.ffmpegPath,
   });
   prewarmYtDlp();
   createWindow();

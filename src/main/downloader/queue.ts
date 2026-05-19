@@ -186,6 +186,14 @@ export type DownloadQueue = {
    * downloads — these are already in terminal states (the rehydrate step
    * in history.ts promotes in-flight to 'failed' before we get here). */
   rehydrate(downloads: Download[]): void;
+  /** Patch a row's `transcriptionStatus` (and `transcriptPath` when the
+   * transcriber lands on `done`). Emits a normal update + persists, so
+   * the renderer sees the progress like any other state change. No-op
+   * for unknown ids. */
+  patchTranscription(
+    id: string,
+    patch: { transcriptionStatus: Download['transcriptionStatus']; transcriptPath?: string },
+  ): void;
 };
 
 export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
@@ -605,5 +613,30 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     }
   };
 
-  return { enqueue, cancel, submitPassword, getAll, rehydrate };
+  const patchTranscription = (
+    id: string,
+    patch: { transcriptionStatus: Download['transcriptionStatus']; transcriptPath?: string },
+  ): void => {
+    if (!state.has(id)) {
+      return;
+    }
+    emit(id, {
+      transcriptionStatus: patch.transcriptionStatus,
+      ...(patch.transcriptPath !== undefined ? { transcriptPath: patch.transcriptPath } : {}),
+    });
+    // `emit` only persists on `status` transitions. Transcription
+    // progress updates skip the disk write (high-frequency cosmetic
+    // state). Persist on the terminal states ('done' / 'error') so
+    // the SRT path / failure marker survives a restart.
+    const finalStates: Array<typeof patch.transcriptionStatus extends undefined ? never : string> =
+      ['done', 'error'];
+    if (
+      patch.transcriptionStatus !== undefined &&
+      finalStates.includes(patch.transcriptionStatus.state)
+    ) {
+      persist();
+    }
+  };
+
+  return { enqueue, cancel, submitPassword, getAll, rehydrate, patchTranscription };
 };
