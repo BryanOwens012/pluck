@@ -7,6 +7,8 @@ import {
   type BrowserName,
   type DownloadRequest,
   type FormatChoice,
+  type ParseYtDlpCommandResult,
+  STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../shared/types';
 import { isHttpUrl } from '../shared/url';
@@ -24,6 +26,13 @@ import {
   type Settings,
   type SettingsStore,
 } from './settings';
+import {
+  buildDownloadArgs,
+  extractKnownFlags,
+  formatInvocationForDisplay,
+  parseYtDlpCommand,
+  URL_PLACEHOLDER_TOKEN,
+} from './ytdlp/args';
 
 /** Filesystem-safe slug extracted from a URL. Tries the most-recognizable
  * identifier first: a `?v=` param (YouTube watch URLs), then the last path
@@ -174,6 +183,19 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       patchObj.concurrentDownloads <= MAX_CONCURRENT_DOWNLOADS
     ) {
       sanitized.concurrentDownloads = patchObj.concurrentDownloads;
+    }
+    // ytDlpCommandOverride: empty string and undefined / null both
+    // mean "clear the override" (auto mode). Any non-empty string is
+    // accepted as-is; contents are validated at use time by the
+    // tokenizer, not here, so users can save partial / in-progress
+    // commands without the IPC bouncing the update.
+    if ('ytDlpCommandOverride' in patchObj) {
+      const override = patchObj.ytDlpCommandOverride;
+      if (override === null || override === undefined || override === '') {
+        sanitized.ytDlpCommandOverride = undefined;
+      } else if (typeof override === 'string') {
+        sanitized.ytDlpCommandOverride = override;
+      }
     }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
@@ -330,6 +352,42 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       }),
     );
     return { cleared, skippedActive };
+  });
+  ipcMain.handle(
+    IpcChannels.ParseYtDlpCommand,
+    (_event, input: unknown): ParseYtDlpCommandResult => {
+      if (typeof input !== 'string') {
+        return { ok: false, error: 'Expected a string.' };
+      }
+      const parsed = parseYtDlpCommand(input);
+      if (!parsed.ok) {
+        return parsed;
+      }
+      return { ok: true, argv: parsed.argv, extracted: extractKnownFlags(parsed.argv) };
+    },
+  );
+  ipcMain.handle(IpcChannels.GetInvocationPreview, (_event, url: unknown): string => {
+    // Settings preview: shape the user's settings (cookies, -N,
+    // override, default format args) into the exact argv the runner
+    // would spawn for a hypothetical download. Placeholder strings
+    // stand in for the per-download bits the preview can't know
+    // ahead of time — tempFolder and the ffmpeg binary path — so
+    // the user sees one stable command instead of a per-row tempdir
+    // shuffle.
+    const targetUrl = typeof url === 'string' && url.length > 0 ? url : URL_PLACEHOLDER_TOKEN;
+    const settings = deps.settings.get();
+    const { args } = buildDownloadArgs(
+      {
+        url: targetUrl,
+        tempFolder: '<TEMP>',
+        ytDlpFormatArgs: STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs,
+        cookiesFromBrowser: settings.cookiesFromBrowser,
+        concurrentFragments: settings.concurrentFragments,
+        ytDlpCommandOverride: settings.ytDlpCommandOverride,
+      },
+      { ytDlpPath: 'yt-dlp', ffmpegPath: '<FFMPEG>' },
+    );
+    return formatInvocationForDisplay(args);
   });
   ipcMain.handle(IpcChannels.FileExists, async (_event, filePath: unknown): Promise<boolean> => {
     // Defensive: only stat absolute paths owned by a download row.

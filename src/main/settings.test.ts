@@ -290,4 +290,46 @@ describe('createSettingsStore', () => {
     await store.update({ outputFolder: '/tmp/x' });
     expect((await fs.stat(join(nested, 'settings.json'))).isFile()).toBe(true);
   });
+
+  it('round-trips ytDlpCommandOverride through update → reload', async () => {
+    const store = await createSettingsStore(dir);
+    await store.update({ ytDlpCommandOverride: 'yt-dlp -f best <URL>' });
+    const reloaded = await createSettingsStore(dir);
+    expect(reloaded.get().ytDlpCommandOverride).toBe('yt-dlp -f best <URL>');
+  });
+
+  it('clears ytDlpCommandOverride when set to undefined', async () => {
+    const store = await createSettingsStore(dir);
+    await store.update({ ytDlpCommandOverride: 'yt-dlp -f best' });
+    await store.update({ ytDlpCommandOverride: undefined });
+    expect(store.get().ytDlpCommandOverride).toBeUndefined();
+  });
+
+  it('accepts arbitrary text (no content validation at the storage layer)', async () => {
+    // Validation happens at use time via the tokenizer — the storage
+    // layer accepts any string so users can save partial / in-progress
+    // commands without the schema check bouncing the file.
+    const store = await createSettingsStore(dir);
+    await store.update({ ytDlpCommandOverride: "yt-dlp -f 'unterminated" });
+    const reloaded = await createSettingsStore(dir);
+    expect(reloaded.get().ytDlpCommandOverride).toBe("yt-dlp -f 'unterminated");
+  });
+
+  it('rejects a non-string ytDlpCommandOverride at the schema layer', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await fs.writeFile(
+      join(dir, 'settings.json'),
+      JSON.stringify({
+        version: 1,
+        settings: { outputFolder: '/tmp/x', ytDlpCommandOverride: 42 },
+      }),
+      'utf-8',
+    );
+    const store = await createSettingsStore(dir);
+    // Schema mismatch → defaults take over; outputFolder reverts to
+    // the system default rather than honoring the malformed file.
+    expect(store.get().ytDlpCommandOverride).toBeUndefined();
+    expect(store.get().outputFolder).toBe(defaultOutputFolder());
+    errorSpy.mockRestore();
+  });
 });

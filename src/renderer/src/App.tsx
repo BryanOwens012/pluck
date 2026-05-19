@@ -21,10 +21,11 @@ import { api } from './lib/api';
  * throttled progress + scattered yt-dlp chatter. */
 const MAX_LOG_LINES_PER_ID = 500;
 
-/** Trailing-edge wait before firing the per-URL format probe. Long
- * enough that we don't IPC on every keystroke; short enough that the
- * dropdown reflects the URL by the time the user reaches for it. */
-const FORMAT_PROBE_DEBOUNCE_MS = 400;
+/** Trailing-edge wait before firing the per-URL format probe. Just
+ * long enough to coalesce a burst of keystrokes into a single IPC
+ * (avoids spawning yt-dlp once per character if the user is typing
+ * a URL manually) — short enough that a paste feels instant. */
+const FORMAT_PROBE_DEBOUNCE_MS = 100;
 
 /** Single-entry placeholder shown the instant a URL becomes valid,
  * before the metadata probe has resolved. The user can still click

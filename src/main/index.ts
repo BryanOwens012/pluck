@@ -154,6 +154,7 @@ app.whenReady().then(async () => {
     getDefaultOutputFolder: () => settings.get().outputFolder,
     getCookiesFromBrowser: () => settings.get().cookiesFromBrowser,
     getConcurrentFragments: () => settings.get().concurrentFragments,
+    getYtDlpCommandOverride: () => settings.get().ytDlpCommandOverride,
     getMaxConcurrentDownloads: () => settings.get().concurrentDownloads,
     getDebugMode: () => settings.get().debugMode,
     tempBaseDir: PLUCK_CACHE_DIR,

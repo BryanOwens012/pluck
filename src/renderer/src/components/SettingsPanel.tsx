@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { SecretName } from '../../../main/secrets';
 import type { Settings } from '../../../main/settings';
-import { BROWSER_NAMES, type BrowserName } from '../../../shared/types';
+import { AI_FEATURES_ENABLED } from '../../../shared/flags';
+import { BROWSER_NAMES, type BrowserName, type ExtractedFlags } from '../../../shared/types';
 import { api } from '../lib/api';
 import { OutputFolderPicker } from './OutputFolderPicker';
 
@@ -30,6 +31,32 @@ export const SettingsPanel = ({
   onDebugModeChange,
   onClose,
 }: Props): React.JSX.Element => {
+  // Override is hoisted here so the dependent rows (cookies, concurrent
+  // fragments) can render disabled with the extracted value when an
+  // override is active. We load it from settings on mount and re-parse
+  // (via main) whenever the OverrideRow saves a new value.
+  const [overrideExtracted, setOverrideExtracted] = useState<ExtractedFlags | undefined>(undefined);
+
+  useEffect(() => {
+    api
+      .getSettings()
+      .then(async (s) => {
+        if (!s.ytDlpCommandOverride) {
+          setOverrideExtracted(undefined);
+          return;
+        }
+        const parsed = await api.parseYtDlpCommand(s.ytDlpCommandOverride);
+        setOverrideExtracted(parsed.ok ? parsed.extracted : undefined);
+      })
+      .catch((err: unknown) => {
+        console.error('settings boot: override read rejected:', err);
+      });
+  }, []);
+
+  const handleOverrideExtractedChange = useCallback((next: ExtractedFlags | undefined): void => {
+    setOverrideExtracted(next);
+  }, []);
+
   return (
     <div
       role="dialog"
@@ -72,33 +99,36 @@ export const SettingsPanel = ({
             <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
               Browser cookies
             </h3>
-            <CookiesSection />
+            <CookiesSection overrideExtracted={overrideExtracted} />
           </section>
-          <section className="space-y-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
-              API keys
-            </h3>
-            <p className="text-xs text-neutral-500">
-              Optional. Pluck will prompt you the first time a feature needs a key.
-            </p>
-            <ApiKeyRow
-              provider="elevenlabs"
-              label="ElevenLabs"
-              help="Powers transcription (Transcribe button on completed downloads)."
-            />
-            <ApiKeyRow
-              provider="anthropic"
-              label="Anthropic"
-              help="Powers AI prompt suggestions (coming soon)."
-            />
-          </section>
+          {AI_FEATURES_ENABLED ? (
+            <section className="space-y-2">
+              <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+                API keys
+              </h3>
+              <p className="text-xs text-neutral-500">
+                Optional. Pluck will prompt you the first time a feature needs a key.
+              </p>
+              <ApiKeyRow
+                provider="elevenlabs"
+                label="ElevenLabs"
+                help="Powers transcription (Transcribe button on completed downloads)."
+              />
+              <ApiKeyRow
+                provider="anthropic"
+                label="Anthropic"
+                help="Powers AI prompt suggestions (coming soon)."
+              />
+            </section>
+          ) : null}
           <section className="space-y-2">
             <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
               Developer
             </h3>
             <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
             <ConcurrentDownloadsRow />
-            <ConcurrentFragmentsRow />
+            <ConcurrentFragmentsRow overrideExtracted={overrideExtracted} />
+            <YtDlpCommandOverrideRow onExtractedChange={handleOverrideExtractedChange} />
             <ClearTempFoldersRow />
           </section>
         </div>
@@ -167,6 +197,12 @@ type ConcurrencyRowProps = {
   min: number;
   max: number;
   initialDefault: number;
+  /** Extracted flags from an active yt-dlp command override. When
+   * defined (object present, even if empty), the row locks because
+   * the override controls what runs — the saved setting won't take
+   * effect. If the row's flag is pinned, its value is what we show;
+   * otherwise we fall back to the saved value with the lock hint. */
+  overrideExtracted?: ExtractedFlags;
 };
 
 /** Shared scaffold for the two concurrency dropdowns. Both load from
@@ -180,6 +216,7 @@ const ConcurrencyRow = ({
   min,
   max,
   initialDefault,
+  overrideExtracted,
 }: ConcurrencyRowProps): React.JSX.Element => {
   const [value, setValue] = useState<number>(initialDefault);
   const [loaded, setLoaded] = useState(false);
@@ -211,6 +248,14 @@ const ConcurrencyRow = ({
   };
 
   const options = Array.from({ length: max - min + 1 }, (_, i) => min + i);
+  // Lock whenever an override is active (the saved value won't take
+  // effect — yt-dlp runs whatever the override says). When the override
+  // pins this row's flag, surface the parsed value; otherwise fall back
+  // to the saved value so the row stays readable.
+  const overridden = overrideExtracted !== undefined;
+  const overrideForThisRow =
+    settingKey === 'concurrentFragments' ? overrideExtracted?.concurrentFragments : undefined;
+  const displayValue = overrideForThisRow ?? (loaded ? value : initialDefault);
 
   return (
     <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
@@ -220,9 +265,9 @@ const ConcurrencyRow = ({
           <div className="text-xs text-neutral-500">{description}</div>
         </div>
         <select
-          value={loaded ? value : initialDefault}
+          value={displayValue}
           onChange={handleChange}
-          disabled={!loaded}
+          disabled={!loaded || overridden}
           className="shrink-0 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-600 focus:outline-none disabled:opacity-50"
         >
           {options.map((n) => (
@@ -232,12 +277,19 @@ const ConcurrencyRow = ({
           ))}
         </select>
       </div>
+      {overridden ? (
+        <p className="text-xs text-neutral-500">Locked by yt-dlp command override below.</p>
+      ) : null}
       {error ? <p className="text-xs text-red-400">{error}</p> : null}
     </div>
   );
 };
 
-const ConcurrentFragmentsRow = (): React.JSX.Element => (
+const ConcurrentFragmentsRow = ({
+  overrideExtracted,
+}: {
+  overrideExtracted?: ExtractedFlags;
+}): React.JSX.Element => (
   <ConcurrencyRow
     settingKey="concurrentFragments"
     label="Concurrent fragments"
@@ -245,6 +297,7 @@ const ConcurrentFragmentsRow = (): React.JSX.Element => (
     min={MIN_CONCURRENT_FRAGMENTS}
     max={MAX_CONCURRENT_FRAGMENTS}
     initialDefault={DEFAULT_CONCURRENT_FRAGMENTS}
+    overrideExtracted={overrideExtracted}
   />
 );
 
@@ -264,6 +317,139 @@ type ClearState =
   | { phase: 'clearing' }
   | { phase: 'done'; cleared: number; skippedActive: number }
   | { phase: 'error'; message: string };
+
+type OverrideRowProps = {
+  /** Bubbled-up extracted flags from a successful parse — undefined
+   * when the field is empty (auto mode) or the contents fail to
+   * parse (the row shows the error inline; the override is treated
+   * as inactive by the rest of Settings until the user fixes it). */
+  onExtractedChange: (next: ExtractedFlags | undefined) => void;
+};
+
+/** Free-input override of the yt-dlp command. Empty = auto mode and the
+ * row displays a read-only preview of the command Pluck would build
+ * from the other settings. Non-empty = override; the row's text takes
+ * precedence at download time. The other dependent rows (cookies,
+ * concurrent fragments) read their values out of this override and
+ * gray themselves out. */
+const YtDlpCommandOverrideRow = ({ onExtractedChange }: OverrideRowProps): React.JSX.Element => {
+  const [text, setText] = useState<string>('');
+  const [loaded, setLoaded] = useState(false);
+  const [parseError, setParseError] = useState<string | undefined>(undefined);
+  const [autoPreview, setAutoPreview] = useState<string>('');
+  const [saving, setSaving] = useState<boolean>(false);
+  const [saveError, setSaveError] = useState<string | undefined>(undefined);
+
+  // Initial load: read the persisted override + the would-be-run
+  // auto preview so the user has a baseline to see.
+  useEffect(() => {
+    Promise.all([api.getSettings(), api.getInvocationPreview()])
+      .then(([s, preview]) => {
+        const value = s.ytDlpCommandOverride ?? '';
+        setText(value);
+        setAutoPreview(preview);
+        setLoaded(true);
+      })
+      .catch((err: unknown) => {
+        console.error('override row boot rejected:', err);
+        setLoaded(true);
+      });
+  }, []);
+
+  // Re-parse on every text edit so the user gets immediate feedback on
+  // unbalanced quotes / first-token mismatches. The parse output also
+  // drives the parent's gray-out state, so it has to be live.
+  useEffect(() => {
+    if (!loaded) {
+      return;
+    }
+    if (text.trim().length === 0) {
+      setParseError(undefined);
+      onExtractedChange(undefined);
+      return;
+    }
+    let cancelled = false;
+    api
+      .parseYtDlpCommand(text)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        if (result.ok) {
+          setParseError(undefined);
+          onExtractedChange(result.extracted);
+        } else {
+          setParseError(result.error);
+          // Treat a broken override as inactive — gray-out should
+          // turn off so the user can still drive the dependent rows
+          // via Settings while they're fixing the override.
+          onExtractedChange(undefined);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('parseYtDlpCommand rejected:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [text, loaded, onExtractedChange]);
+
+  const persist = (next: string): void => {
+    setSaving(true);
+    setSaveError(undefined);
+    api
+      .updateSettings({ ytDlpCommandOverride: next })
+      .then(() => api.getInvocationPreview())
+      .then((preview) => {
+        setAutoPreview(preview);
+        setSaving(false);
+      })
+      .catch((err: unknown) => {
+        console.error('updateSettings(ytDlpCommandOverride) rejected:', err);
+        setSaving(false);
+        setSaveError('Failed to save.');
+      });
+  };
+
+  const handleBlur = (): void => {
+    if (!loaded) {
+      return;
+    }
+    persist(text);
+  };
+
+  const isEmpty = text.trim().length === 0;
+
+  return (
+    <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="text-xs font-medium text-neutral-200">yt-dlp command</div>
+      <div className="text-xs text-neutral-500">
+        Leave empty to let Pluck build the command from your other settings. Type a complete command
+        (starting with <code className="rounded bg-neutral-800 px-1 py-px">yt-dlp</code>) to
+        override it. Use <code className="rounded bg-neutral-800 px-1 py-px">&lt;URL&gt;</code> as a
+        placeholder for the video URL; otherwise it's appended at the end.
+      </div>
+      <textarea
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        onBlur={handleBlur}
+        spellCheck={false}
+        autoCapitalize="off"
+        autoCorrect="off"
+        placeholder={isEmpty ? autoPreview || 'yt-dlp <flags> <URL>' : undefined}
+        rows={4}
+        className="w-full resize-y rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 font-mono text-[11px] leading-snug text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none"
+      />
+      {parseError ? <p className="text-xs text-red-400">{parseError}</p> : null}
+      {saveError ? <p className="text-xs text-red-400">{saveError}</p> : null}
+      {isEmpty && !parseError ? (
+        <p className="text-xs text-neutral-500">
+          {saving ? 'Saving…' : `Auto mode — Pluck will run: ${autoPreview}`}
+        </p>
+      ) : null}
+    </div>
+  );
+};
 
 const ClearTempFoldersRow = (): React.JSX.Element => {
   const [state, setState] = useState<ClearState>({ phase: 'idle' });
@@ -346,7 +532,11 @@ type CookiesState = { phase: 'idle' } | { phase: 'saving' } | { phase: 'error'; 
  * a saved value for a browser that's no longer detected (uninstall),
  * we keep it in the list with a "(not detected)" suffix so they can
  * see and change it. */
-const CookiesSection = (): React.JSX.Element => {
+const CookiesSection = ({
+  overrideExtracted,
+}: {
+  overrideExtracted?: ExtractedFlags;
+}): React.JSX.Element => {
   const [value, setValue] = useState<BrowserName | ''>('');
   const [state, setState] = useState<CookiesState>({ phase: 'idle' });
   const [loaded, setLoaded] = useState(false);
@@ -415,12 +605,24 @@ const CookiesSection = (): React.JSX.Element => {
   // Empty-state message when no supported browser is found on disk.
   const noBrowsersDetected = installed.length === 0;
 
+  // Lock whenever an override is active — the saved cookies setting
+  // won't take effect because the override path skips it entirely. If
+  // the override pins --cookies-from-browser, surface that browser;
+  // otherwise show "None" since the override doesn't include cookies.
+  const overridden = overrideExtracted !== undefined;
+  const overrideCookies = overrideExtracted?.cookiesFromBrowser;
+  if (overrideCookies !== undefined && !options.some((o) => o.name === overrideCookies)) {
+    options.push({ name: overrideCookies, label: BROWSER_LABEL[overrideCookies] });
+  }
+  const displayValue: BrowserName | '' = overridden ? (overrideCookies ?? '') : value;
+
   return (
     <div className="space-y-1.5">
       <select
-        value={value}
+        value={displayValue}
         onChange={handleChange}
-        className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-100 focus:border-neutral-600 focus:outline-none"
+        disabled={overridden}
+        className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-100 focus:border-neutral-600 focus:outline-none disabled:opacity-60"
       >
         <option value="">None (don't use browser cookies)</option>
         {options.map((opt) => (
@@ -429,6 +631,9 @@ const CookiesSection = (): React.JSX.Element => {
           </option>
         ))}
       </select>
+      {overridden ? (
+        <p className="text-xs text-neutral-500">Locked by yt-dlp command override below.</p>
+      ) : null}
       <p className="text-xs text-neutral-500">
         {noBrowsersDetected
           ? 'No supported browser cookies found on this Mac.'

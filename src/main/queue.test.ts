@@ -182,6 +182,7 @@ const buildQueueDeps = (onUpdate: (d: Download) => void) => {
     getDefaultOutputFolder: (): string => outputDir,
     getCookiesFromBrowser: (): string | undefined => undefined,
     getConcurrentFragments: (): number => 14,
+    getYtDlpCommandOverride: (): string | undefined => undefined,
     getMaxConcurrentDownloads: (): number => 3,
     getDebugMode: (): boolean => false,
     tempBaseDir,

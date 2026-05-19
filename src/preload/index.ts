@@ -8,6 +8,7 @@ import type {
   Download,
   DownloadRequest,
   FormatChoice,
+  ParseYtDlpCommandResult,
 } from '../shared/types';
 
 export type HasApiKeys = { anthropic: boolean; elevenlabs: boolean };
@@ -162,6 +163,20 @@ const api = {
    * path, permission). */
   fileExists: (filePath: string): Promise<boolean> =>
     ipcRenderer.invoke(IpcChannels.FileExists, filePath),
+
+  /** Shell-safe display string of the yt-dlp command that would run
+   * right now given the current settings. Pass a `url` to see the
+   * command with that URL substituted; omit it to get a `<URL>`
+   * placeholder. Powers the Settings developer preview. */
+  getInvocationPreview: (url?: string): Promise<string> =>
+    ipcRenderer.invoke(IpcChannels.GetInvocationPreview, url),
+
+  /** Tokenize the user-supplied yt-dlp override string. Returns the
+   * parsed argv (post the literal `yt-dlp` token) plus the known-flag
+   * extractions for gray-out display, or an error message that can be
+   * shown inline next to the override textarea. */
+  parseYtDlpCommand: (input: string): Promise<ParseYtDlpCommandResult> =>
+    ipcRenderer.invoke(IpcChannels.ParseYtDlpCommand, input),
 };
 
 export type PluckAPI = typeof api;

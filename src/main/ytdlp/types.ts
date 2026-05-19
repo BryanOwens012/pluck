@@ -104,6 +104,15 @@ export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder' | 'format'
    * pass the live settings value so a user change applies to the
    * next started download. */
   concurrentFragments?: number;
+  /** Free-input override of the yt-dlp argv. When set and the string
+   * parses cleanly (first token literally `yt-dlp`), the parsed argv
+   * replaces the auto-built format / cookies / `-N` portion of the
+   * command. Framework flags (`--paths`, `-o`, `--progress-template`,
+   * `--print-to-file`, `--ffmpeg-location`) are always emitted by the
+   * builder so progress + final-path tracking stay intact regardless.
+   * A parse failure silently falls through to the auto path so a
+   * broken override can't wedge new downloads. */
+  ytDlpCommandOverride?: string;
 };
 
 /** Per-call options for the metadata fetch. Same `cookiesFromBrowser`

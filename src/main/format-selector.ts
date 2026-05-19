@@ -5,11 +5,11 @@ import type { FormatInfo } from './ytdlp/types';
 /**
  * Per-URL FormatChoice resolution. Input: yt-dlp's `formats` array.
  * Output: a dynamic dropdown list built from the probed metadata:
- *   - "Best quality" with a resolution shorthand attached (e.g. "4K",
+ *   - "Best" with a resolution shorthand attached (e.g. "4K",
  *     "1080p", "720p") so the user sees what they'll get.
  *   - Lower mp4 tiers (1080p / 720p) — included only when (a) an
  *     mp4 stream actually exists at that height and (b) it isn't a
- *     duplicate of the "Best quality" pick.
+ *     duplicate of the "Best" pick.
  *   - "Audio only (mp3)" — always.
  *   - Optional 5th `best_alt` entry labelled by shorthand + container
  *     ("4K (webm)") when a non-mp4 stream strictly beats the best mp4.
