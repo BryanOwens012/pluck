@@ -19,9 +19,9 @@ import {
 import { isHttpUrl } from '../shared/url';
 import { testApiKey } from './api-key-test';
 import { detectInstalledBrowsers } from './browser-detection';
-import { resolveFormatChoices } from './format-selector';
+import type { DownloadQueue } from './downloader/queue';
+import { resolveFormatChoices } from './downloader/video/format-selector';
 import type { MetadataCache } from './metadata-cache';
-import type { DownloadQueue } from './queue';
 import { SECRET_NAMES, type SecretName, type SecretsStore } from './secrets';
 import {
   MAX_CONCURRENT_DOWNLOADS,

@@ -1,24 +1,17 @@
 import { promises as fs } from 'node:fs';
 import { basename } from 'node:path';
-import {
-  type DebugLogEvent,
-  type DebugLogPhase,
-  type Download,
-  type DownloadRequest,
-  PLAYLIST_ROW_CONCURRENT_DOWNLOADS,
-  PLAYLIST_ROW_CONCURRENT_FRAGMENTS,
-  PLAYLIST_ROW_REQUEST_SLEEP_SECONDS,
-} from '../shared/types';
-import type { MetadataCache } from './metadata-cache';
-import { createProgressSmoother } from './progress-smoother';
-import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
-import { buildDownloadArgs, formatInvocationForDisplay } from './ytdlp/args';
-import type { RunDownloadOptions, RunDownloadResult, RunnerDeps } from './ytdlp/types';
+import type { DebugLogEvent, DebugLogPhase, Download, DownloadRequest } from '../../shared/types';
+import type { MetadataCache } from '../metadata-cache';
+import { createProgressSmoother } from '../progress-smoother';
+import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from '../staging';
+import { buildDownloadArgs, formatInvocationForDisplay } from '../ytdlp/args';
+import type { RunDownloadOptions, RunDownloadResult, RunnerDeps } from '../ytdlp/types';
 import {
   YtDlpCancelledError,
   YtDlpCookieAccessDeniedError,
   YtDlpPasswordRequiredError,
-} from './ytdlp/types';
+} from '../ytdlp/types';
+import { PLAYLIST_ROW_CONCURRENT_DOWNLOADS, resolvePlaylistThrottle } from './playlist/throttle';
 
 // Max concurrent downloads is now a user setting (Settings → Developer
 // → Concurrent downloads). Default 3; 1-10 range. Read via the
@@ -324,23 +317,23 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       const smoother = createProgressSmoother();
       emitDebug(id, 'download:start', `format=${download.format.id}`);
       // Playlist rows get throttled three ways: a low `-N` cap, an
-      // extractor sleep flag (both keyed off `download.playlistId`),
-      // and only one playlist row promotes at a time (the cap enforced
-      // by tryStartNext above). Single-video downloads keep the user's
-      // `concurrentFragments` setting and no sleep. Together this
-      // keeps the simultaneous-connection count to YouTube well under
-      // the per-IP threshold that triggers 429s.
+      // extractor sleep flag (both keyed off `download.playlistId`
+      // via resolvePlaylistThrottle), and only one playlist row
+      // promotes at a time (the cap enforced by tryStartNext above).
+      // Single-video downloads keep the user's `concurrentFragments`
+      // setting and no sleep. Together this keeps the simultaneous-
+      // connection count to YouTube well under the per-IP threshold
+      // that triggers 429s.
+      const throttle = resolvePlaylistThrottle(download);
       const runOpts: RunDownloadOptions = {
         url: download.url,
         ytDlpFormatArgs: download.format.ytDlpFormatArgs,
         tempFolder,
         videoPassword: secrets.get(id),
         cookiesFromBrowser: opts.getCookiesFromBrowser(),
-        concurrentFragments: isPlaylistRow
-          ? PLAYLIST_ROW_CONCURRENT_FRAGMENTS
-          : opts.getConcurrentFragments(),
+        concurrentFragments: throttle.concurrentFragments ?? opts.getConcurrentFragments(),
         ytDlpCommandOverride: opts.getYtDlpCommandOverride(),
-        requestSleepSeconds: isPlaylistRow ? PLAYLIST_ROW_REQUEST_SLEEP_SECONDS : undefined,
+        requestSleepSeconds: throttle.requestSleepSeconds,
         cancelSignal: abortController.signal,
       };
       // Stamp the exact yt-dlp command on the row before spawn so the

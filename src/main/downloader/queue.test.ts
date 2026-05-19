@@ -2,26 +2,26 @@ import { promises as fs } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Download, type DownloadRequest, STATIC_FORMAT_CHOICES } from '../shared/types';
-import type { MetadataCache } from './metadata-cache';
+import { type Download, type DownloadRequest, STATIC_FORMAT_CHOICES } from '../../shared/types';
+import type { MetadataCache } from '../metadata-cache';
+import type {
+  RunDownloadOptions,
+  RunDownloadResult,
+  RunnerDeps,
+  VideoMetadata,
+} from '../ytdlp/types';
+import {
+  YtDlpCancelledError,
+  YtDlpCookieAccessDeniedError,
+  YtDlpError,
+  YtDlpPasswordRequiredError,
+} from '../ytdlp/types';
 import {
   createDownloadQueue,
   friendlyCookieDeniedMessage,
   friendlyErrorMessage,
   padToMinDuration,
 } from './queue';
-import type {
-  RunDownloadOptions,
-  RunDownloadResult,
-  RunnerDeps,
-  VideoMetadata,
-} from './ytdlp/types';
-import {
-  YtDlpCancelledError,
-  YtDlpCookieAccessDeniedError,
-  YtDlpError,
-  YtDlpPasswordRequiredError,
-} from './ytdlp/types';
 
 // ---- pure-helper coverage ----------------------------------------------
 

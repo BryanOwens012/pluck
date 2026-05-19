@@ -1,11 +1,6 @@
 import { join } from 'node:path';
-import {
-  BROWSER_NAMES,
-  type BrowserName,
-  type ExtractedFlags,
-  SUBTITLE_DOWNLOAD_FLAGS_DEFAULT,
-  SUBTITLE_DOWNLOAD_FLAGS_EXTENDED,
-} from '../../shared/types';
+import { BROWSER_NAMES, type BrowserName, type ExtractedFlags } from '../../shared/types';
+import { resolveSubtitleFlags } from '../downloader/subtitles/flags';
 import type { FetchMetadataOptions, RunDownloadOptions, RunnerDeps } from './types';
 
 /** Default for yt-dlp `-N` (parallel HTTP connections per single
@@ -15,6 +10,31 @@ import type { FetchMetadataOptions, RunDownloadOptions, RunnerDeps } from './typ
  * Vimeo, Zoom). The user can override this per-app via Settings →
  * Developer → Concurrent fragments (1-20). */
 export const DEFAULT_DOWNLOAD_CONCURRENCY = 14;
+
+/** yt-dlp writes the final post-move filepath here via `--print-to-file`.
+ * `--print` would activate implicit quiet mode and silence both the info
+ * chatter and the `--progress-template` output. The marker file lives
+ * inside the per-download tempFolder so removeTempFolder() reaps it
+ * automatically. The leading "." keeps it out of Finder by default. */
+export const FINAL_PATH_MARKER_FILENAME = '.pluck-final-path';
+
+/** Token used inside a yt-dlp override string to mark where the URL
+ * should be substituted. When absent from the user's override, the URL
+ * is appended at the end of argv (yt-dlp's usual positional spot). */
+export const URL_PLACEHOLDER_TOKEN = '<URL>';
+
+/** yt-dlp `--progress-template` JSON shape. Emitted on stdout once per
+ * progress tick, parsed by `parseProgressLine`. yt-dlp writes both its
+ * info chatter and this template to stdout (despite the conventional
+ * split); the parser returns null for non-JSON noise lines. */
+const PROGRESS_TEMPLATE = [
+  '{',
+  '"status":"%(progress.status)s",',
+  '"percent":"%(progress._percent_str)s",',
+  '"speed":"%(progress._speed_str)s",',
+  '"eta":"%(progress._eta_str)s"',
+  '}',
+].join('');
 
 /** yt-dlp's `-J` JSON metadata output can be large (extractor fields,
  * full `formats` array). 100 MB is well above what we'd ever see for
@@ -30,38 +50,6 @@ export const MAX_STDERR_RETENTION_LINES = 256;
  * down its child ffmpeg before we force-kill. 2 s matches the macOS
  * `kill` man page recommendation for non-essential daemons. */
 export const CANCEL_FORCE_KILL_AFTER_MS = 2000;
-
-/** yt-dlp `--progress-template` JSON shape. Emitted on stdout once per
- * progress tick, parsed by parser.ts. yt-dlp writes both its info
- * chatter and this template to stdout (despite the conventional split);
- * parseProgressLine returns null for non-JSON noise lines. */
-const PROGRESS_TEMPLATE = [
-  '{',
-  '"status":"%(progress.status)s",',
-  '"percent":"%(progress._percent_str)s",',
-  '"speed":"%(progress._speed_str)s",',
-  '"eta":"%(progress._eta_str)s"',
-  '}',
-].join('');
-
-/** yt-dlp writes the final post-move filepath here via `--print-to-file`.
- * We can't use plain `--print` because it activates implicit quiet mode
- * and silences both the info chatter and the `--progress-template`
- * output. The marker file lives inside the per-download tempFolder so
- * removeTempFolder() reaps it automatically. The leading "." keeps it
- * out of Finder by default. */
-export const FINAL_PATH_MARKER_FILENAME = '.pluck-final-path';
-
-// Format args live on FormatChoice in shared/types.ts (STATIC_FORMAT_CHOICES
-// for the four default presets; format-selector.ts builds per-URL choices
-// including the optional 5th non-mp4 alternative). buildDownloadArgs
-// receives the already-built args as opts.ytDlpFormatArgs and spreads them
-// straight into argv — runner stays oblivious to format semantics.
-
-/** Token used inside a yt-dlp override string to mark where the URL
- * should be substituted. When absent from the user's override, the URL
- * is appended at the end of argv (yt-dlp's usual positional spot). */
-export const URL_PLACEHOLDER_TOKEN = '<URL>';
 
 export type ParseResult = { ok: true; argv: string[] } | { ok: false; error: string };
 
@@ -309,19 +297,21 @@ export const buildPlaylistEnumerationArgs = (
  *
  *   1. **Auto mode** (no override / override fails to parse): we own
  *      every flag. Format args from the chosen FormatChoice, cookies,
- *      concurrency, password, URL.
+ *      concurrency, subtitle language list (from
+ *      `downloader/subtitles/flags`), password, URL.
  *   2. **Override mode** (override parses cleanly): the user's parsed
- *      argv replaces the auto format / cookies / `-N`. The URL is
- *      substituted into a `<URL>` placeholder if present, otherwise
+ *      argv replaces the auto format / cookies / `-N` / subs. The URL
+ *      is substituted into a `<URL>` placeholder if present, otherwise
  *      appended at the end. Password still appends if the override
  *      didn't already pin one.
  *
- * Framework flags (`--newline`, `--no-mtime`, `--ffmpeg-location`,
- * `--paths`, `-o`, `--progress-template`, `--print-to-file`) are
- * always emitted FIRST in both paths, so an override can shadow them
- * via yt-dlp's last-wins flag semantics if the user wants — but our
- * defaults work unmodified, and `--print-to-file` (the final-path
- * marker our queue reads) is unlikely to be overridden in practice. */
+ * Framework flags (`--newline`, `--no-mtime`, `--no-playlist`,
+ * subtitle rate-limit tuning, `--ffmpeg-location`, `--paths`, `-o`,
+ * `--progress-template`, `--print-to-file`) are always emitted FIRST
+ * in both paths, so an override can shadow them via yt-dlp's
+ * last-wins flag semantics — but the defaults work unmodified, and
+ * `--print-to-file` (the final-path marker the queue reads) is
+ * unlikely to be overridden in practice. */
 export const buildDownloadArgs = (
   opts: RunDownloadOptions,
   deps: RunnerDeps,
@@ -334,23 +324,23 @@ export const buildDownloadArgs = (
     // identifies, never the surrounding playlist. yt-dlp's default
     // for `playlist?list=Y` URLs (and sometimes `watch?v=X&list=Y`)
     // is to iterate every entry inside a single process — which
-    // breaks our queue model (one row = one video) and silently
-    // downloads 50+ videos when the user only meant one. The
-    // whole-playlist path goes through the dedicated enumerate +
-    // per-entry enqueue flow, so it doesn't need playlist-mode
-    // here either.
+    // breaks the queue model (one row = one video) and silently
+    // downloads 50+ videos when the user only meant one. The whole-
+    // playlist path goes through the dedicated enumerate + per-entry
+    // enqueue flow, so it doesn't need playlist-mode here either.
     '--no-playlist',
     // Space out subtitle downloads — YouTube's anonymous subtitle
     // endpoint rate-limits aggressively (HTTP 429 after roughly 2
     // requests in quick succession from an IP that's already been
-    // active). 3 seconds keeps us comfortably under the threshold
-    // even when the IP is in a cool-down state from prior testing.
-    // Applies to every download, single-video or playlist row.
+    // active). 3 seconds keeps the request rate comfortably under
+    // the threshold even when the IP is in a cool-down state from
+    // prior testing. Applies to every download, single-video or
+    // playlist row.
     '--sleep-subtitles',
     '3',
     // Retry on transient errors more times than yt-dlp's default
     // 10. 30 attempts gives enough headroom for the linear backoff
-    // (below) to climb to 30s+ before giving up, which usually
+    // (below) to climb to 30 s+ before giving up, which usually
     // outlasts a brief YouTube cool-down.
     '--retries',
     '30',
@@ -374,8 +364,9 @@ export const buildDownloadArgs = (
 
   // Playlist-row throttle: insert a `--sleep-requests <n>` flag so
   // yt-dlp spaces out the extractor calls during the per-row metadata
-  // pre-fetch. Caller (queue) sets this only for rows that belong to
-  // a playlist enqueue. Single-video downloads stay snappy.
+  // pre-fetch. The queue sets this only for rows that belong to a
+  // playlist enqueue (see `downloader/playlist/throttle`). Single-
+  // video downloads stay snappy.
   if (opts.requestSleepSeconds !== undefined && opts.requestSleepSeconds > 0) {
     framework.push('--sleep-requests', String(opts.requestSleepSeconds));
   }
@@ -396,15 +387,10 @@ export const buildDownloadArgs = (
   if (opts.cookiesFromBrowser) {
     autoArgs.push('--cookies-from-browser', opts.cookiesFromBrowser);
   }
-  // Sub flags: English-only by default (light enough to clear YouTube's
-  // anonymous rate limit with `--sleep-subtitles` spacing), extended
-  // to en/zh/es/fr when the user has cookies set (authenticated
-  // requests have a much higher per-IP limit).
-  autoArgs.push(
-    ...(opts.cookiesFromBrowser
-      ? SUBTITLE_DOWNLOAD_FLAGS_EXTENDED
-      : SUBTITLE_DOWNLOAD_FLAGS_DEFAULT),
-  );
+  // Sub flags: English-only by default, extended to en/zh/es/fr when
+  // the user has cookies set. Resolver lives in
+  // `src/main/downloader/subtitles/flags.ts`.
+  autoArgs.push(...resolveSubtitleFlags({ cookiesFromBrowser: opts.cookiesFromBrowser }));
   autoArgs.push(opts.url);
 
   return { args: [...framework, ...autoArgs], markerPath };
