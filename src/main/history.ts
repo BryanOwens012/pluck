@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
+import { z } from 'zod';
 import type { Download } from '../shared/types';
 import { atomicWriteJson } from './atomic-json';
 
@@ -66,14 +67,17 @@ export const createHistoryStore = (dir: string): HistoryStore => {
       console.error('history: corrupt JSON, starting clean', err);
       return [];
     }
-    if (!isHistoryFile(parsed)) {
+    const result = HistoryFileSchema.safeParse(parsed);
+    if (!result.success) {
       console.error('history: schema mismatch, starting clean');
       return [];
     }
     // Promote any rows still in a non-terminal state at app exit to
     // terminal ones — there's no live process to ever push the real
-    // terminal update.
-    return parsed.downloads.map(promoteInterruptedToFailed);
+    // terminal update. We cast through Download here: the schema
+    // shape-checks each entry has an `id`, but the full Download
+    // type has ~20 fields we deliberately don't enforce at boot.
+    return (result.data.downloads as Download[]).map(promoteInterruptedToFailed);
   };
 
   const save = async (downloads: Download[]): Promise<void> => {
@@ -94,17 +98,16 @@ export const capToMax = (downloads: Download[], max: number): Download[] => {
   return [...downloads].sort((a, b) => a.createdAt - b.createdAt).slice(-max);
 };
 
-const isHistoryFile = (value: unknown): value is HistoryFile => {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const obj = value as Record<string, unknown>;
-  return (
-    obj.version === SCHEMA_VERSION &&
-    Array.isArray(obj.downloads) &&
-    obj.downloads.every((d) => typeof d === 'object' && d !== null && 'id' in d)
-  );
-};
+/** On-disk history file schema. We only spot-check each download
+ * entry's shape (object with `id` key) — the full Download type has
+ * ~20 fields and policing all of them at boot would reject files
+ * written by future / past app versions for minor differences. The
+ * goal is to bail on totally-malformed input (non-array, missing
+ * version, garbage at the top level), not enforce schema purity. */
+const HistoryFileSchema = z.looseObject({
+  version: z.literal(SCHEMA_VERSION),
+  downloads: z.array(z.looseObject({ id: z.string() })),
+});
 
 /** Boot-path rewrite: any row left in a non-terminal state at app exit
  * needs to be moved to a terminal one — there's no live process to ever

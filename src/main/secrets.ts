@@ -1,5 +1,6 @@
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { atomicWriteJson } from './atomic-json';
 
 /** Schema version. Bump on any breaking change to the on-disk shape so we
@@ -76,8 +77,9 @@ export const createSecretsStore = async (
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
-    if (isSecretsFile(parsed)) {
-      entries = parsed.entries;
+    const result = SecretsFileSchema.safeParse(parsed);
+    if (result.success) {
+      entries = result.data.entries;
     } else {
       console.error('secrets: schema mismatch, starting clean');
     }
@@ -139,26 +141,14 @@ export const createSecretsStore = async (
   return { hasKey, getKey, setKey, deleteKey, deleteAll };
 };
 
-const isSecretsFile = (value: unknown): value is SecretsFile => {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const obj = value as Record<string, unknown>;
-  if (obj.version !== SCHEMA_VERSION) {
-    return false;
-  }
-  if (typeof obj.entries !== 'object' || obj.entries === null) {
-    return false;
-  }
-  // Every value (if present) must be a base64 string. Reject silently
-  // rather than throwing — caller logs the mismatch.
-  for (const [name, val] of Object.entries(obj.entries)) {
-    if (!SECRET_NAMES.includes(name as SecretName)) {
-      return false;
-    }
-    if (typeof val !== 'string') {
-      return false;
-    }
-  }
-  return true;
-};
+/** On-disk secrets file schema. `entries` is `Partial<Record<SecretName, string>>` —
+ * every present key must be a known SecretName (rejects unknown
+ * providers that snuck in via a hand-edited file), every value must
+ * be a base64 ciphertext string. `z.partialRecord` accepts any
+ * subset of the enum keys (vs. `z.record` in Zod 4 which is
+ * exhaustive — would reject a file that has only one provider's key
+ * set). */
+const SecretsFileSchema = z.looseObject({
+  version: z.literal(SCHEMA_VERSION),
+  entries: z.partialRecord(z.enum(SECRET_NAMES), z.string()),
+});

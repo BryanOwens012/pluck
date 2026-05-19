@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { BROWSER_NAMES, type BrowserName } from '../shared/types';
 import { atomicWriteJson } from './atomic-json';
 
@@ -86,79 +87,40 @@ export type SettingsStore = {
   update(patch: Partial<Settings>): Promise<Settings>;
 };
 
-const isSettingsFile = (value: unknown): value is SettingsFile => {
-  if (typeof value !== 'object' || value === null) {
-    return false;
-  }
-  const obj = value as Record<string, unknown>;
-  if (obj.version !== SCHEMA_VERSION) {
-    return false;
-  }
-  const s = obj.settings as Record<string, unknown> | null;
-  if (typeof s !== 'object' || s === null) {
-    return false;
-  }
-  // Only outputFolder is required. Other fields are merged under
-  // defaults in createSettingsStore so a partially-written file (or
-  // one missing a field) reads cleanly rather than carrying
-  // `undefined` forward.
-  if (typeof s.outputFolder !== 'string') {
-    return false;
-  }
-  // The non-outputFolder fields (cookiesFromBrowser, debugMode,
-  // concurrentFragments, concurrentDownloads) are all optional on
-  // disk — additive schema. Reject only if PRESENT and the wrong type;
-  // missing is fine and the defaults-spread in createSettingsStore
-  // fills it in.
-  if (s.debugMode !== undefined && typeof s.debugMode !== 'boolean') {
-    return false;
-  }
-  // concurrentFragments is similarly optional. When present must be an
-  // integer in range — a stray "100" in the JSON would otherwise sail
-  // through to yt-dlp and likely trip rate limits.
-  if (s.concurrentFragments !== undefined) {
-    const n = s.concurrentFragments;
-    if (typeof n !== 'number' || !Number.isInteger(n)) {
-      return false;
-    }
-    if (n < MIN_CONCURRENT_FRAGMENTS || n > MAX_CONCURRENT_FRAGMENTS) {
-      return false;
-    }
-  }
-  if (s.concurrentDownloads !== undefined) {
-    const n = s.concurrentDownloads;
-    if (typeof n !== 'number' || !Number.isInteger(n)) {
-      return false;
-    }
-    if (n < MIN_CONCURRENT_DOWNLOADS || n > MAX_CONCURRENT_DOWNLOADS) {
-      return false;
-    }
-  }
-  // cookiesFromBrowser is optional; if present, must be one of the
-  // known browser names. Reject the file if it's something else — a
-  // hand-edited typo or schema drift would otherwise silently pass an
-  // invalid value through to yt-dlp.
-  if (s.cookiesFromBrowser !== undefined) {
-    if (typeof s.cookiesFromBrowser !== 'string') {
-      return false;
-    }
-    if (!(BROWSER_NAMES as readonly string[]).includes(s.cookiesFromBrowser)) {
-      return false;
-    }
-  }
-  // ytDlpCommandOverride is free-form when present; we only require
-  // it to be a string. Validation of its CONTENTS (whether it parses,
-  // whether the first token is `yt-dlp`) happens at use time so the
-  // user can save a partial command without the file getting rejected.
-  if (s.ytDlpCommandOverride !== undefined && typeof s.ytDlpCommandOverride !== 'string') {
-    return false;
-  }
-  // developerSectionOpen is optional on disk; defaults below.
-  if (s.developerSectionOpen !== undefined && typeof s.developerSectionOpen !== 'boolean') {
-    return false;
-  }
-  return true;
-};
+/** On-disk settings file schema. Only `outputFolder` is required;
+ * everything else is optional + additive so a partially-written file
+ * (or one written by an older app version) reads cleanly. The
+ * defaults-spread in `createSettingsStore` fills in any missing field.
+ *
+ * `concurrentFragments` / `concurrentDownloads` are range-checked at
+ * the schema layer — a stray "100" in the JSON would otherwise sail
+ * through to yt-dlp and likely trip rate limits.
+ *
+ * `cookiesFromBrowser` rejects unknown browser names (a hand-edited
+ * typo would otherwise pass an invalid value through). `ytDlpCommandOverride`
+ * is free-form when present; content validation happens at use-time
+ * so a user can save a partial / in-progress command without the
+ * file getting rejected on boot. */
+const SettingsFileSchema = z.looseObject({
+  version: z.literal(SCHEMA_VERSION),
+  settings: z.looseObject({
+    outputFolder: z.string(),
+    debugMode: z.boolean().optional(),
+    concurrentFragments: z
+      .int()
+      .min(MIN_CONCURRENT_FRAGMENTS)
+      .max(MAX_CONCURRENT_FRAGMENTS)
+      .optional(),
+    concurrentDownloads: z
+      .int()
+      .min(MIN_CONCURRENT_DOWNLOADS)
+      .max(MAX_CONCURRENT_DOWNLOADS)
+      .optional(),
+    cookiesFromBrowser: z.enum(BROWSER_NAMES).optional(),
+    ytDlpCommandOverride: z.string().optional(),
+    developerSectionOpen: z.boolean().optional(),
+  }),
+});
 
 /** File-backed settings. `dir` is typically `app.getPath('userData')`;
  * passed in (not imported) so the module is testable outside Electron.
@@ -178,11 +140,12 @@ export const createSettingsStore = async (dir: string): Promise<SettingsStore> =
   try {
     const raw = await fs.readFile(filePath, 'utf-8');
     const parsed: unknown = JSON.parse(raw);
-    if (isSettingsFile(parsed)) {
+    const result = SettingsFileSchema.safeParse(parsed);
+    if (result.success) {
       // Spread defaults under the persisted snapshot so any future
       // field added here gets a default rather than undefined when an
       // older file is loaded.
-      current = { ...defaults, ...parsed.settings };
+      current = { ...defaults, ...result.data.settings };
     } else {
       console.error('settings: schema mismatch, using defaults');
     }
