@@ -58,7 +58,8 @@
     "@anthropic-ai/sdk": "^0.96.0",
     "@electron-toolkit/preload": "^3.0.2",
     "@electron-toolkit/utils": "^4.0.0",
-    "@elevenlabs/elevenlabs-js": "^2.48.0"
+    "@elevenlabs/elevenlabs-js": "^2.48.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.15",
