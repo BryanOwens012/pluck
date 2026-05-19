@@ -150,11 +150,13 @@ describe('resolveFormatChoices', () => {
     expect(alt?.detail).toBe('webm');
     // The args target the winning container by ext.
     expect(alt?.ytDlpFormatArgs).toContain('bv*[ext=webm]+ba/b[ext=webm]');
-    // best_alt still gets the embed flags so the webm/mkv file shows
-    // cover art + metadata + subs the same way mp4 presets do.
+    // best_alt still gets the audio embed flags so the webm/mkv file
+    // shows cover art + metadata the same way mp4 presets do. Subtitle
+    // flags are NOT in the preset — they're added by buildDownloadArgs
+    // only when the user has cookies set.
     expect(alt?.ytDlpFormatArgs).toContain('--embed-thumbnail');
     expect(alt?.ytDlpFormatArgs).toContain('--add-metadata');
-    expect(alt?.ytDlpFormatArgs).toContain('--embed-subs');
+    expect(alt?.ytDlpFormatArgs).not.toContain('--embed-subs');
     // best_alt always lands at the bottom.
     expect(choices.at(-1)?.id).toBe('best_alt');
   });

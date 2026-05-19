@@ -33,7 +33,10 @@ const optsForPreset = (
 // runner.test.ts cover the integration via real spawn.
 
 describe('STATIC_FORMAT_CHOICES', () => {
-  it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort + embed flags', () => {
+  it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort + thumbnail + metadata', () => {
+    // Subtitle flags are NOT baked into the preset — they get added
+    // conditionally at spawn time only when the user has cookies set.
+    // The video preset itself just covers thumbnail + metadata.
     expect(STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs).toEqual([
       '-f',
       'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
@@ -41,10 +44,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
       '--add-metadata',
-      '--embed-subs',
-      '--write-auto-subs',
-      '--sub-langs',
-      'en.*,zh.*,es.*,fr.*',
     ]);
   });
 
@@ -56,10 +55,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
       '--add-metadata',
-      '--embed-subs',
-      '--write-auto-subs',
-      '--sub-langs',
-      'en.*,zh.*,es.*,fr.*',
     ]);
   });
 
@@ -71,10 +66,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
       '--add-metadata',
-      '--embed-subs',
-      '--write-auto-subs',
-      '--sub-langs',
-      'en.*,zh.*,es.*,fr.*',
     ]);
   });
 
@@ -106,15 +97,33 @@ describe('STATIC_FORMAT_CHOICES', () => {
     }
   });
 
-  it('every video preset embeds thumbnail + metadata + subs', () => {
+  it('every video preset embeds thumbnail + metadata (subs added conditionally at spawn time)', () => {
     for (const id of ['best', '1080p', '720p', '480p', '360p'] as const) {
       const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
       expect(args).toContain('--embed-thumbnail');
       expect(args).toContain('--add-metadata');
-      expect(args).toContain('--embed-subs');
-      expect(args).toContain('--write-auto-subs');
-      expect(args).toContain('--sub-langs');
+      // Subtitle flags are NOT in the preset itself — they're added by
+      // buildDownloadArgs only when cookiesFromBrowser is set.
+      expect(args).not.toContain('--embed-subs');
+      expect(args).not.toContain('--write-auto-subs');
     }
+  });
+
+  it('appends subtitle download flags only when cookiesFromBrowser is set', () => {
+    const without = buildDownloadArgs(optsForPreset('best'), DEPS);
+    expect(without.args).not.toContain('--embed-subs');
+    expect(without.args).not.toContain('--write-auto-subs');
+    expect(without.args).not.toContain('--sub-langs');
+
+    const withCookies = buildDownloadArgs(
+      optsForPreset('best', { cookiesFromBrowser: 'chrome' }),
+      DEPS,
+    );
+    expect(withCookies.args).toContain('--embed-subs');
+    expect(withCookies.args).toContain('--write-auto-subs');
+    const langIdx = withCookies.args.indexOf('--sub-langs');
+    expect(langIdx).toBeGreaterThanOrEqual(0);
+    expect(withCookies.args[langIdx + 1]).toBe('en.*,zh.*,es.*,fr.*');
   });
 
   it('480p caps height in the selector', () => {

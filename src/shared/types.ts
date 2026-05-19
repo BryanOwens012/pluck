@@ -74,16 +74,21 @@ const SUBTITLE_LANGS = [
   'fr.*', // French
 ].join(',');
 
-/** Video-only additions on top of the audio flags. `--embed-subs`
- * embeds subtitle tracks inside the container. `--write-auto-subs`
- * makes yt-dlp also fetch YouTube's auto-generated captions (the
- * default is manually-uploaded subs only, which most YouTube videos
- * lack). `--sub-langs` is a curated list (see `SUBTITLE_LANGS`) so
- * QuickTime's menu stays usable; sidecar `.vtt` files are deleted
- * by yt-dlp after embedding (no folder clutter). Exported so
- * format-selector.ts can reuse them on the dynamic best_alt entry. */
-export const VIDEO_EMBED_FLAGS = [
-  ...AUDIO_EMBED_FLAGS,
+/** Video-only additions on top of the audio flags. Currently just an
+ * alias — subtitle flags moved out to `SUBTITLE_DOWNLOAD_FLAGS`
+ * because they're now applied conditionally (only when the user has
+ * browser cookies set). Exported so format-selector.ts can reuse
+ * them on the dynamic best_alt entry. */
+export const VIDEO_EMBED_FLAGS = AUDIO_EMBED_FLAGS;
+
+/** Subtitle-download flags. Only emitted by `buildDownloadArgs` when
+ * the request includes `cookiesFromBrowser` — YouTube's anonymous
+ * subtitle endpoint rate-limits aggressively (HTTP 429 after roughly
+ * 2 fetches in quick succession), but authenticated requests have a
+ * much higher limit. The user opts into subs by setting Browser
+ * Cookies in Settings; anonymous downloads skip subs entirely so the
+ * video itself never fails because the sub phase tripped a 429. */
+export const SUBTITLE_DOWNLOAD_FLAGS = [
   '--embed-subs',
   '--write-auto-subs',
   '--sub-langs',

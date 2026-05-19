@@ -1,5 +1,10 @@
 import { join } from 'node:path';
-import { BROWSER_NAMES, type BrowserName, type ExtractedFlags } from '../../shared/types';
+import {
+  BROWSER_NAMES,
+  type BrowserName,
+  type ExtractedFlags,
+  SUBTITLE_DOWNLOAD_FLAGS,
+} from '../../shared/types';
 import type { FetchMetadataOptions, RunDownloadOptions, RunnerDeps } from './types';
 
 /** Default for yt-dlp `-N` (parallel HTTP connections per single
@@ -389,6 +394,15 @@ export const buildDownloadArgs = (
   }
   if (opts.cookiesFromBrowser) {
     autoArgs.push('--cookies-from-browser', opts.cookiesFromBrowser);
+    // Subs are conditional on cookies. YouTube's anonymous subtitle
+    // endpoint rate-limits hard (HTTP 429 after ~2 fetches in quick
+    // succession) — even aggressive sleep + retry tuning can't beat
+    // a cooled IP. Authenticated requests, on the other hand, have a
+    // much higher per-account rate limit; users with cookies set rarely
+    // 429. So: cookies → full subs; no cookies → no subs, but the
+    // video itself downloads cleanly with no 429 risk from the sub
+    // phase.
+    autoArgs.push(...SUBTITLE_DOWNLOAD_FLAGS);
   }
   autoArgs.push(opts.url);
 
