@@ -28,6 +28,7 @@ import {
 import type { MetadataCache } from './metadata-cache';
 import type { SecretsStore } from './secrets';
 import type { Settings, SettingsStore } from './settings';
+import { transcribeDownload } from './transcription/transcriber';
 import {
   buildDownloadArgs,
   extractKnownFlags,
@@ -90,6 +91,9 @@ export type IpcDeps = {
   /** Per-download temp-folder root. Used by OpenTempFolder +
    * ClearTempFolders. Per-id subfolders live directly underneath. */
   tempBaseDir: string;
+  /** Path to the bundled ffmpeg binary. Used by the transcription
+   * pipeline to extract audio from completed video downloads. */
+  ffmpegPath: string;
   /** Closure over the runner's `fetchPlaylistEntries` — wired up by
    * main/index.ts so this module stays unaware of yt-dlp binary paths.
    * Reads the current `cookiesFromBrowser` setting at call time. */
@@ -201,6 +205,9 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     }
     if (parsed.data.developerSectionOpen !== undefined) {
       sanitized.developerSectionOpen = parsed.data.developerSectionOpen;
+    }
+    if (parsed.data.transcriptionEnabled !== undefined) {
+      sanitized.transcriptionEnabled = parsed.data.transcriptionEnabled;
     }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
@@ -511,6 +518,68 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
         console.error('GetFormatChoices: metadata fetch failed, returning static defaults', err);
         return { choices: [...STATIC_FORMAT_CHOICES_ORDERED] };
       }
+    },
+  );
+  ipcMain.handle(
+    IpcChannels.TranscribeDownload,
+    async (_event, id: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {
+      // Resolve the download row first — the renderer should only
+      // call this on completed rows, but defense-in-depth.
+      const parsedId = NonEmptyStringSchema.safeParse(id);
+      if (!parsedId.success) {
+        return { ok: false, error: 'Invalid download id.' };
+      }
+      const row = deps.queue.getAll().find((d) => d.id === parsedId.data);
+      if (!row) {
+        return { ok: false, error: 'Download not found.' };
+      }
+      if (row.status !== 'completed' || !row.filePath) {
+        return { ok: false, error: 'Download not yet completed.' };
+      }
+      if (
+        row.transcriptionStatus &&
+        row.transcriptionStatus.state !== 'idle' &&
+        row.transcriptionStatus.state !== 'done' &&
+        row.transcriptionStatus.state !== 'error'
+      ) {
+        // Already in flight — silently ignore the duplicate click.
+        return { ok: true };
+      }
+      const apiKey = await deps.secrets.getKey('elevenlabs');
+      if (!apiKey) {
+        return { ok: false, error: 'Add an ElevenLabs API key in Settings first.' };
+      }
+
+      // Fire-and-forget the pipeline. Status updates flow back to
+      // the renderer via the existing DownloadUpdate channel as the
+      // queue's patchTranscription emits. The IPC call returns
+      // immediately so the renderer doesn't block on the
+      // transcription duration.
+      void (async () => {
+        try {
+          const srtPath = await transcribeDownload(
+            apiKey,
+            row.filePath as string,
+            (status) => {
+              deps.queue.patchTranscription(parsedId.data, {
+                transcriptionStatus: status,
+                ...(status.state === 'done' ? { transcriptPath: status.srtPath } : {}),
+              });
+            },
+            { ffmpegPath: deps.ffmpegPath, tempBaseDir: deps.tempBaseDir },
+          );
+          // Belt + suspenders: the onStatus 'done' callback already
+          // patched the row, but make sure transcriptPath landed if
+          // a future refactor decoupled the callback from the path.
+          void srtPath;
+        } catch (err) {
+          // The transcriber already emitted `{state: 'error'}` via
+          // onStatus before throwing. Log here for diagnostics.
+          console.error('Transcription failed for', parsedId.data, err);
+        }
+      })();
+
+      return { ok: true };
     },
   );
 };

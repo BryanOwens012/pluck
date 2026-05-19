@@ -8,7 +8,11 @@
  */
 
 /** AI surfaces (transcription, AI prompt UI, the Anthropic +
- * ElevenLabs Settings rows, the API-key Welcome screen). Off until
- * the AI tool-use loop and the prompt UI ship — keeps the binary
- * shippable as a video downloader without paid-API onboarding noise. */
-export const AI_FEATURES_ENABLED = false;
+ * ElevenLabs Settings rows, the API-key Welcome screen). Flipping
+ * this to `true` exposes the API keys section in Settings so the
+ * user can save their ElevenLabs / Anthropic keys; the per-feature
+ * runtime toggles in `Settings.transcriptionEnabled` (and a future
+ * `aiPromptEnabled`) decide which features actually surface in the
+ * UI. Anthropic / AI prompt is still "coming soon" copy until the
+ * tool-use loop + prompt UI ship. */
+export const AI_FEATURES_ENABLED = true;

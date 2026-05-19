@@ -17,6 +17,11 @@ type Props = {
   debugMode: boolean;
   /** Called when the user toggles debug mode in the Developer section. */
   onDebugModeChange: (next: boolean) => void;
+  /** Current transcription-enabled flag — gates the Transcribe button
+   * on completed Download rows. */
+  transcriptionEnabled: boolean;
+  /** Called when the user toggles transcription in the API keys section. */
+  onTranscriptionEnabledChange: (next: boolean) => void;
   /** Called when the user clicks the back arrow or presses Esc. App
    * flips its view state back to 'main'. */
   onBack: () => void;
@@ -32,6 +37,8 @@ export const SettingsPanel = ({
   onOutputFolderChange,
   debugMode,
   onDebugModeChange,
+  transcriptionEnabled,
+  onTranscriptionEnabledChange,
   onBack,
 }: Props): React.JSX.Element => {
   // Override is hoisted here so the dependent rows (cookies, concurrent
@@ -114,6 +121,10 @@ export const SettingsPanel = ({
               provider="elevenlabs"
               label="ElevenLabs"
               help="Powers transcription (Transcribe button on completed downloads)."
+            />
+            <TranscriptionToggleRow
+              transcriptionEnabled={transcriptionEnabled}
+              onChange={onTranscriptionEnabledChange}
             />
             <ApiKeyRow
               provider="anthropic"
@@ -243,6 +254,51 @@ const ChevronRightIcon = ({ className }: { className?: string }): React.JSX.Elem
     <path d="m9 18 6-6-6-6" />
   </svg>
 );
+
+/** Per-feature opt-in toggle for transcription. Lives in the API
+ * keys section right under the ElevenLabs row because the UX flow
+ * is read top-to-bottom: save the ElevenLabs key, then flip this
+ * toggle, then the Transcribe button appears on every completed
+ * download. Default off so a freshly-saved key doesn't immediately
+ * surface a new button without an explicit user opt-in. */
+const TranscriptionToggleRow = ({
+  transcriptionEnabled,
+  onChange,
+}: {
+  transcriptionEnabled: boolean;
+  onChange: (next: boolean) => void;
+}): React.JSX.Element => {
+  const handleToggle = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const next = event.target.checked;
+    onChange(next);
+    // Optimistic update — App's state flips immediately, the save
+    // happens in the background. Revert on error so the toggle stays
+    // truthful to disk.
+    api.updateSettings({ transcriptionEnabled: next }).catch((err: unknown) => {
+      console.error('updateSettings transcriptionEnabled rejected:', err);
+      onChange(!next);
+    });
+  };
+
+  return (
+    <label className="flex items-start gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <input
+        type="checkbox"
+        checked={transcriptionEnabled}
+        onChange={handleToggle}
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-100"
+      />
+      <span className="min-w-0 flex-1 text-xs">
+        <span className="block font-medium text-neutral-200">Enable transcription</span>
+        <span className="block text-neutral-500">
+          Show a Transcribe button on completed downloads. Click to extract audio, send it to
+          ElevenLabs, and write an <code className="text-neutral-400">.srt</code> next to the video.
+          Requires the ElevenLabs key above.
+        </span>
+      </span>
+    </label>
+  );
+};
 
 // ---- developer section ----------------------------------------------
 

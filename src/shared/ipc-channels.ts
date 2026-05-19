@@ -125,6 +125,14 @@ export const IpcChannels = {
    * playlist header. Returns the list of new download ids in enqueue
    * order so the caller can correlate UI state. */
   StartPlaylistDownload: 'pluck:start-playlist-download',
+  /** Renderer -> main, invoke. Kick off the transcription pipeline
+   * for a completed download row. Main pulls the row's `filePath`,
+   * extracts audio, uploads to ElevenLabs, writes a `.srt` next to
+   * the video, and emits progress via the existing DownloadUpdate
+   * channel (each step patches the row's `transcriptionStatus`).
+   * Returns immediately with `{ ok }` — the actual work is async +
+   * monitored via the DownloadUpdate stream. */
+  TranscribeDownload: 'pluck:transcribe-download',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

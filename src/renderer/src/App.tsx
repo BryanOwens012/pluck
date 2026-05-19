@@ -95,6 +95,7 @@ const App = (): React.JSX.Element => {
   // App keeps the value so startDownload doesn't need to re-fetch.
   const [outputFolder, setOutputFolder] = useState<string | undefined>(undefined);
   const [debugMode, setDebugMode] = useState(false);
+  const [transcriptionEnabled, setTranscriptionEnabled] = useState(false);
   // Two-pane navigation. Keeping it as a simple discriminated state on
   // App is enough — no need for a routing library for a two-view app.
   // Switching to 'settings' doesn't unmount the download queue; the
@@ -154,6 +155,7 @@ const App = (): React.JSX.Element => {
         if (!cancelled) {
           setOutputFolder(settings.outputFolder);
           setDebugMode(settings.debugMode);
+          setTranscriptionEnabled(settings.transcriptionEnabled);
         }
       })
       .catch((err: unknown) => {
@@ -443,6 +445,8 @@ const App = (): React.JSX.Element => {
           onOutputFolderChange={setOutputFolder}
           debugMode={debugMode}
           onDebugModeChange={setDebugMode}
+          transcriptionEnabled={transcriptionEnabled}
+          onTranscriptionEnabledChange={setTranscriptionEnabled}
           onBack={handleBackToMain}
         />
       ) : (
@@ -483,6 +487,7 @@ const App = (): React.JSX.Element => {
             pendingEnumerations={pendingEnumerations}
             onDismissPendingEnumeration={dismissPendingEnumeration}
             onOpenPasswordPrompt={handleOpenPasswordPrompt}
+            transcriptionEnabled={transcriptionEnabled}
             debugMode={debugMode}
             debugLogs={debugLogs}
           />

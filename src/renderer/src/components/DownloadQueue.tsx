@@ -24,6 +24,9 @@ type Props = {
   /** Forwarded to each row; opens the password prompt for that id. App
    * owns the prompt state. */
   onOpenPasswordPrompt?: (id: string) => void;
+  /** Forwarded to each row — gates the Transcribe button on completed
+   * downloads. App reads this off persisted settings. */
+  transcriptionEnabled?: boolean;
   /** Debug-mode flag — toggles the folder button + log box on each row. */
   debugMode?: boolean;
   /** Per-id log buffers. App caps each buffer at MAX_LOG_LINES before
@@ -51,6 +54,7 @@ export const DownloadQueue = ({
   pendingEnumerations = [],
   onDismissPendingEnumeration,
   onOpenPasswordPrompt,
+  transcriptionEnabled,
   debugMode,
   debugLogs,
 }: Props): React.JSX.Element => {
@@ -63,6 +67,7 @@ export const DownloadQueue = ({
       key={download.id}
       download={download}
       onOpenPasswordPrompt={onOpenPasswordPrompt}
+      transcriptionEnabled={transcriptionEnabled}
       debugMode={debugMode}
       debugLog={debugLogs?.get(download.id)}
     />

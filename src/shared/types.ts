@@ -294,8 +294,16 @@ export type Download = {
   passwordAttempts?: number;
   createdAt: number;
   completedAt?: number;
-  /** Path to .srt if transcribed. */
+  /** Path to .srt if transcribed. Set once
+   * `transcriptionStatus.state === 'done'` so the renderer can show
+   * an "Open SRT" affordance. */
   transcriptPath?: string;
+  /** Sub-state for the transcription pipeline. Independent from
+   * `status` — a row can be `'completed'` (download finished) AND
+   * be mid-transcription (`transcriptionStatus.state === 'transcribing'`).
+   * Undefined / `{state: 'idle'}` means transcription hasn't been
+   * kicked off yet. */
+  transcriptionStatus?: TranscriptionStatus;
   /** Shell-safe display string of the exact yt-dlp command spawned
    * for this row, with the URL substituted in. Stamped on the
    * Download once at runOne time (before the spawn) so the per-row

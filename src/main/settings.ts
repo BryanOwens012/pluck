@@ -71,6 +71,14 @@ export type Settings = {
    * (false) so first-launch users aren't faced with a wall of advanced
    * controls when they open Settings to change their output folder. */
   developerSectionOpen: boolean;
+  /** Master switch for the transcription feature. When off, the
+   * Transcribe button on completed downloads is hidden — even if the
+   * user has saved an ElevenLabs key. Defaults to false so a fresh
+   * install doesn't surface an extra button before the user has had
+   * a chance to set up an API key. The renderer also gates on
+   * presence of the ElevenLabs key (both must be true for the
+   * button to appear). */
+  transcriptionEnabled: boolean;
 };
 
 type SettingsFile = {
@@ -119,6 +127,7 @@ const SettingsFileSchema = z.looseObject({
     cookiesFromBrowser: z.enum(BROWSER_NAMES).optional(),
     ytDlpCommandOverride: z.string().optional(),
     developerSectionOpen: z.boolean().optional(),
+    transcriptionEnabled: z.boolean().optional(),
   }),
 });
 
@@ -134,6 +143,7 @@ export const createSettingsStore = async (dir: string): Promise<SettingsStore> =
     concurrentFragments: DEFAULT_CONCURRENT_FRAGMENTS,
     concurrentDownloads: DEFAULT_CONCURRENT_DOWNLOADS,
     developerSectionOpen: false,
+    transcriptionEnabled: false,
   };
   let current: Settings = defaults;
 

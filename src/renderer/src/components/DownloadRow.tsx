@@ -29,6 +29,10 @@ type Props = {
    * to reopen a dismissed prompt without waiting for the next status
    * transition. */
   onOpenPasswordPrompt?: (id: string) => void;
+  /** When true, surfaces a Transcribe button on completed rows. App
+   * reads this off `Settings.transcriptionEnabled` so the user can
+   * disable the button without un-saving their ElevenLabs key. */
+  transcriptionEnabled?: boolean;
   /** When true (debug mode), the row shows a folder-icon button to
    * open its temp dir + a log box below the row body. Off by default. */
   debugMode?: boolean;
@@ -91,6 +95,7 @@ const clampPercent = (value: number): number =>
 export const DownloadRow = ({
   download,
   onOpenPasswordPrompt,
+  transcriptionEnabled,
   debugMode,
   debugLog,
 }: Props): React.JSX.Element => {
@@ -121,6 +126,17 @@ export const DownloadRow = ({
           <div className="flex shrink-0 items-center gap-2">
             {debugMode ? <DebugTempFolderButton id={download.id} /> : null}
             {download.status === 'downloading' ? <CancelButton id={download.id} /> : null}
+            {/* Transcribe button surfaces on completed rows when the
+                user has opted into transcription (Settings toggle +
+                ElevenLabs key saved — main bails the IPC with a
+                useful error if either is missing). Hidden while
+                transcription is in flight; the status text below
+                takes over visually. */}
+            {transcriptionEnabled &&
+            download.status === 'completed' &&
+            shouldShowTranscribeButton(download.transcriptionStatus) ? (
+              <TranscribeButton id={download.id} />
+            ) : null}
             <div className={`text-xs ${STATUS_BADGE_CLASS[download.status]}`}>
               {STATUS_LABEL[download.status]}
             </div>
@@ -153,7 +169,17 @@ export const DownloadRow = ({
         ) : null}
 
         {download.status === 'completed' && download.filePath ? (
-          <CompletedFooter filePath={download.filePath} />
+          <CompletedFooter filePath={download.filePath} transcriptPath={download.transcriptPath} />
+        ) : null}
+
+        {/* Transcription progress / error region. Renders only when
+            the transcription pipeline is actively running or has
+            ended in an error. The 'done' state shows nothing here —
+            the SRT row in CompletedFooter is the affordance. */}
+        {download.transcriptionStatus !== undefined &&
+        download.transcriptionStatus.state !== 'idle' &&
+        download.transcriptionStatus.state !== 'done' ? (
+          <TranscriptionStatusRow status={download.transcriptionStatus} />
         ) : null}
 
         {/* needs_password footer: amber to read as "action required" rather
@@ -320,6 +346,87 @@ const RetryButton = ({ id }: { id: string }): React.JSX.Element => {
  * active. Click → api.cancelDownload(id); main process sends SIGTERM to
  * yt-dlp (then SIGKILL after 2 s), the row's status flips to 'cancelled',
  * and the temp workspace is wiped via the existing try/finally. */
+/** True iff the row is in a state where we should surface the
+ * Transcribe button. The button hides while the pipeline is
+ * actively running (`extracting_audio` → `writing_srt`), shows
+ * when it has never run (`undefined` or `idle`), and shows again
+ * after a `done` or `error` terminal state so the user can re-run
+ * if they want a fresh transcript. */
+const shouldShowTranscribeButton = (status: Download['transcriptionStatus']): boolean => {
+  if (status === undefined) {
+    return true;
+  }
+  return status.state === 'idle' || status.state === 'done' || status.state === 'error';
+};
+
+/** Per-row Transcribe button. Click → main extracts audio, uploads
+ * to ElevenLabs, writes a `.srt` next to the video. Progress flows
+ * back via the existing onDownloadUpdate stream. Errors surface as
+ * a red banner from `TranscriptionStatusRow`. */
+const TranscribeButton = ({ id }: { id: string }): React.JSX.Element => {
+  const handleTranscribe = (): void => {
+    api.transcribeDownload(id).catch((err: unknown) => {
+      console.error('transcribeDownload rejected:', err);
+    });
+  };
+  return (
+    <button
+      type="button"
+      onClick={handleTranscribe}
+      title="Transcribe to .srt via ElevenLabs"
+      aria-label="Transcribe to .srt via ElevenLabs"
+      className="rounded-md border border-sky-900/70 bg-sky-950/40 px-2 py-0.5 text-xs font-medium text-sky-300 transition hover:bg-sky-900/50 hover:text-sky-200 focus:outline-none focus-visible:bg-sky-900/50"
+    >
+      Transcribe
+    </button>
+  );
+};
+
+/** Human copy + progress styling for each transcription pipeline
+ * stage. Pulled into a const so the renderer never branches on the
+ * full TranscriptionStatus discriminant inline. */
+const TRANSCRIPTION_LABEL: Record<
+  Exclude<NonNullable<Download['transcriptionStatus']>['state'], 'idle' | 'done'>,
+  string
+> = {
+  extracting_audio: 'Extracting audio…',
+  uploading: 'Uploading to ElevenLabs…',
+  transcribing: 'Transcribing…',
+  writing_srt: 'Writing .srt…',
+  error: 'Transcription failed.',
+};
+
+/** Compact status banner below the row body during transcription.
+ * Shows an indeterminate sliding bar for the in-flight stages
+ * (extracting → writing), and a red error message when the
+ * pipeline lands on `error`. The `done` state doesn't render here
+ * — the SRT row in `CompletedFooter` takes over as the affordance. */
+const TranscriptionStatusRow = ({
+  status,
+}: {
+  status: NonNullable<Download['transcriptionStatus']>;
+}): React.JSX.Element | null => {
+  if (status.state === 'idle' || status.state === 'done') {
+    return null;
+  }
+  if (status.state === 'error') {
+    return (
+      <div className="mt-3 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+        <span className="font-medium">Transcription failed.</span>{' '}
+        <span className="text-red-300/80 break-words">{status.message}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-3 space-y-1.5">
+      <div className="relative h-1 overflow-hidden rounded-full bg-neutral-800">
+        <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-sky-400" />
+      </div>
+      <div className="text-xs text-neutral-500">{TRANSCRIPTION_LABEL[status.state]}</div>
+    </div>
+  );
+};
+
 const CancelButton = ({ id }: { id: string }): React.JSX.Element => {
   const handleCancel = (): void => {
     api.cancelDownload(id).catch((err: unknown) => {
@@ -347,7 +454,13 @@ const CancelButton = ({ id }: { id: string }): React.JSX.Element => {
  * it out of band. Existence is rechecked on window focus so coming back
  * from a Finder cleanup session picks up the new state without a
  * re-render. */
-const CompletedFooter = ({ filePath }: { filePath: string }): React.JSX.Element => {
+const CompletedFooter = ({
+  filePath,
+  transcriptPath,
+}: {
+  filePath: string;
+  transcriptPath?: string;
+}): React.JSX.Element => {
   // undefined = haven't checked yet (treat as present until proven
   // otherwise so the button doesn't flicker disabled on every render).
   const [exists, setExists] = useState<boolean | undefined>(undefined);
@@ -400,6 +513,38 @@ const CompletedFooter = ({ filePath }: { filePath: string }): React.JSX.Element 
         title={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
         aria-label={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
         className="shrink-0 rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 disabled:cursor-not-allowed disabled:text-neutral-700 disabled:hover:bg-transparent disabled:hover:text-neutral-700"
+      >
+        <FolderIcon />
+      </button>
+      {transcriptPath ? <SrtRow transcriptPath={transcriptPath} /> : null}
+    </div>
+  );
+};
+
+/** Secondary "Saved transcript" line that renders below the main
+ * file row when transcription has produced an SRT next to the
+ * video. Same visual pattern as the file row — basename text +
+ * folder-icon reveal button — plus an `SRT` chip so the line
+ * reads as a related-but-distinct artifact. */
+const SrtRow = ({ transcriptPath }: { transcriptPath: string }): React.JSX.Element => {
+  const handleReveal = (): void => {
+    api.showInFinder(transcriptPath).catch((err: unknown) => {
+      console.error('showInFinder rejected:', err);
+    });
+  };
+  const filename = transcriptPath.split('/').pop() ?? transcriptPath;
+  return (
+    <div className="mt-2 flex w-full items-center gap-2">
+      <span className="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-300">
+        SRT
+      </span>
+      <span className="min-w-0 flex-1 truncate text-xs text-neutral-400">{filename}</span>
+      <button
+        type="button"
+        onClick={handleReveal}
+        title="Show transcript in Finder"
+        aria-label="Show transcript in Finder"
+        className="shrink-0 rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
       >
         <FolderIcon />
       </button>
