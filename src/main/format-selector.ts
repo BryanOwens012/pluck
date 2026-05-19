@@ -1,5 +1,9 @@
 import type { FormatChoice } from '../shared/types';
-import { STATIC_FORMAT_CHOICES, STATIC_FORMAT_CHOICES_ORDERED } from '../shared/types';
+import {
+  STATIC_FORMAT_CHOICES,
+  STATIC_FORMAT_CHOICES_ORDERED,
+  VIDEO_EMBED_FLAGS,
+} from '../shared/types';
 import type { FormatInfo } from './ytdlp/types';
 
 /**
@@ -99,13 +103,18 @@ export const resolveFormatChoices = (formats: readonly FormatInfo[]): FormatChoi
       id: 'best_alt',
       label: altLabel,
       detail: bestNonMp4.ext,
-      // Match by container ext + the same -S sort. No height cap (this
-      // is the "give me the best regardless of container" path).
+      // Match by container ext. No height cap (this is the "give me
+      // the best regardless of container" path). Sort by (res, fps,
+      // tbr) — `vcodec:h264` doesn't apply here because the whole
+      // point of best_alt is a non-mp4 codec. ffmpeg's mkv/webm
+      // muxers handle the embed-thumbnail / embed-subs flags the same
+      // way they handle mp4, so we reuse VIDEO_EMBED_FLAGS verbatim.
       ytDlpFormatArgs: [
         '-f',
         `bv*[ext=${bestNonMp4.ext}]+ba/b[ext=${bestNonMp4.ext}]`,
         '-S',
         'res,fps,tbr',
+        ...VIDEO_EMBED_FLAGS,
       ],
     });
   }

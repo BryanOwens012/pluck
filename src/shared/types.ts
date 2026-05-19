@@ -35,46 +35,66 @@ export type FormatChoice = {
   ytDlpFormatArgs: string[];
 };
 
+/** Flags shared by every audio-bearing preset (mp3 + every video, since
+ * video files carry audio too). `--embed-thumbnail` writes the
+ * thumbnail as cover art (mp4 `covr` atom via ffmpeg, ID3v2 APIC for
+ * mp3) so Finder Get Info / Music.app / QuickTime show it. `--add-
+ * metadata` writes title / uploader / description into mp4 metadata
+ * atoms (or ID3v2 tags). */
+const AUDIO_EMBED_FLAGS = ['--embed-thumbnail', '--add-metadata'] as const;
+
+/** Video-only additions on top of the audio flags. `--embed-subs`
+ * embeds subtitle tracks inside the container. `--write-auto-subs`
+ * makes yt-dlp also fetch YouTube's auto-generated captions (the
+ * default is manually-uploaded subs only, which most YouTube videos
+ * lack). `--sub-langs en.*,en-orig` covers English variants + the
+ * `en-orig` code YouTube assigns to live-stream auto-captions.
+ * Unknown lang codes on non-YouTube sources are silently ignored.
+ * Exported so format-selector.ts can reuse them on the dynamic
+ * best_alt entry. */
+export const VIDEO_EMBED_FLAGS = [
+  ...AUDIO_EMBED_FLAGS,
+  '--embed-subs',
+  '--write-auto-subs',
+  '--sub-langs',
+  'en.*,en-orig',
+] as const;
+
+/** Sort priority for every video preset: highest resolution first,
+ * then prefer h264 codec (M1/M2 hardware decode; QuickTime native),
+ * then higher framerate. Putting `vcodec:h264` ahead of `fps` means a
+ * 1080p30 h264 stream wins over a 1080p60 AV1 stream that would
+ * otherwise pick on the fps tiebreaker. */
+const VIDEO_SORT_FLAGS = ['-S', 'res,vcodec:h264,fps'] as const;
+
+/** Selector for the best mp4 stream at or below `maxHeight` — pinned
+ * to mp4 container, AV1 codec excluded (M1/M2 can't hardware-decode
+ * AV1 well, and QuickTime treats some AV1-in-mp4 files as corrupt).
+ * Falls back to a single-file mp4 if the bv*+ba merge isn't
+ * available. Pass `undefined` for "unrestricted" (the Best preset). */
+const mp4VideoSelector = (maxHeight: number | undefined): string => {
+  const heightClause = maxHeight === undefined ? '' : `[height<=${maxHeight}]`;
+  return `bv*[ext=mp4][vcodec!*=av01]${heightClause}+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]${heightClause}`;
+};
+
 /** Static fallback table — used by the renderer before a URL probe
- * runs. Labels are generic ("Best") because we don't know
- * per-URL dimensions until format-selector runs on a fetched metadata
- * pass. */
+ * runs. Labels are generic ("Best") because we don't know per-URL
+ * dimensions until format-selector runs on a fetched metadata pass. */
 export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, FormatChoice> = {
   best: {
     id: 'best',
     label: 'Best',
-    // `vcodec!*=av01` excludes AV1-in-mp4 streams. M1 / M2 Macs have no
-    // hardware AV1 decode, so AV1 files play back stuttery and macOS
-    // QuickTime treats some of them as corrupt. M3+ would be fine but
-    // we're optimising for the lowest-common-denominator M-series Mac.
-    // The 5th `best_alt` option still surfaces a higher-quality non-mp4
-    // alternative (typically vp9-webm 1080p60) when one exists.
-    ytDlpFormatArgs: [
-      '-f',
-      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
-      '-S',
-      'res,vcodec:h264,fps',
-    ],
+    ytDlpFormatArgs: ['-f', mp4VideoSelector(undefined), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   '1080p': {
     id: '1080p',
     label: '1080p',
-    ytDlpFormatArgs: [
-      '-f',
-      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
-      '-S',
-      'res,vcodec:h264,fps',
-    ],
+    ytDlpFormatArgs: ['-f', mp4VideoSelector(1080), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   '720p': {
     id: '720p',
     label: '720p',
-    ytDlpFormatArgs: [
-      '-f',
-      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
-      '-S',
-      'res,vcodec:h264,fps',
-    ],
+    ytDlpFormatArgs: ['-f', mp4VideoSelector(720), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   audio_mp3: {
     id: 'audio_mp3',
@@ -86,7 +106,7 @@ export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, Format
     // of "match what the source provides, never exceed 320 kbps"
     // without needing a separate probe-then-encode pipeline. Source
     // audio is whatever yt-dlp picks as bestaudio (default for `-x`).
-    ytDlpFormatArgs: ['-x', '--audio-format', 'mp3', '--audio-quality', '0'],
+    ytDlpFormatArgs: ['-x', '--audio-format', 'mp3', '--audio-quality', '0', ...AUDIO_EMBED_FLAGS],
   },
 };
 
