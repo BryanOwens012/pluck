@@ -348,9 +348,9 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     IpcChannels.GetFormatChoices,
     async (_event, url: unknown): Promise<FormatChoice[]> => {
       // Renderer probes per URL. We reuse the existing metadataCache —
-      // if the URL was prefetched on paste (PR 4.8), this is free; if
-      // not, we trigger a fresh fetch on demand. Silent fallback to the
-      // four static defaults on any failure: invalid URL, network down,
+      // if the URL was prefetched on paste this is free; if not, we
+      // trigger a fresh fetch on demand. Silent fallback to the four
+      // static defaults on any failure: invalid URL, network down,
       // private video without cookies, etc. The actual download attempt
       // will surface any real error.
       if (!isHttpUrl(url)) {

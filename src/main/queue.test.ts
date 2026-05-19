@@ -57,9 +57,10 @@ describe('friendlyErrorMessage', () => {
   });
 
   it('maps YtDlpPasswordRequiredError to a password-specific hint', () => {
-    // The full Zoom password modal lands in PR 7. Until then, the row's
-    // error block at least tells the user *why* it failed instead of
-    // blaming yt-dlp or the URL.
+    // This is the fallback message — the queue routes password-required
+    // errors through 'needs_password' status instead so the password
+    // prompt modal opens. The friendly string only surfaces if some
+    // non-queue caller bypasses that path.
     expect(friendlyErrorMessage(new YtDlpPasswordRequiredError())).toBe(
       'This recording requires a password.',
     );

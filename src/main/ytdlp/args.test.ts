@@ -69,10 +69,10 @@ describe('STATIC_FORMAT_CHOICES', () => {
     expect(STATIC_FORMAT_CHOICES.audio_mp3.ytDlpFormatArgs).not.toContain('-S');
   });
 
-  it('regression: bare bv*+ba/b (pre-PR-9.6) is never used in static presets', () => {
-    // The pre-PR string would let yt-dlp serve YouTube's vp9/webm as the
-    // default. If a future refactor accidentally drops [ext=mp4], this
-    // test catches it — the .webm output silently breaks QuickTime / iMessage.
+  it('every video preset pins [ext=mp4] in its selector', () => {
+    // A bare `bv*+ba/b` selector lets yt-dlp serve YouTube's vp9/webm
+    // by default, which silently breaks QuickTime / iMessage. This
+    // guard catches accidental removal of the container constraint.
     for (const id of ['best', '1080p', '720p'] as const) {
       const flag = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs.join(' ');
       expect(flag).toContain('[ext=mp4]');

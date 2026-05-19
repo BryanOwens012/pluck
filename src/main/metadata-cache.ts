@@ -12,8 +12,8 @@
  * - No LRU eviction. Even a heavy session is a handful of distinct URLs;
  *   each metadata object is tiny.
  * - No persistence. Cross-session caching of yt-dlp metadata is risky
- *   (extractor fields drift) and PR 12.5's SQLite library handles the
- *   "videos I've downloaded before" question separately.
+ *   because extractor fields drift; durable "have I downloaded this
+ *   before?" tracking belongs in a separate persistent store.
  *
  * Two behaviours that DO matter and are implemented:
  * 1. **In-flight de-dup**: concurrent get(url) calls share one fetcher

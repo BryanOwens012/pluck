@@ -36,10 +36,9 @@ export type FormatChoice = {
 };
 
 /** Static fallback table — used by the renderer before a URL probe
- * runs, and by history.ts to migrate legacy `format: 'best'` strings
- * to the new FormatChoice shape. mp4-default args from PR 9.6 Phase A.
- * Labels are generic ("Best quality") because we don't know per-URL
- * dimensions until format-selector runs on a fetched metadata pass. */
+ * runs. Labels are generic ("Best quality") because we don't know
+ * per-URL dimensions until format-selector runs on a fetched metadata
+ * pass. */
 export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, FormatChoice> = {
   best: {
     id: 'best',
@@ -131,8 +130,8 @@ export type DebugLogEvent = {
 export type DownloadRequest = {
   url: string;
   format: FormatChoice;
-  /** Optional. If omitted, main process falls back to its configured default
-   * (~/Downloads/Pluck until PR 6 introduces the settings-driven path). */
+  /** Optional. If omitted, the main process falls back to the
+   * user-configured default output folder from settings. */
   outputFolder?: string;
   videoPassword?: string;
 };

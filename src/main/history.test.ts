@@ -3,12 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type Download, STATIC_FORMAT_CHOICES } from '../shared/types';
-import {
-  capToMax,
-  createHistoryStore,
-  migrateLegacyFormat,
-  promoteInterruptedToFailed,
-} from './history';
+import { capToMax, createHistoryStore, promoteInterruptedToFailed } from './history';
 
 const makeDownload = (overrides: Partial<Download> = {}): Download => ({
   id: 'youtube-x-20260516-204530-aaa111',
@@ -205,78 +200,5 @@ describe('createHistoryStore', () => {
     const store = createHistoryStore(nested);
     await store.save([makeDownload()]);
     expect((await fs.stat(join(nested, 'history.json'))).isFile()).toBe(true);
-  });
-});
-
-describe('migrateLegacyFormat (PR 9.6b shape change)', () => {
-  // Test calls the migration helper directly so we don't depend on the
-  // full createHistoryStore plumbing. Casts mimic what reading an old
-  // history.json off disk would look like.
-
-  let migrationDir: string;
-  beforeEach(async () => {
-    migrationDir = await fs.mkdtemp(join(tmpdir(), 'pluck-migrate-test-'));
-  });
-  afterEach(async () => {
-    await fs.rm(migrationDir, { recursive: true, force: true });
-  });
-
-  const legacyRow = (format: string): Download =>
-    ({
-      id: 'old-1',
-      url: 'https://example.com/x',
-      format,
-      outputFolder: '/tmp/out',
-      status: 'completed',
-      progress: 100,
-      createdAt: 1,
-    }) as unknown as Download;
-
-  it('maps "best" to STATIC_FORMAT_CHOICES.best', () => {
-    const migrated = migrateLegacyFormat(legacyRow('best'));
-    expect(migrated.format).toEqual(STATIC_FORMAT_CHOICES.best);
-  });
-
-  it('maps "1080p", "720p", "audio_mp3" to their static entries', () => {
-    expect(migrateLegacyFormat(legacyRow('1080p')).format).toEqual(STATIC_FORMAT_CHOICES['1080p']);
-    expect(migrateLegacyFormat(legacyRow('720p')).format).toEqual(STATIC_FORMAT_CHOICES['720p']);
-    expect(migrateLegacyFormat(legacyRow('audio_mp3')).format).toEqual(
-      STATIC_FORMAT_CHOICES.audio_mp3,
-    );
-  });
-
-  it('falls back to "best" for unknown / corrupted format strings (Retry stays usable)', () => {
-    expect(migrateLegacyFormat(legacyRow('weird')).format).toEqual(STATIC_FORMAT_CHOICES.best);
-    expect(migrateLegacyFormat(legacyRow('')).format).toEqual(STATIC_FORMAT_CHOICES.best);
-  });
-
-  it('passes through a row whose format is already a FormatChoice object (post-PR-9.6b)', () => {
-    const newRow = makeDownload({ format: STATIC_FORMAT_CHOICES['1080p'] });
-    expect(migrateLegacyFormat(newRow)).toEqual(newRow);
-  });
-
-  it('end-to-end: writing legacy JSON then load round-trips through migration', async () => {
-    // Simulate a history.json saved by pre-PR-9.6b Pluck: format is a string.
-    await fs.writeFile(
-      join(migrationDir, 'history.json'),
-      JSON.stringify({
-        version: 1,
-        downloads: [
-          {
-            id: 'old-row',
-            url: 'https://example.com/x',
-            format: 'best',
-            outputFolder: '/tmp/out',
-            status: 'completed',
-            progress: 100,
-            createdAt: 1_700_000_000_000,
-          },
-        ],
-      }),
-      'utf-8',
-    );
-    const loaded = await createHistoryStore(migrationDir).load();
-    expect(loaded).toHaveLength(1);
-    expect(loaded[0]?.format).toEqual(STATIC_FORMAT_CHOICES.best);
   });
 });

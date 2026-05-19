@@ -208,13 +208,12 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
 });
 
 describe('runDownload format-flags (mp4-preferring presets)', () => {
-  // Spec PR 9.6 Phase A: every video preset must (a) prefer mp4
-  // container so the file plays in QuickTime/iMessage, and (b) sort
-  // candidate streams by res,vcodec:h264,fps — h264 preference is
-  // weighted ahead of fps so a 1080p30 h264 stream wins over a
-  // 1080p60 av1-in-mp4 stream that QuickTime can't decode well on
-  // M1/M2 Macs. The [vcodec!*=av01] filter is also belt-and-suspenders
-  // against av1-in-mp4.
+  // Every video preset must (a) prefer mp4 container so the file plays
+  // in QuickTime/iMessage, and (b) sort candidate streams by
+  // res,vcodec:h264,fps — h264 preference is weighted ahead of fps so
+  // a 1080p30 h264 stream wins over a 1080p60 av1-in-mp4 stream that
+  // QuickTime can't decode well on M1/M2 Macs. The [vcodec!*=av01]
+  // filter is also belt-and-suspenders against av1-in-mp4.
 
   const runAndReadArgv = async (preset: keyof typeof STATIC_FORMAT_CHOICES): Promise<string> => {
     const workspace = await fs.mkdtemp(join(tmpdir(), 'pluck-format-test-'));
@@ -266,10 +265,9 @@ describe('runDownload format-flags (mp4-preferring presets)', () => {
     expect(argv).not.toMatch(/-S res,vcodec:h264,fps/);
   });
 
-  it('regression: old format strings (no [ext=mp4] filter) are NOT used', async () => {
-    // The bare `bv*+ba/b` would let YouTube serve vp9/webm by default;
-    // PR 9.6 forces mp4. If this regresses, downloads play in VLC but
-    // break in QuickTime/iMessage/iMovie.
+  it('never emits a bare `-f bv*+ba/b` selector (must specify mp4 container)', async () => {
+    // A bare selector lets YouTube serve vp9/webm by default; we always
+    // pin mp4 so the file plays in QuickTime / iMessage / iMovie.
     const argv = await runAndReadArgv('best');
     expect(argv).not.toMatch(/-f bv\*\+ba\/b\s/);
   });
