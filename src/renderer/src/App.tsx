@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   type DebugLogEvent,
   type Download,
@@ -258,6 +258,15 @@ const App = (): React.JSX.Element => {
     setUrl('');
   };
 
+  // Stable so SettingsPanel's window-level Esc listener doesn't
+  // attach/detach on every App render. App re-renders multiple times
+  // per second during an active download (progress pushes), and Esc
+  // is what closes Settings — we don't want to be re-binding the
+  // listener that often.
+  const handleBackToMain = useCallback((): void => {
+    setView('main');
+  }, []);
+
   const handleDismissPasswordPrompt = (): void => {
     if (passwordPromptId !== undefined) {
       const current = downloads.get(passwordPromptId);
@@ -284,7 +293,7 @@ const App = (): React.JSX.Element => {
           onOutputFolderChange={setOutputFolder}
           debugMode={debugMode}
           onDebugModeChange={setDebugMode}
-          onBack={() => setView('main')}
+          onBack={handleBackToMain}
         />
       ) : (
         <div className="mx-auto max-w-2xl space-y-4 p-6">
