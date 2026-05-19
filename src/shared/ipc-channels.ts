@@ -97,6 +97,20 @@ export const IpcChannels = {
    * band, so we can gray out the "Reveal in Finder" button instead
    * of opening Finder on a stale path. */
   FileExists: 'pluck:file-exists',
+  /** Renderer -> main, invoke. Returns the yt-dlp command string
+   * that would be spawned right now given the current settings,
+   * formatted shell-safe for display. The `url` argument is optional;
+   * when omitted, the returned string has a `<URL>` placeholder where
+   * the URL would land. Powers the "yt-dlp command" preview in the
+   * Settings developer pane. */
+  GetInvocationPreview: 'pluck:get-invocation-preview',
+  /** Renderer -> main, invoke. Tokenizes a yt-dlp override string and
+   * returns either the parsed argv plus the known-flag extractions
+   * (`-N`, `--cookies-from-browser`, `-f`, `-o`), or a parse error.
+   * The Settings panel calls this when the override text changes to
+   * decide which dependent controls to gray out and what values to
+   * surface as informational. */
+  ParseYtDlpCommand: 'pluck:parse-yt-dlp-command',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

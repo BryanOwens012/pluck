@@ -43,10 +43,10 @@ describe('resolveFormatChoices', () => {
 
   it('drops the duplicate 1080p tier when best mp4 is 1080p (no double row)', () => {
     // Best is exactly 1080p. The dropdown should be:
-    //   Best quality (1080p)  ← shorthand-annotated best
+    //   Best (1080p)  ← shorthand-annotated best
     //   720p
     //   Audio only (mp3)
-    // No separate 1080p row — that would duplicate "Best quality (1080p)".
+    // No separate 1080p row — that would duplicate "Best (1080p)".
     const choices = resolveFormatChoices([
       mp4(1080, 60),
       mp4(1080, 30),
@@ -60,7 +60,7 @@ describe('resolveFormatChoices', () => {
 
     const best = choices[0];
     expect(best?.id).toBe('best');
-    expect(best?.label).toBe('Best quality');
+    expect(best?.label).toBe('Best');
     expect(best?.shorthand).toBe('1080p');
     expect(best?.detail).toBe('1920×1080 mp4, 60fps');
 
@@ -170,7 +170,7 @@ describe('resolveFormatChoices', () => {
     // No mp4 → enrich returns the static base unchanged (no `detail`
     // attached). The best_alt option still appears for the webm.
     const choices = resolveFormatChoices([webm(1080, 30), webm(720, 30)]);
-    expect(choices[0]?.label).toBe('Best quality');
+    expect(choices[0]?.label).toBe('Best');
     expect(choices[0]?.detail).toBeUndefined();
     expect(choices.find((c) => c.id === 'best_alt')).toBeDefined();
   });

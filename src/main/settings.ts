@@ -57,6 +57,13 @@ export type Settings = {
   /** Integer in [MIN_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS].
    * Queue's simultaneous-active cap. */
   concurrentDownloads: number;
+  /** Free-input "yt-dlp command" string. When non-empty it overrides
+   * the auto-built argv: the runner parses this string with shell-quote
+   * semantics and spawns the resulting argv (plus the URL). Empty /
+   * undefined = auto mode (Pluck builds the command from the other
+   * settings). The text is stored verbatim — no normalisation — so the
+   * Settings panel renders exactly what the user typed. */
+  ytDlpCommandOverride?: string;
 };
 
 type SettingsFile = {
@@ -132,6 +139,13 @@ const isSettingsFile = (value: unknown): value is SettingsFile => {
     if (!(BROWSER_NAMES as readonly string[]).includes(s.cookiesFromBrowser)) {
       return false;
     }
+  }
+  // ytDlpCommandOverride is free-form when present; we only require
+  // it to be a string. Validation of its CONTENTS (whether it parses,
+  // whether the first token is `yt-dlp`) happens at use time so the
+  // user can save a partial command without the file getting rejected.
+  if (s.ytDlpCommandOverride !== undefined && typeof s.ytDlpCommandOverride !== 'string') {
+    return false;
   }
   return true;
 };

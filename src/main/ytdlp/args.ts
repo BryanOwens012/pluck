@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { BROWSER_NAMES, type BrowserName, type ExtractedFlags } from '../../shared/types';
 import type { FetchMetadataOptions, RunDownloadOptions, RunnerDeps } from './types';
 
 /** Default for yt-dlp `-N` (parallel HTTP connections per single
@@ -52,6 +53,219 @@ export const FINAL_PATH_MARKER_FILENAME = '.pluck-final-path';
 // the already-built args as opts.ytDlpFormatArgs and spreads them
 // straight into argv — runner stays oblivious to format semantics.
 
+/** Token used inside a yt-dlp override string to mark where the URL
+ * should be substituted. When absent from the user's override, the URL
+ * is appended at the end of argv (yt-dlp's usual positional spot). */
+export const URL_PLACEHOLDER_TOKEN = '<URL>';
+
+export type ParseResult = { ok: true; argv: string[] } | { ok: false; error: string };
+
+/** Tokenize a user-supplied yt-dlp command string into argv. Designed
+ * to feel familiar to anyone who's typed a shell command, with two
+ * deliberate departures from a real shell:
+ *
+ *   - **No expansion of any kind.** `$VAR`, `$(cmd)`, backtick `, glob
+ *     `*` / `?`, brace `{a,b}` and history `!` are all left as plain
+ *     characters. A user typing `&& rm -rf /` gets four inert tokens;
+ *     a URL like `https://x.com/$(touch /tmp/PWN)` lands as data.
+ *   - **The first token must be `yt-dlp`** so the override can't aim
+ *     at a different binary.
+ *
+ * Single quotes preserve their contents verbatim. Double quotes allow
+ * a small backslash-escape set (`"`, `\\`, `$`, `` ` ``, newline for
+ * line continuation) and otherwise pass through. Unquoted backslash
+ * escapes any next character, with `\\<newline>` treated as line
+ * continuation. Whitespace splits tokens.
+ *
+ * Returned argv has the leading `yt-dlp` already stripped — callers
+ * spread it directly into the rest of the spawn argv. */
+export const parseYtDlpCommand = (input: string): ParseResult => {
+  const tokens: string[] = [];
+  let current = '';
+  let hasTokenInProgress = false;
+  let inSingle = false;
+  let inDouble = false;
+
+  const finalizeToken = (): void => {
+    if (hasTokenInProgress) {
+      tokens.push(current);
+      current = '';
+      hasTokenInProgress = false;
+    }
+  };
+
+  for (let i = 0; i < input.length; i += 1) {
+    const c = input[i];
+    if (inSingle) {
+      if (c === "'") {
+        inSingle = false;
+      } else {
+        current += c;
+        hasTokenInProgress = true;
+      }
+      continue;
+    }
+    if (inDouble) {
+      if (c === '"') {
+        inDouble = false;
+        continue;
+      }
+      if (c === '\\') {
+        const next = input[i + 1];
+        if (next === undefined) {
+          return { ok: false, error: 'Trailing backslash inside double-quoted string.' };
+        }
+        // Inside double quotes only a small set is escaped; anything
+        // else leaves the backslash literal.
+        if (next === '"' || next === '\\' || next === '$' || next === '`') {
+          current += next;
+        } else if (next === '\n') {
+          // Line continuation inside double quotes — drop both bytes.
+        } else {
+          current += '\\';
+          current += next;
+        }
+        i += 1;
+        hasTokenInProgress = true;
+        continue;
+      }
+      current += c;
+      hasTokenInProgress = true;
+      continue;
+    }
+    // Unquoted.
+    if (c === "'") {
+      inSingle = true;
+      hasTokenInProgress = true;
+      continue;
+    }
+    if (c === '"') {
+      inDouble = true;
+      hasTokenInProgress = true;
+      continue;
+    }
+    if (c === '\\') {
+      const next = input[i + 1];
+      if (next === undefined) {
+        return { ok: false, error: 'Trailing backslash.' };
+      }
+      if (next === '\n') {
+        // Line continuation — eat both bytes.
+      } else {
+        current += next;
+        hasTokenInProgress = true;
+      }
+      i += 1;
+      continue;
+    }
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') {
+      finalizeToken();
+      continue;
+    }
+    current += c;
+    hasTokenInProgress = true;
+  }
+
+  if (inSingle) {
+    return { ok: false, error: 'Unterminated single quote.' };
+  }
+  if (inDouble) {
+    return { ok: false, error: 'Unterminated double quote.' };
+  }
+  finalizeToken();
+
+  if (tokens.length === 0) {
+    return { ok: false, error: 'Override is empty.' };
+  }
+  const head = tokens[0];
+  if (head !== 'yt-dlp') {
+    return { ok: false, error: `First token must be \`yt-dlp\` (got \`${head}\`).` };
+  }
+  return { ok: true, argv: tokens.slice(1) };
+};
+
+/** Best-effort scan of an override's parsed argv for the flags whose
+ * values mirror into the Settings UI (so the dependent dropdowns can
+ * gray out + show the user what the override decoded to). Unknown
+ * flags are ignored — the override still controls what runs; this
+ * just keeps the informational dropdowns in sync. */
+export const extractKnownFlags = (argv: readonly string[]): ExtractedFlags => {
+  const result: ExtractedFlags = {};
+  for (let i = 0; i < argv.length; i += 1) {
+    const flag = argv[i];
+    const value = argv[i + 1];
+    if (flag === '-N' && value !== undefined) {
+      const n = Number.parseInt(value, 10);
+      if (Number.isInteger(n) && n > 0) {
+        result.concurrentFragments = n;
+      }
+      i += 1;
+      continue;
+    }
+    if (flag === '--cookies-from-browser' && value !== undefined) {
+      if ((BROWSER_NAMES as readonly string[]).includes(value)) {
+        result.cookiesFromBrowser = value as BrowserName;
+      }
+      i += 1;
+      continue;
+    }
+    if ((flag === '-f' || flag === '--format') && value !== undefined) {
+      result.format = value;
+      i += 1;
+      continue;
+    }
+    if ((flag === '-o' || flag === '--output') && value !== undefined) {
+      result.outputTemplate = value;
+      i += 1;
+    }
+  }
+  return result;
+};
+
+/** Names of flags whose value is sensitive and must not appear in any
+ * UI surface (per-row preview, copy buffers, debug logs). The actual
+ * spawn still uses the real value — this redaction only affects what
+ * the user sees on screen. */
+const REDACTED_VALUE_FLAGS = new Set(['--video-password']);
+
+/** Characters that force single-quote wrapping when an arg is rendered
+ * for display. Includes the obvious shell metacharacters so a copy-
+ * paste from the per-row preview into Terminal works the same way it
+ * looks. */
+const NEEDS_QUOTING_PATTERN = /[\s"'$`\\<>|&;*?(){}[\]!#~]/;
+
+/** Join an argv array into a single shell-safe display string. Args
+ * containing whitespace or shell metacharacters are wrapped in single
+ * quotes (with any embedded single quotes escaped via `'\''`); values
+ * for password-style flags are replaced with `'***'` regardless of
+ * their actual content. The leading `yt-dlp` is prepended so the
+ * rendered line reads as a complete command. */
+export const formatInvocationForDisplay = (argv: readonly string[]): string => {
+  const parts: string[] = ['yt-dlp'];
+  for (let i = 0; i < argv.length; i += 1) {
+    const token = argv[i] ?? '';
+    parts.push(quoteForDisplay(token));
+    if (REDACTED_VALUE_FLAGS.has(token) && i + 1 < argv.length) {
+      parts.push("'***'");
+      i += 1;
+    }
+  }
+  return parts.join(' ');
+};
+
+const quoteForDisplay = (token: string): string => {
+  if (token.length === 0) {
+    return "''";
+  }
+  if (!NEEDS_QUOTING_PATTERN.test(token)) {
+    return token;
+  }
+  // Single-quote wrap. Embedded single quotes get the classic shell
+  // dance: close the quoted string, emit a backslash-escaped quote,
+  // reopen — i.e. `'\''`.
+  return `'${token.replace(/'/g, `'\\''`)}'`;
+};
+
 /** Build the argv for `yt-dlp -J --no-download <url>` (metadata fetch).
  * Pure function — no side effects, no spawn. Runner consumes the
  * returned array directly. */
@@ -66,17 +280,33 @@ export const buildMetadataArgs = (url: string, options: FetchMetadataOptions): s
 
 /** Build the argv for a full `yt-dlp` download invocation. The marker
  * path is returned alongside the args because the runner needs it to
- * read the final filepath yt-dlp writes via `--print-to-file`. */
+ * read the final filepath yt-dlp writes via `--print-to-file`.
+ *
+ * Two paths:
+ *
+ *   1. **Auto mode** (no override / override fails to parse): we own
+ *      every flag. Format args from the chosen FormatChoice, cookies,
+ *      concurrency, password, URL.
+ *   2. **Override mode** (override parses cleanly): the user's parsed
+ *      argv replaces the auto format / cookies / `-N`. The URL is
+ *      substituted into a `<URL>` placeholder if present, otherwise
+ *      appended at the end. Password still appends if the override
+ *      didn't already pin one.
+ *
+ * Framework flags (`--newline`, `--no-mtime`, `--ffmpeg-location`,
+ * `--paths`, `-o`, `--progress-template`, `--print-to-file`) are
+ * always emitted FIRST in both paths, so an override can shadow them
+ * via yt-dlp's last-wins flag semantics if the user wants — but our
+ * defaults work unmodified, and `--print-to-file` (the final-path
+ * marker our queue reads) is unlikely to be overridden in practice. */
 export const buildDownloadArgs = (
   opts: RunDownloadOptions,
   deps: RunnerDeps,
 ): { args: string[]; markerPath: string } => {
   const markerPath = join(opts.tempFolder, FINAL_PATH_MARKER_FILENAME);
-  const args = [
+  const framework = [
     '--newline',
     '--no-mtime',
-    '-N',
-    String(opts.concurrentFragments ?? DEFAULT_DOWNLOAD_CONCURRENCY),
     '--ffmpeg-location',
     deps.ffmpegPath,
     '--paths',
@@ -88,16 +318,52 @@ export const buildDownloadArgs = (
     '--print-to-file',
     'after_move:%(filepath)s',
     markerPath,
-    ...opts.ytDlpFormatArgs,
   ];
 
+  const overrideArgs = resolveOverrideArgs(opts);
+  if (overrideArgs !== undefined) {
+    return { args: [...framework, ...overrideArgs], markerPath };
+  }
+
+  const autoArgs: string[] = [
+    '-N',
+    String(opts.concurrentFragments ?? DEFAULT_DOWNLOAD_CONCURRENCY),
+    ...opts.ytDlpFormatArgs,
+  ];
   if (opts.videoPassword) {
-    args.push('--video-password', opts.videoPassword);
+    autoArgs.push('--video-password', opts.videoPassword);
   }
   if (opts.cookiesFromBrowser) {
-    args.push('--cookies-from-browser', opts.cookiesFromBrowser);
+    autoArgs.push('--cookies-from-browser', opts.cookiesFromBrowser);
   }
-  args.push(opts.url);
+  autoArgs.push(opts.url);
 
-  return { args, markerPath };
+  return { args: [...framework, ...autoArgs], markerPath };
+};
+
+/** Compose the user's override into final argv: URL substitution and
+ * conditional password append. Returns undefined when no override is
+ * set or the override fails to parse — caller falls through to auto
+ * mode in either case. */
+const resolveOverrideArgs = (opts: RunDownloadOptions): string[] | undefined => {
+  if (!opts.ytDlpCommandOverride) {
+    return undefined;
+  }
+  const parsed = parseYtDlpCommand(opts.ytDlpCommandOverride);
+  if (!parsed.ok) {
+    return undefined;
+  }
+  const placeholderIdx = parsed.argv.indexOf(URL_PLACEHOLDER_TOKEN);
+  const withUrl =
+    placeholderIdx === -1
+      ? [...parsed.argv, opts.url]
+      : [
+          ...parsed.argv.slice(0, placeholderIdx),
+          opts.url,
+          ...parsed.argv.slice(placeholderIdx + 1),
+        ];
+  if (opts.videoPassword && !parsed.argv.includes('--video-password')) {
+    withUrl.push('--video-password', opts.videoPassword);
+  }
+  return withUrl;
 };

@@ -12,7 +12,7 @@ export type FormatId = (typeof FORMAT_IDS)[number];
 
 /** What the renderer picks and what the runner consumes. The id is
  * stable across UI / IPC / history; `label` is the always-visible base
- * name ("Best quality"); `shorthand` is a terse resolution bucket
+ * name ("Best"); `shorthand` is a terse resolution bucket
  * ("4K", "1080p") shown next to the label in non-debug mode — only the
  * `best` preset populates this since "1080p" / "720p" are already the
  * label, and audio_mp3 has no resolution; `detail` is the full per-URL
@@ -36,13 +36,13 @@ export type FormatChoice = {
 };
 
 /** Static fallback table — used by the renderer before a URL probe
- * runs. Labels are generic ("Best quality") because we don't know
+ * runs. Labels are generic ("Best") because we don't know
  * per-URL dimensions until format-selector runs on a fetched metadata
  * pass. */
 export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, FormatChoice> = {
   best: {
     id: 'best',
-    label: 'Best quality',
+    label: 'Best',
     // `vcodec!*=av01` excludes AV1-in-mp4 streams. M1 / M2 Macs have no
     // hardware AV1 decode, so AV1 files play back stuttery and macOS
     // QuickTime treats some of them as corrupt. M3+ would be fine but
@@ -79,6 +79,13 @@ export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, Format
   audio_mp3: {
     id: 'audio_mp3',
     label: 'Audio only (mp3)',
+    // `--audio-quality 0` is LAME `-V 0` — variable bitrate, highest
+    // quality. The encoder adapts per-frame to the source: complex
+    // audio gets allocated up to 320 kbps (LAME's hard ceiling),
+    // simple audio gets less. Net effect matches the desired policy
+    // of "match what the source provides, never exceed 320 kbps"
+    // without needing a separate probe-then-encode pipeline. Source
+    // audio is whatever yt-dlp picks as bestaudio (default for `-x`).
     ytDlpFormatArgs: ['-x', '--audio-format', 'mp3', '--audio-quality', '0'],
   },
 };
@@ -175,6 +182,17 @@ export type Download = {
   completedAt?: number;
   /** Path to .srt if transcribed. */
   transcriptPath?: string;
+  /** Shell-safe display string of the exact yt-dlp command spawned
+   * for this row, with the URL substituted in. Stamped on the
+   * Download once at runOne time (before the spawn) so the per-row
+   * debug preview can render it without re-deriving from scattered
+   * settings. Password values are redacted. */
+  invocationPreview?: string;
+  /** Size in bytes of the final file on disk, captured via `fs.stat`
+   * after the move into the destination folder completes. Used by the
+   * debug-mode row to show "size + duration" alongside the saved-to
+   * path. Undefined on failure paths (no file landed). */
+  fileSizeBytes?: number;
 };
 
 export type TranscriptionStatus =
@@ -199,3 +217,22 @@ export type AIResponse = {
   /** What Claude did, for UI display. */
   toolCalls: AIToolCall[];
 };
+
+/** Subset of yt-dlp flags whose values mirror into the Settings UI when
+ * the override is active. Extracted from a parsed override argv so the
+ * informational dropdowns (concurrent fragments, cookies) can show what
+ * the override decoded to while being disabled. */
+export type ExtractedFlags = {
+  concurrentFragments?: number;
+  cookiesFromBrowser?: BrowserName;
+  format?: string;
+  outputTemplate?: string;
+};
+
+/** Result of parsing + extracting a user-supplied yt-dlp override
+ * string. `ok: true` carries the post-`yt-dlp`-token argv plus the
+ * known-flag extractions; `ok: false` carries a human-readable parse
+ * error for inline display next to the override input. */
+export type ParseYtDlpCommandResult =
+  | { ok: true; argv: string[]; extracted: ExtractedFlags }
+  | { ok: false; error: string };

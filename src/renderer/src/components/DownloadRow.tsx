@@ -6,6 +6,22 @@ import { resolveSiteGlyph, SourceSiteIcon } from './SourceSiteIcon';
 
 const MISSING_FILE_TOOLTIP = 'The video cannot be found, as it might have been moved or deleted.';
 
+/** Split a file path into its stem (everything up to but not including
+ * the final extension) and its dot-prefixed extension ("mp4" → ".mp4"
+ * with the dot included so callers can color the whole `.ext` suffix
+ * as one unit). Returns an empty `dotExt` for files with no extension
+ * or for paths whose last segment is itself dot-prefixed (e.g.
+ * `.bashrc`). */
+const splitFilePathExtension = (path: string): { stem: string; dotExt: string } => {
+  const lastSlash = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  const lastDot = path.lastIndexOf('.');
+  if (lastDot <= lastSlash + 1) {
+    // Either no dot at all, or the dot belongs to a hidden-file name.
+    return { stem: path, dotExt: '' };
+  }
+  return { stem: path.slice(0, lastDot), dotExt: path.slice(lastDot) };
+};
+
 type Props = {
   download: Download;
   /** Open the password prompt for this row. App owns the modal state;
@@ -159,6 +175,25 @@ export const DownloadRow = ({
               Enter password
             </button>
           </div>
+        ) : null}
+
+        {/* Debug-only: per-row size + duration line for completed rows.
+            Reads off Download.fileSizeBytes (captured at move time)
+            and the createdAt → completedAt delta. */}
+        {debugMode && download.status === 'completed' && download.completedAt ? (
+          <DebugSizeDuration
+            sizeBytes={download.fileSizeBytes}
+            startMs={download.createdAt}
+            endMs={download.completedAt}
+          />
+        ) : null}
+
+        {/* Debug-only: monospace preview of the exact yt-dlp argv
+            spawned for this row. Stamped on Download.invocationPreview
+            at runOne time so it's stable for the lifetime of the row.
+            Password values redacted by formatInvocationForDisplay. */}
+        {debugMode && download.invocationPreview ? (
+          <InvocationPreview text={download.invocationPreview} />
         ) : null}
 
         {/* Only render the log box when there's actually something to
@@ -348,13 +383,15 @@ const CompletedFooter = ({ filePath }: { filePath: string }): React.JSX.Element 
   };
 
   const isMissing = exists === false;
+  const { stem, dotExt } = splitFilePathExtension(filePath);
 
   return (
     <div className="mt-2 flex items-start gap-2">
       <div
         className={`min-w-0 flex-1 break-words text-xs ${isMissing ? 'text-neutral-500 line-through' : 'text-emerald-400'}`}
       >
-        Saved to {filePath}
+        Saved to {stem}
+        {dotExt ? <span className={isMissing ? '' : 'text-sky-400'}>{dotExt}</span> : null}
       </div>
       <button
         type="button"
@@ -368,4 +405,72 @@ const CompletedFooter = ({ filePath }: { filePath: string }): React.JSX.Element 
       </button>
     </div>
   );
+};
+
+/** Debug-only line below a completed row: `1.2 GB · 3m 12s`. Size is
+ * omitted when stat couldn't capture it; both pieces share a center
+ * dot so the line reads cleanly even if one half is missing. */
+const DebugSizeDuration = ({
+  sizeBytes,
+  startMs,
+  endMs,
+}: {
+  sizeBytes: number | undefined;
+  startMs: number;
+  endMs: number;
+}): React.JSX.Element => {
+  const parts: string[] = [];
+  if (sizeBytes !== undefined) {
+    parts.push(formatBytes(sizeBytes));
+  }
+  parts.push(formatDuration(endMs - startMs));
+  return <div className="mt-2 text-xs text-neutral-500">{parts.join(' · ')}</div>;
+};
+
+/** Debug-only monospace block: the exact yt-dlp argv this row used.
+ * `<pre>` preserves wrapping intent; `whitespace-pre-wrap` lets a
+ * long command break across lines without horizontal scrolling. The
+ * block is selectable, so the user can copy and paste into Terminal. */
+const InvocationPreview = ({ text }: { text: string }): React.JSX.Element => (
+  <pre className="mt-2 whitespace-pre-wrap break-all rounded-md border border-neutral-800 bg-neutral-950 p-2 font-mono text-[11px] leading-snug text-neutral-400">
+    {text}
+  </pre>
+);
+
+/** Compact byte formatter — `1.2 GB`, `847 MB`, `512 KB`, `64 B`. Uses
+ * 1024-based units (binary) since macOS Finder is finally using SI
+ * (1000-based) but most engineers still expect 1024. Pick one and be
+ * consistent; mixing causes "why is the file's size different from
+ * what I see in Finder?" confusion either way. */
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let value = bytes / 1024;
+  let unitIdx = 0;
+  while (value >= 1024 && unitIdx < units.length - 1) {
+    value /= 1024;
+    unitIdx += 1;
+  }
+  // 1 decimal place under 100, 0 above — matches Finder-ish rounding.
+  const formatted = value >= 100 ? value.toFixed(0) : value.toFixed(1);
+  return `${formatted} ${units[unitIdx]}`;
+};
+
+/** Compact duration formatter — `3m 12s`, `47s`, `1h 5m`. Stops at
+ * hours; downloads longer than a day are surely some debug pathology
+ * we'd want to know about anyway. */
+const formatDuration = (deltaMs: number): string => {
+  const totalSec = Math.max(0, Math.floor(deltaMs / 1000));
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
 };

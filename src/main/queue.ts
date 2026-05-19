@@ -4,6 +4,7 @@ import type { DebugLogEvent, DebugLogPhase, Download, DownloadRequest } from '..
 import type { MetadataCache } from './metadata-cache';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
+import { buildDownloadArgs, formatInvocationForDisplay } from './ytdlp/args';
 import type { RunDownloadOptions, RunDownloadResult, RunnerDeps } from './ytdlp/types';
 import {
   YtDlpCancelledError,
@@ -123,6 +124,10 @@ export type QueueOptions = {
   getCookiesFromBrowser: () => string | undefined;
   /** Read at runOne time. Passed through to yt-dlp as `-N`. */
   getConcurrentFragments: () => number;
+  /** Read at runOne time. Empty string / undefined = auto mode;
+   * non-empty = override the auto-built argv with the parsed
+   * contents of this string (first token must be `yt-dlp`). */
+  getYtDlpCommandOverride: () => string | undefined;
   /** Read in tryStartNext on every promotion attempt. The cap can
    * grow mid-session (next queued row immediately promotes) or
    * shrink (in-flight rows finish naturally, no new promotion until
@@ -290,15 +295,25 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
 
       const smoother = createProgressSmoother();
       emitDebug(id, 'download:start', `format=${download.format.id}`);
+      const runOpts: RunDownloadOptions = {
+        url: download.url,
+        ytDlpFormatArgs: download.format.ytDlpFormatArgs,
+        tempFolder,
+        videoPassword: secrets.get(id),
+        cookiesFromBrowser: opts.getCookiesFromBrowser(),
+        concurrentFragments: opts.getConcurrentFragments(),
+        ytDlpCommandOverride: opts.getYtDlpCommandOverride(),
+        cancelSignal: abortController.signal,
+      };
+      // Stamp the exact yt-dlp command on the row before spawn so the
+      // per-row debug preview has something to render. Password values
+      // are redacted by formatInvocationForDisplay; the real spawn
+      // still uses the unredacted argv via runDownload.
+      const { args: previewArgs } = buildDownloadArgs(runOpts, opts.runnerDeps);
+      emit(id, { invocationPreview: formatInvocationForDisplay(previewArgs) });
       const result = await opts.runDownload(
         {
-          url: download.url,
-          ytDlpFormatArgs: download.format.ytDlpFormatArgs,
-          tempFolder,
-          videoPassword: secrets.get(id),
-          cookiesFromBrowser: opts.getCookiesFromBrowser(),
-          concurrentFragments: opts.getConcurrentFragments(),
-          cancelSignal: abortController.signal,
+          ...runOpts,
           // Subscribe to the raw stderr/stdout firehose only when
           // debug mode is on — otherwise the closure-per-line cost is
           // pure waste. Captured at runOne entry; a settings toggle
@@ -343,10 +358,23 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
 
       await padToMinDuration(download.createdAt, MIN_VISIBLE_DOWNLOADING_MS);
 
+      // Capture the final file size for the debug-mode size+duration
+      // line. Best-effort: a stat failure (file got moved out of band
+      // mid-completion, permission glitch) just leaves the field
+      // undefined — the row still terminates as 'completed'.
+      let fileSizeBytes: number | undefined;
+      try {
+        const stat = await fs.stat(finalPath);
+        fileSizeBytes = stat.size;
+      } catch {
+        // Swallowed by design.
+      }
+
       emit(id, {
         status: 'completed',
         progress: 100,
         filePath: finalPath,
+        fileSizeBytes,
         completedAt: Date.now(),
         speed: undefined,
         eta: undefined,

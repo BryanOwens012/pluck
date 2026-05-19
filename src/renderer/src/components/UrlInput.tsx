@@ -50,7 +50,7 @@ export const UrlInput = ({ value, onChange }: Props): React.JSX.Element => {
       type="url"
       value={value}
       onChange={(event) => onChange(event.target.value)}
-      placeholder="Paste a YouTube, Vimeo, or Zoom URL"
+      placeholder="Paste a video URL (YouTube, Instagram, TikTok, Zoom recording, etc.)"
       spellCheck={false}
       autoCapitalize="off"
       autoCorrect="off"
