@@ -1,6 +1,14 @@
 import { promises as fs } from 'node:fs';
 import { basename } from 'node:path';
-import type { DebugLogEvent, DebugLogPhase, Download, DownloadRequest } from '../shared/types';
+import {
+  type DebugLogEvent,
+  type DebugLogPhase,
+  type Download,
+  type DownloadRequest,
+  PLAYLIST_ROW_CONCURRENT_DOWNLOADS,
+  PLAYLIST_ROW_CONCURRENT_FRAGMENTS,
+  PLAYLIST_ROW_REQUEST_SLEEP_SECONDS,
+} from '../shared/types';
 import type { MetadataCache } from './metadata-cache';
 import { createProgressSmoother } from './progress-smoother';
 import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } from './staging';
@@ -199,6 +207,14 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
   // with YtDlpCancelledError.
   const abortControllers = new Map<string, AbortController>();
   let activeCount = 0;
+  // Active playlist-row count, tracked separately from `activeCount`.
+  // tryStartNext caps playlist-row promotions at
+  // PLAYLIST_ROW_CONCURRENT_DOWNLOADS so they run serially regardless
+  // of the user's global concurrency setting — multiple playlist rows
+  // in parallel trip YouTube's per-IP rate limit even with the
+  // per-row throttles, because the request count multiplies across
+  // processes. Single-video rows are unaffected.
+  let activePlaylistCount = 0;
 
   const persist = (): void => {
     opts.onPersistChange?.([...state.values()]);
@@ -241,12 +257,20 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     }
     // FIFO: oldest queued first. Map iteration order is insertion order,
     // which is exactly what we want — enqueue order == display order.
+    // Playlist rows are gated by a separate per-source cap so we can
+    // skip over them when the playlist slot is full and still promote
+    // an unrelated single-video row sitting behind them.
     for (const download of state.values()) {
-      if (download.status === 'queued') {
-        void runOne(download.id);
-        if (activeCount >= cap) {
-          return;
-        }
+      if (download.status !== 'queued') {
+        continue;
+      }
+      const isPlaylistRow = download.playlistId !== undefined;
+      if (isPlaylistRow && activePlaylistCount >= PLAYLIST_ROW_CONCURRENT_DOWNLOADS) {
+        continue;
+      }
+      void runOne(download.id);
+      if (activeCount >= cap) {
+        return;
       }
     }
   };
@@ -258,6 +282,10 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     }
 
     activeCount += 1;
+    const isPlaylistRow = download.playlistId !== undefined;
+    if (isPlaylistRow) {
+      activePlaylistCount += 1;
+    }
     const abortController = new AbortController();
     abortControllers.set(id, abortController);
 
@@ -295,14 +323,24 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
 
       const smoother = createProgressSmoother();
       emitDebug(id, 'download:start', `format=${download.format.id}`);
+      // Playlist rows get throttled three ways: a low `-N` cap, an
+      // extractor sleep flag (both keyed off `download.playlistId`),
+      // and only one playlist row promotes at a time (the cap enforced
+      // by tryStartNext above). Single-video downloads keep the user's
+      // `concurrentFragments` setting and no sleep. Together this
+      // keeps the simultaneous-connection count to YouTube well under
+      // the per-IP threshold that triggers 429s.
       const runOpts: RunDownloadOptions = {
         url: download.url,
         ytDlpFormatArgs: download.format.ytDlpFormatArgs,
         tempFolder,
         videoPassword: secrets.get(id),
         cookiesFromBrowser: opts.getCookiesFromBrowser(),
-        concurrentFragments: opts.getConcurrentFragments(),
+        concurrentFragments: isPlaylistRow
+          ? PLAYLIST_ROW_CONCURRENT_FRAGMENTS
+          : opts.getConcurrentFragments(),
         ytDlpCommandOverride: opts.getYtDlpCommandOverride(),
+        requestSleepSeconds: isPlaylistRow ? PLAYLIST_ROW_REQUEST_SLEEP_SECONDS : undefined,
         cancelSignal: abortController.signal,
       };
       // Stamp the exact yt-dlp command on the row before spawn so the
@@ -417,6 +455,9 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     } finally {
       abortControllers.delete(id);
       activeCount -= 1;
+      if (isPlaylistRow) {
+        activePlaylistCount -= 1;
+      }
       // Debug mode preserves the temp folder for failed downloads so
       // the user can inspect yt-dlp's fragments + merged output. The
       // success / cancelled / needs_password paths still clean up —

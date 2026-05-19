@@ -33,7 +33,10 @@ const optsForPreset = (
 // runner.test.ts cover the integration via real spawn.
 
 describe('STATIC_FORMAT_CHOICES', () => {
-  it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort + embed flags', () => {
+  it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort + thumbnail + metadata', () => {
+    // Subtitle flags are NOT baked into the preset — they get added
+    // conditionally at spawn time only when the user has cookies set.
+    // The video preset itself just covers thumbnail + metadata.
     expect(STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs).toEqual([
       '-f',
       'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
@@ -41,10 +44,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
       '--add-metadata',
-      '--embed-subs',
-      '--write-auto-subs',
-      '--sub-langs',
-      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
@@ -56,10 +55,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
       '--add-metadata',
-      '--embed-subs',
-      '--write-auto-subs',
-      '--sub-langs',
-      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
@@ -71,10 +66,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
       '--add-metadata',
-      '--embed-subs',
-      '--write-auto-subs',
-      '--sub-langs',
-      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
@@ -106,15 +97,38 @@ describe('STATIC_FORMAT_CHOICES', () => {
     }
   });
 
-  it('every video preset embeds thumbnail + metadata + subs', () => {
+  it('every video preset embeds thumbnail + metadata (subs added at spawn time, not on the preset)', () => {
     for (const id of ['best', '1080p', '720p', '480p', '360p'] as const) {
       const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
       expect(args).toContain('--embed-thumbnail');
       expect(args).toContain('--add-metadata');
-      expect(args).toContain('--embed-subs');
-      expect(args).toContain('--write-auto-subs');
-      expect(args).toContain('--sub-langs');
+      // Subtitle flags are NOT in the preset itself — they're added by
+      // buildDownloadArgs (English-only by default, extended to 4 langs
+      // when cookiesFromBrowser is set).
+      expect(args).not.toContain('--embed-subs');
+      expect(args).not.toContain('--write-auto-subs');
     }
+  });
+
+  it('always emits English subtitle flags; extends to 4 langs when cookiesFromBrowser is set', () => {
+    // No cookies → English only (en.* + en-orig).
+    const without = buildDownloadArgs(optsForPreset('best'), DEPS);
+    expect(without.args).toContain('--embed-subs');
+    expect(without.args).toContain('--write-auto-subs');
+    const defaultLangIdx = without.args.indexOf('--sub-langs');
+    expect(defaultLangIdx).toBeGreaterThanOrEqual(0);
+    expect(without.args[defaultLangIdx + 1]).toBe('en.*,en-orig');
+
+    // Cookies → extended language list.
+    const withCookies = buildDownloadArgs(
+      optsForPreset('best', { cookiesFromBrowser: 'chrome' }),
+      DEPS,
+    );
+    expect(withCookies.args).toContain('--embed-subs');
+    expect(withCookies.args).toContain('--write-auto-subs');
+    const extendedLangIdx = withCookies.args.indexOf('--sub-langs');
+    expect(extendedLangIdx).toBeGreaterThanOrEqual(0);
+    expect(withCookies.args[extendedLangIdx + 1]).toBe('en.*,en-orig,zh.*,es.*,fr.*');
   });
 
   it('480p caps height in the selector', () => {
@@ -392,6 +406,52 @@ describe('buildDownloadArgs override mode', () => {
       DEPS,
     );
     expect(override.args).toContain('--no-playlist');
+  });
+
+  it('always emits --sleep-subtitles 3 to space out the subtitle download burst', () => {
+    // YouTube's anonymous subtitle endpoint rate-limits aggressively
+    // (~2 requests per few seconds before HTTP 429), so 3 seconds
+    // keeps us under the threshold even when the IP is in a cool-
+    // down state from prior testing.
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--sleep-subtitles');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('3');
+  });
+
+  it('always emits --retries 30 to give the linear backoff room to relax YouTube', () => {
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--retries');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('30');
+  });
+
+  it('always emits --retry-sleep with linear backoff for transient errors', () => {
+    // yt-dlp's default retry backoff is exponential — fast enough to
+    // keep tripping 429 in a row. linear=5:30 starts slower and tops
+    // out at 30s, giving the rate limiter time to relax.
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--retry-sleep');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('linear=5:30');
+  });
+
+  it('emits --sleep-requests <n> when requestSleepSeconds is set', () => {
+    const { args } = buildDownloadArgs(optsForPreset('best', { requestSleepSeconds: 1 }), DEPS);
+    const idx = args.indexOf('--sleep-requests');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('1');
+  });
+
+  it('omits --sleep-requests when requestSleepSeconds is unset, zero, or negative', () => {
+    for (const value of [undefined, 0, -1]) {
+      const opts =
+        value === undefined
+          ? optsForPreset('best')
+          : optsForPreset('best', { requestSleepSeconds: value });
+      const { args } = buildDownloadArgs(opts, DEPS);
+      expect(args).not.toContain('--sleep-requests');
+    }
   });
 });
 

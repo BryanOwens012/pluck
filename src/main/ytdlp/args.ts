@@ -1,5 +1,11 @@
 import { join } from 'node:path';
-import { BROWSER_NAMES, type BrowserName, type ExtractedFlags } from '../../shared/types';
+import {
+  BROWSER_NAMES,
+  type BrowserName,
+  type ExtractedFlags,
+  SUBTITLE_DOWNLOAD_FLAGS_DEFAULT,
+  SUBTITLE_DOWNLOAD_FLAGS_EXTENDED,
+} from '../../shared/types';
 import type { FetchMetadataOptions, RunDownloadOptions, RunnerDeps } from './types';
 
 /** Default for yt-dlp `-N` (parallel HTTP connections per single
@@ -334,6 +340,25 @@ export const buildDownloadArgs = (
     // per-entry enqueue flow, so it doesn't need playlist-mode
     // here either.
     '--no-playlist',
+    // Space out subtitle downloads — YouTube's anonymous subtitle
+    // endpoint rate-limits aggressively (HTTP 429 after roughly 2
+    // requests in quick succession from an IP that's already been
+    // active). 3 seconds keeps us comfortably under the threshold
+    // even when the IP is in a cool-down state from prior testing.
+    // Applies to every download, single-video or playlist row.
+    '--sleep-subtitles',
+    '3',
+    // Retry on transient errors more times than yt-dlp's default
+    // 10. 30 attempts gives enough headroom for the linear backoff
+    // (below) to climb to 30s+ before giving up, which usually
+    // outlasts a brief YouTube cool-down.
+    '--retries',
+    '30',
+    // Linear backoff between retries — yt-dlp's default exponential
+    // backoff starts fast and re-trips 429 immediately, while linear
+    // 5→30 gives the rate limiter time to relax between attempts.
+    '--retry-sleep',
+    'linear=5:30',
     '--ffmpeg-location',
     deps.ffmpegPath,
     '--paths',
@@ -346,6 +371,14 @@ export const buildDownloadArgs = (
     'after_move:%(filepath)s',
     markerPath,
   ];
+
+  // Playlist-row throttle: insert a `--sleep-requests <n>` flag so
+  // yt-dlp spaces out the extractor calls during the per-row metadata
+  // pre-fetch. Caller (queue) sets this only for rows that belong to
+  // a playlist enqueue. Single-video downloads stay snappy.
+  if (opts.requestSleepSeconds !== undefined && opts.requestSleepSeconds > 0) {
+    framework.push('--sleep-requests', String(opts.requestSleepSeconds));
+  }
 
   const overrideArgs = resolveOverrideArgs(opts);
   if (overrideArgs !== undefined) {
@@ -363,6 +396,15 @@ export const buildDownloadArgs = (
   if (opts.cookiesFromBrowser) {
     autoArgs.push('--cookies-from-browser', opts.cookiesFromBrowser);
   }
+  // Sub flags: English-only by default (light enough to clear YouTube's
+  // anonymous rate limit with `--sleep-subtitles` spacing), extended
+  // to en/zh/es/fr when the user has cookies set (authenticated
+  // requests have a much higher per-IP limit).
+  autoArgs.push(
+    ...(opts.cookiesFromBrowser
+      ? SUBTITLE_DOWNLOAD_FLAGS_EXTENDED
+      : SUBTITLE_DOWNLOAD_FLAGS_DEFAULT),
+  );
   autoArgs.push(opts.url);
 
   return { args: [...framework, ...autoArgs], markerPath };
