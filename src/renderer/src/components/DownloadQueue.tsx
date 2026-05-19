@@ -1,4 +1,4 @@
-import type { DebugLogEvent, Download } from '../../../shared/types';
+import type { DebugLogEvent, Download, DownloadStatus } from '../../../shared/types';
 import { DownloadRow } from './DownloadRow';
 
 type Props = {
@@ -15,8 +15,15 @@ type Props = {
   debugLogs?: ReadonlyMap<string, readonly DebugLogEvent[]>;
 };
 
-/** Renders the queue + history list. Pure presentational — App owns the
- * state and sort order, this just maps to DownloadRow components. */
+/** Terminal statuses — these rows belong under "History", separated from
+ * the live queue. Anything not in this set (queued / downloading /
+ * canceling / needs_password / transcribing) is still in motion and
+ * shown above the History section. */
+const HISTORY_STATUSES = new Set<DownloadStatus>(['completed', 'cancelled', 'failed']);
+
+/** Renders the queue split into an active section (in-flight downloads)
+ * and a History section (terminal rows). Pure presentational — App owns
+ * the state and sort order. */
 export const DownloadQueue = ({
   rows,
   onOpenPasswordPrompt,
@@ -27,17 +34,37 @@ export const DownloadQueue = ({
     return <p className="text-sm text-neutral-500">Paste a video URL above to start a download.</p>;
   }
 
+  const activeRows: Download[] = [];
+  const historyRows: Download[] = [];
+  for (const row of rows) {
+    if (HISTORY_STATUSES.has(row.status)) {
+      historyRows.push(row);
+    } else {
+      activeRows.push(row);
+    }
+  }
+
+  const renderRow = (download: Download): React.JSX.Element => (
+    <DownloadRow
+      key={download.id}
+      download={download}
+      onOpenPasswordPrompt={onOpenPasswordPrompt}
+      debugMode={debugMode}
+      debugLog={debugLogs?.get(download.id)}
+    />
+  );
+
   return (
-    <div className="space-y-2">
-      {rows.map((download) => (
-        <DownloadRow
-          key={download.id}
-          download={download}
-          onOpenPasswordPrompt={onOpenPasswordPrompt}
-          debugMode={debugMode}
-          debugLog={debugLogs?.get(download.id)}
-        />
-      ))}
+    <div>
+      {activeRows.length > 0 ? <div className="space-y-2">{activeRows.map(renderRow)}</div> : null}
+      {historyRows.length > 0 ? (
+        <section className="mt-10 space-y-3 border-t border-neutral-800 pt-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            History
+          </h2>
+          <div className="space-y-2">{historyRows.map(renderRow)}</div>
+        </section>
+      ) : null}
     </div>
   );
 };

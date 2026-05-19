@@ -91,6 +91,12 @@ export const IpcChannels = {
    * when it strictly beats the best mp4. Falls back to the four
    * static defaults if metadata isn't available. */
   GetFormatChoices: 'pluck:get-format-choices',
+  /** Renderer -> main, invoke. Returns whether a file currently
+   * exists at the given absolute path. Used by completed download
+   * rows to detect when the user moved / trashed the file out of
+   * band, so we can gray out the "Reveal in Finder" button instead
+   * of opening Finder on a stale path. */
+  FileExists: 'pluck:file-exists',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

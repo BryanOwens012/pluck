@@ -331,6 +331,19 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     );
     return { cleared, skippedActive };
   });
+  ipcMain.handle(IpcChannels.FileExists, async (_event, filePath: unknown): Promise<boolean> => {
+    // Defensive: only stat absolute paths owned by a download row.
+    // A compromised renderer otherwise could probe arbitrary fs.
+    if (typeof filePath !== 'string' || filePath.length === 0 || !filePath.startsWith('/')) {
+      return false;
+    }
+    try {
+      await fs.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  });
   ipcMain.handle(
     IpcChannels.GetFormatChoices,
     async (_event, url: unknown): Promise<FormatChoice[]> => {

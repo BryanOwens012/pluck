@@ -29,30 +29,30 @@ const optsForPreset = (
 // runner.test.ts cover the integration via real spawn.
 
 describe('STATIC_FORMAT_CHOICES', () => {
-  it('best: mp4 filter + m4a audio + single-file mp4 fallback + -S sort', () => {
+  it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort', () => {
     expect(STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs).toEqual([
       '-f',
-      'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]',
+      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
       '-S',
-      'res,fps,vcodec',
+      'res,vcodec:h264,fps',
     ]);
   });
 
   it('1080p: same shape with height cap', () => {
     expect(STATIC_FORMAT_CHOICES['1080p'].ytDlpFormatArgs).toEqual([
       '-f',
-      'bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]',
+      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
       '-S',
-      'res,fps,vcodec',
+      'res,vcodec:h264,fps',
     ]);
   });
 
   it('720p: same shape with height cap', () => {
     expect(STATIC_FORMAT_CHOICES['720p'].ytDlpFormatArgs).toEqual([
       '-f',
-      'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]',
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
       '-S',
-      'res,fps,vcodec',
+      'res,vcodec:h264,fps',
     ]);
   });
 
@@ -174,6 +174,8 @@ describe('buildDownloadArgs', () => {
     // Defense against accidental drop of the spread.
     const { args } = buildDownloadArgs(optsForPreset('720p'), DEPS);
     expect(args).toContain('-f');
-    expect(args).toContain('bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]');
+    expect(args).toContain(
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
+    );
   });
 });

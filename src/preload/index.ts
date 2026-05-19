@@ -154,6 +154,14 @@ const api = {
    * 5th non-mp4 alternative when it strictly beats the best mp4. */
   getFormatChoices: (url: string): Promise<FormatChoice[]> =>
     ipcRenderer.invoke(IpcChannels.GetFormatChoices, url),
+
+  /** Whether the file at `filePath` exists on disk. Used to detect
+   * when a completed download has been moved or trashed out of band
+   * so the row can disable its "Reveal in Finder" button. Resolves
+   * false rather than throwing on any error (missing file, bad
+   * path, permission). */
+  fileExists: (filePath: string): Promise<boolean> =>
+    ipcRenderer.invoke(IpcChannels.FileExists, filePath),
 };
 
 export type PluckAPI = typeof api;

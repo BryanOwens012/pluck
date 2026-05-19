@@ -11,41 +11,60 @@ export const FORMAT_IDS = ['best', '1080p', '720p', 'audio_mp3', 'best_alt'] as 
 export type FormatId = (typeof FORMAT_IDS)[number];
 
 /** What the renderer picks and what the runner consumes. The id is
- * stable across UI / IPC / history; the label is presentational and
- * may include per-URL details ("1080p (1920×1080 mp4, 60fps)"); the
- * args carry the actual yt-dlp flags to spawn with. Storing the args
- * frozen at enqueue time means Retry replays the same flag set even
- * if the source URL's available formats have changed since.
+ * stable across UI / IPC / history; `label` is the always-visible base
+ * name ("Best quality"); `shorthand` is a terse resolution bucket
+ * ("4K", "1080p") shown next to the label in non-debug mode — only the
+ * `best` preset populates this since "1080p" / "720p" are already the
+ * label, and audio_mp3 has no resolution; `detail` is the full per-URL
+ * specifics ("1920×1080 mp4, 60fps") which the UI only renders in
+ * debug mode (or always, for the `best_alt` 5th option whose entire
+ * purpose is to surface a different container); `ytDlpFormatArgs`
+ * carries the actual yt-dlp flags. Storing the args frozen at enqueue
+ * time means Retry replays the same flag set even if the source URL's
+ * available formats have changed since.
  *
- * For video presets the args are like `['-f', '...', '-S', 'res,fps,vcodec']`.
+ * For video presets the args are like `['-f', '...', '-S', 'res,vcodec:h264,fps']`.
  * For audio_mp3 they're `['-x', '--audio-format', 'mp3', '--audio-quality', '0']`.
  * Empty args is valid in principle (would let yt-dlp pick its own
  * default) but not used today. */
 export type FormatChoice = {
   id: FormatId;
   label: string;
+  shorthand?: string;
+  detail?: string;
   ytDlpFormatArgs: string[];
 };
 
 /** Static fallback table — used by the renderer before a URL probe
  * runs, and by history.ts to migrate legacy `format: 'best'` strings
  * to the new FormatChoice shape. mp4-default args from PR 9.6 Phase A.
- * Labels are generic ("Best Quality") because we don't know per-URL
+ * Labels are generic ("Best quality") because we don't know per-URL
  * dimensions until format-selector runs on a fetched metadata pass. */
 export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, FormatChoice> = {
   best: {
     id: 'best',
-    label: 'Best Quality',
-    ytDlpFormatArgs: ['-f', 'bv*[ext=mp4]+ba[ext=m4a]/b[ext=mp4]', '-S', 'res,fps,vcodec'],
+    label: 'Best quality',
+    // `vcodec!*=av01` excludes AV1-in-mp4 streams. M1 / M2 Macs have no
+    // hardware AV1 decode, so AV1 files play back stuttery and macOS
+    // QuickTime treats some of them as corrupt. M3+ would be fine but
+    // we're optimising for the lowest-common-denominator M-series Mac.
+    // The 5th `best_alt` option still surfaces a higher-quality non-mp4
+    // alternative (typically vp9-webm 1080p60) when one exists.
+    ytDlpFormatArgs: [
+      '-f',
+      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+      '-S',
+      'res,vcodec:h264,fps',
+    ],
   },
   '1080p': {
     id: '1080p',
     label: '1080p',
     ytDlpFormatArgs: [
       '-f',
-      'bv*[ext=mp4][height<=1080]+ba[ext=m4a]/b[ext=mp4][height<=1080]',
+      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
       '-S',
-      'res,fps,vcodec',
+      'res,vcodec:h264,fps',
     ],
   },
   '720p': {
@@ -53,14 +72,14 @@ export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, Format
     label: '720p',
     ytDlpFormatArgs: [
       '-f',
-      'bv*[ext=mp4][height<=720]+ba[ext=m4a]/b[ext=mp4][height<=720]',
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
       '-S',
-      'res,fps,vcodec',
+      'res,vcodec:h264,fps',
     ],
   },
   audio_mp3: {
     id: 'audio_mp3',
-    label: 'Audio Only (MP3)',
+    label: 'Audio only (mp3)',
     ytDlpFormatArgs: ['-x', '--audio-format', 'mp3', '--audio-quality', '0'],
   },
 };

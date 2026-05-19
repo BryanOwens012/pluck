@@ -6,11 +6,13 @@ import {
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../../shared/types';
+import { isHttpUrl } from '../../shared/url';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { PasswordPrompt } from './components/PasswordPrompt';
 import { SettingsPanel } from './components/SettingsPanel';
 import { UrlInput } from './components/UrlInput';
+import { useDebouncedValue } from './hooks/useDebouncedValue';
 import { api } from './lib/api';
 
 /** Per-download log buffer cap. Debug mode for one long Zoom recording
@@ -19,27 +21,55 @@ import { api } from './lib/api';
  * throttled progress + scattered yt-dlp chatter. */
 const MAX_LOG_LINES_PER_ID = 500;
 
+/** Trailing-edge wait before firing the per-URL format probe. Long
+ * enough that we don't IPC on every keystroke; short enough that the
+ * dropdown reflects the URL by the time the user reaches for it. */
+const FORMAT_PROBE_DEBOUNCE_MS = 400;
+
+/** Single-entry placeholder shown the instant a URL becomes valid,
+ * before the metadata probe has resolved. The user can still click
+ * Download and gets the static "best" args (mp4-preferring, av1-
+ * excluded) — yt-dlp picks the right stream without us needing the
+ * probe result. Real choices replace this when the probe lands. */
+const PROBING_PLACEHOLDER_CHOICES: readonly FormatChoice[] = [
+  {
+    id: 'best',
+    label: 'Best (TBD)',
+    ytDlpFormatArgs: STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs,
+  },
+];
+
 const App = (): React.JSX.Element => {
   // Keyed by Download.id so push updates replace by id; rendered as a list
   // sorted by createdAt descending (newest first). One state owner, one
   // consumer (DownloadQueue) — no need for a global store yet.
   const [downloads, setDownloads] = useState<Map<string, Download>>(() => new Map());
   // Currently-selected FormatChoice. Default to the static "Best
-  // Quality" entry; the per-URL probe effect below swaps in an enriched
-  // list once metadata lands and re-resolves the selection by id so the
-  // user's pick stays stable across re-probes.
+  // quality" entry; the URL-change effect below resets it to the
+  // PROBING_PLACEHOLDER on every fresh URL, and the probe-completion
+  // effect swaps it for the matching id from the real choice list when
+  // the IPC returns.
   const [format, setFormat] = useState<FormatChoice>(STATIC_FORMAT_CHOICES.best);
-  // Available choices for the dropdown. Starts as the four static
-  // defaults; the per-URL probe (triggered when the URL input changes)
-  // replaces them with enriched labels (real dimensions, fps, container)
-  // plus an optional 5th non-mp4 alternative. Selection is preserved
-  // across re-probes by id — if the user had picked '1080p' and the new
-  // probe still has a '1080p' entry, the dropdown stays on it even
-  // though the label may have changed.
+  // Available choices for the dropdown. Three phases:
+  //   - URL empty / invalid: STATIC_FORMAT_CHOICES_ORDERED (dropdown
+  //     itself is hidden, but render-ready in case validity flips).
+  //   - URL valid, probe in flight: PROBING_PLACEHOLDER_CHOICES (a
+  //     single "Best (TBD)" entry so the user can click Download
+  //     immediately without waiting on the probe).
+  //   - Probe landed: the enriched per-URL list (4 defaults with
+  //     shorthand on 'best', dedupe of any tier matching best's
+  //     shorthand, optional 5th `best_alt` for non-mp4 alternatives).
   const [formatChoices, setFormatChoices] = useState<readonly FormatChoice[]>(
     STATIC_FORMAT_CHOICES_ORDERED,
   );
-  const [pendingUrl, setPendingUrl] = useState('');
+  // Raw URL input value. Owned here (not inside UrlInput) so we can
+  // derive `urlIsValid` synchronously and hide the Download button +
+  // FormatSelector until a real URL is present. Debounced separately
+  // below for the format-probe IPC.
+  const [url, setUrl] = useState('');
+  const trimmedUrl = url.trim();
+  const urlIsValid = isHttpUrl(trimmedUrl);
+  const debouncedUrl = useDebouncedValue(urlIsValid ? trimmedUrl : '', FORMAT_PROBE_DEBOUNCE_MS);
   // Settings snapshot. Loaded once on mount and refreshed after a save
   // from SettingsPanel. The folder picker lives inside Settings now;
   // App keeps the value so startDownload doesn't need to re-fetch.
@@ -130,29 +160,45 @@ const App = (): React.JSX.Element => {
     };
   }, []);
 
-  // Per-URL format probe. When the user types a URL in UrlInput (which
-  // debounces + calls api.prefetchMetadata), pendingUrl reflects the
-  // current value. We hit api.getFormatChoices to enrich the dropdown.
-  // The IPC handler shares the metadataCache with prefetch, so this is
-  // typically a cache hit (free). Selection is preserved across re-probes
-  // by id — if the new choices include the same id the user had picked,
-  // we keep it; otherwise we fall back to the first entry (Best).
+  // Reset the dropdown to the single-option "Best (TBD)" placeholder
+  // the instant the URL changes to a valid one. Sync, off the raw
+  // (non-debounced) URL so the dropdown reflects the paste immediately
+  // and the user can click Download without waiting on the probe.
+  // `trimmedUrl` is included in deps even though the body doesn't read
+  // it directly: switching from valid URL A to valid URL B must re-run
+  // the effect so the placeholder kicks in for the new URL instead of
+  // leaving stale enriched choices from A on screen.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: trimmedUrl drives re-fires intentionally
   useEffect(() => {
-    const url = pendingUrl.trim();
-    if (url.length === 0) {
+    if (!urlIsValid) {
       setFormatChoices(STATIC_FORMAT_CHOICES_ORDERED);
+      return;
+    }
+    setFormatChoices(PROBING_PLACEHOLDER_CHOICES);
+    const placeholder = PROBING_PLACEHOLDER_CHOICES[0];
+    if (placeholder !== undefined) {
+      setFormat(placeholder);
+    }
+  }, [trimmedUrl, urlIsValid]);
+
+  // Per-URL format probe. Driven off the debounced URL so we don't IPC
+  // on every keystroke. The IPC handler shares the metadataCache with
+  // UrlInput's prefetch warm, so this is typically a cache hit (free).
+  // When choices land, we preserve selection by id — usually the user
+  // is still on 'best' from the placeholder, which maps cleanly to the
+  // probed 'best' choice.
+  useEffect(() => {
+    if (debouncedUrl.length === 0) {
       return;
     }
     let cancelled = false;
     api
-      .getFormatChoices(url)
+      .getFormatChoices(debouncedUrl)
       .then((choices) => {
         if (cancelled || choices.length === 0) {
           return;
         }
         setFormatChoices(choices);
-        // Preserve selection by id; fall back to first choice if the
-        // previously-selected id is no longer in the list.
         setFormat((prev) => choices.find((c) => c.id === prev.id) ?? choices[0] ?? prev);
       })
       .catch((err: unknown) => {
@@ -161,7 +207,7 @@ const App = (): React.JSX.Element => {
     return () => {
       cancelled = true;
     };
-  }, [pendingUrl]);
+  }, [debouncedUrl]);
 
   // Manage the password-prompt modal:
   //   (a) Auto-close if the currently-prompted row left needs_password
@@ -192,10 +238,15 @@ const App = (): React.JSX.Element => {
     }
   }, [downloads, passwordPromptId]);
 
-  const handleSubmit = (url: string): void => {
-    api.startDownload({ url, format }).catch((err: unknown) => {
+  const handleSubmit = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (!urlIsValid) {
+      return;
+    }
+    api.startDownload({ url: trimmedUrl, format }).catch((err: unknown) => {
       console.error('startDownload rejected:', err);
     });
+    setUrl('');
   };
 
   const handleDismissPasswordPrompt = (): void => {
@@ -231,10 +282,25 @@ const App = (): React.JSX.Element => {
             <GearIcon />
           </button>
         </header>
-        <div className="flex gap-2">
-          <UrlInput onSubmit={handleSubmit} onUrlChange={setPendingUrl} />
-          <FormatSelector value={format} onChange={setFormat} choices={formatChoices} />
-        </div>
+        <form onSubmit={handleSubmit} className="space-y-2">
+          <UrlInput value={url} onChange={setUrl} />
+          {urlIsValid ? (
+            <div className="flex gap-2">
+              <FormatSelector
+                value={format}
+                onChange={setFormat}
+                choices={formatChoices}
+                debugMode={debugMode}
+              />
+              <button
+                type="submit"
+                className="flex-1 rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
+              >
+                Download
+              </button>
+            </div>
+          ) : null}
+        </form>
         <DownloadQueue
           rows={rows}
           onOpenPasswordPrompt={handleOpenPasswordPrompt}
