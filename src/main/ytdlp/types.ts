@@ -33,11 +33,12 @@ export type VideoMetadata = {
   /** Absolute https URL of a preview thumbnail. yt-dlp picks one of several
    * resolutions; we just use whatever it gives us. */
   thumbnailUrl?: string;
-  /** Raw formats array as yt-dlp reported it. Used by format-selector.ts
-   * to compute per-URL FormatChoice labels (real resolution, fps,
-   * container) and to decide whether a non-mp4 alternative deserves the
-   * optional 5th dropdown slot. Empty array when yt-dlp couldn't enumerate
-   * formats (audio-only URL, single-stream extractor). */
+  /** Raw formats array as yt-dlp reported it. Used by
+   * `downloader/video/format-selector.ts` to compute per-URL
+   * FormatChoice labels (real resolution, fps, container) and to
+   * decide whether a non-mp4 alternative deserves the optional 5th
+   * dropdown slot. Empty array when yt-dlp couldn't enumerate formats
+   * (audio-only URL, single-stream extractor). */
   formats: FormatInfo[];
   /** Set when the metadata fetch reports a playlist context.
    *   - For a video-in-playlist URL (`watch?v=X&list=Y`): yt-dlp's `-J`
@@ -91,8 +92,9 @@ export type RunnerDeps = {
 export type RunDownloadOptions = Omit<DownloadRequest, 'outputFolder' | 'format'> & {
   /** Args carried by the chosen FormatChoice. Spread directly into yt-dlp's
    * argv — caller built them already (either from STATIC_FORMAT_CHOICES
-   * or from format-selector.ts after a per-URL probe). The runner doesn't
-   * inspect or modify these; opaque pass-through. */
+   * or from `downloader/video/format-selector.ts` after a per-URL
+   * probe). The runner doesn't inspect or modify these; opaque
+   * pass-through. */
   ytDlpFormatArgs: string[];
   tempFolder: string;
   onProgress?: (event: ProgressEvent) => void;

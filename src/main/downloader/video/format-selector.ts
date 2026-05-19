@@ -1,11 +1,11 @@
-import type { FormatChoice } from '../shared/types';
+import type { FormatChoice } from '../../../shared/types';
 import {
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
   VIDEO_EMBED_FLAGS,
   VIDEO_TIER_PRESETS,
-} from '../shared/types';
-import type { FormatInfo } from './ytdlp/types';
+} from '../../../shared/types';
+import type { FormatInfo } from '../../ytdlp/types';
 
 /**
  * Per-URL FormatChoice resolution. Input: yt-dlp's `formats` array.

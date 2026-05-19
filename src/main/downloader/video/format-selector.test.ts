@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { STATIC_FORMAT_CHOICES_ORDERED } from '../shared/types';
+import { STATIC_FORMAT_CHOICES_ORDERED } from '../../../shared/types';
+import type { FormatInfo } from '../../ytdlp/types';
 import { resolveFormatChoices } from './format-selector';
-import type { FormatInfo } from './ytdlp/types';
 
 // Fixture-style format builders. Real yt-dlp `-J` arrays have ~30
 // fields per entry; we project to the subset format-selector reads.

@@ -6,14 +6,15 @@ import { app, BrowserWindow, safeStorage, shell } from 'electron';
 import icon from '../../resources/icon.png?asset';
 import { IpcChannels } from '../shared/ipc-channels';
 import type { Download } from '../shared/types';
+import { createPlaylistEnumerator } from './downloader/playlist/enumerator';
+import { createDownloadQueue } from './downloader/queue';
 import { createHistoryStore } from './history';
 import { generateDownloadId, registerIpcHandlers } from './ipc';
 import { createMetadataCache } from './metadata-cache';
 import { binPath } from './paths';
-import { createDownloadQueue } from './queue';
 import { createSecretsStore, type Encryptor } from './secrets';
 import { createSettingsStore } from './settings';
-import { fetchMetadata, fetchPlaylistEntries, runDownload } from './ytdlp/runner';
+import { fetchMetadata, runDownload } from './ytdlp/runner';
 
 const createWindow = (): void => {
   const mainWindow = new BrowserWindow({
@@ -180,16 +181,16 @@ app.whenReady().then(async () => {
   // 'queued' from the prior session to 'failed' (interrupted).
   queue.rehydrate(persistedDownloads);
 
+  const enumeratePlaylist = createPlaylistEnumerator(runnerDeps, {
+    getCookiesFromBrowser: () => settings.get().cookiesFromBrowser,
+  });
   registerIpcHandlers({
     queue,
     metadataCache,
     settings,
     secrets,
     tempBaseDir: PLUCK_CACHE_DIR,
-    enumeratePlaylist: (url) =>
-      fetchPlaylistEntries(url, runnerDeps, {
-        cookiesFromBrowser: settings.get().cookiesFromBrowser,
-      }),
+    enumeratePlaylist,
   });
   prewarmYtDlp();
   createWindow();

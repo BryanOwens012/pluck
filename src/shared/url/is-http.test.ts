@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isHttpUrl } from './url';
+import { isHttpUrl } from './is-http';
 
 describe('isHttpUrl', () => {
   it('accepts http and https URLs', () => {

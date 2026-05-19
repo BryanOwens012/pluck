@@ -26,17 +26,18 @@ const optsForPreset = (
   ...overrides,
 });
 
-// ---- STATIC_FORMAT_CHOICES ---------------------------------------------
+// ---- STATIC_FORMAT_CHOICES shape ---------------------------------------
 //
-// The four static FormatChoice entries are now the source of truth for
-// preset args. Smoke-test their shape here — argv-recorder tests in
-// runner.test.ts cover the integration via real spawn.
+// The static FormatChoice entries are the source of truth for preset args.
+// Smoke-test their shape here — argv-recorder tests in runner.test.ts
+// cover the integration via real spawn.
 
 describe('STATIC_FORMAT_CHOICES', () => {
   it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort + thumbnail + metadata', () => {
-    // Subtitle flags are NOT baked into the preset — they get added
-    // conditionally at spawn time only when the user has cookies set.
-    // The video preset itself just covers thumbnail + metadata.
+    // Subtitle flags are NOT baked into the preset — they get added by
+    // buildDownloadArgs at spawn time (English-only by default,
+    // extended to 4 langs when cookies are set). The video preset
+    // itself just covers thumbnail + metadata.
     expect(STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs).toEqual([
       '-f',
       'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
@@ -51,17 +52,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
     expect(STATIC_FORMAT_CHOICES['1080p'].ytDlpFormatArgs).toEqual([
       '-f',
       'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
-      '-S',
-      'res,vcodec:h264,fps',
-      '--embed-thumbnail',
-      '--add-metadata',
-    ]);
-  });
-
-  it('720p: same shape with height cap', () => {
-    expect(STATIC_FORMAT_CHOICES['720p'].ytDlpFormatArgs).toEqual([
-      '-f',
-      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
       '-S',
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
@@ -108,27 +98,6 @@ describe('STATIC_FORMAT_CHOICES', () => {
       expect(args).not.toContain('--embed-subs');
       expect(args).not.toContain('--write-auto-subs');
     }
-  });
-
-  it('always emits English subtitle flags; extends to 4 langs when cookiesFromBrowser is set', () => {
-    // No cookies → English only (en.* + en-orig).
-    const without = buildDownloadArgs(optsForPreset('best'), DEPS);
-    expect(without.args).toContain('--embed-subs');
-    expect(without.args).toContain('--write-auto-subs');
-    const defaultLangIdx = without.args.indexOf('--sub-langs');
-    expect(defaultLangIdx).toBeGreaterThanOrEqual(0);
-    expect(without.args[defaultLangIdx + 1]).toBe('en.*,en-orig');
-
-    // Cookies → extended language list.
-    const withCookies = buildDownloadArgs(
-      optsForPreset('best', { cookiesFromBrowser: 'chrome' }),
-      DEPS,
-    );
-    expect(withCookies.args).toContain('--embed-subs');
-    expect(withCookies.args).toContain('--write-auto-subs');
-    const extendedLangIdx = withCookies.args.indexOf('--sub-langs');
-    expect(extendedLangIdx).toBeGreaterThanOrEqual(0);
-    expect(withCookies.args[extendedLangIdx + 1]).toBe('en.*,en-orig,zh.*,es.*,fr.*');
   });
 
   it('480p caps height in the selector', () => {
@@ -325,136 +294,6 @@ describe('formatInvocationForDisplay', () => {
   });
 });
 
-// ---- buildDownloadArgs override branch ---------------------------------
-
-describe('buildDownloadArgs override mode', () => {
-  it('substitutes <URL> placeholder when the override contains it', () => {
-    const { args } = buildDownloadArgs(
-      optsForPreset('best', {
-        ytDlpCommandOverride: `yt-dlp -f best ${URL_PLACEHOLDER_TOKEN} --some-flag`,
-      }),
-      DEPS,
-    );
-    // URL lands where the placeholder was.
-    expect(args).toContain('https://example.com/x');
-    expect(args.indexOf('https://example.com/x')).toBeLessThan(args.indexOf('--some-flag'));
-    expect(args).not.toContain(URL_PLACEHOLDER_TOKEN);
-  });
-
-  it('appends URL at the end when the override has no <URL> placeholder', () => {
-    const { args } = buildDownloadArgs(
-      optsForPreset('best', { ytDlpCommandOverride: 'yt-dlp -f best' }),
-      DEPS,
-    );
-    expect(args.at(-1)).toBe('https://example.com/x');
-  });
-
-  it('falls through to auto mode when the override fails to parse', () => {
-    const { args } = buildDownloadArgs(
-      optsForPreset('best', { ytDlpCommandOverride: "yt-dlp -f 'unterminated" }),
-      DEPS,
-    );
-    // Auto mode includes -N, format args, and the URL at the end.
-    expect(args).toContain('-N');
-    expect(args).toContain('-f');
-    expect(args.at(-1)).toBe('https://example.com/x');
-  });
-
-  it('appends --video-password when the override did not pin one', () => {
-    const { args } = buildDownloadArgs(
-      optsForPreset('best', {
-        ytDlpCommandOverride: 'yt-dlp -f best',
-        videoPassword: 'sekret',
-      }),
-      DEPS,
-    );
-    expect(args).toContain('--video-password');
-    expect(args[args.indexOf('--video-password') + 1]).toBe('sekret');
-  });
-
-  it("doesn't double-append --video-password when the override already supplies one", () => {
-    const { args } = buildDownloadArgs(
-      optsForPreset('best', {
-        ytDlpCommandOverride: 'yt-dlp --video-password user-pw -f best',
-        videoPassword: 'queue-pw',
-      }),
-      DEPS,
-    );
-    const occurrences = args.filter((a) => a === '--video-password').length;
-    expect(occurrences).toBe(1);
-  });
-
-  it('still emits framework flags so progress + final-path tracking works', () => {
-    const { args, markerPath } = buildDownloadArgs(
-      optsForPreset('best', { ytDlpCommandOverride: 'yt-dlp -f best' }),
-      DEPS,
-    );
-    expect(args).toContain('--progress-template');
-    expect(args).toContain('--print-to-file');
-    expect(args).toContain(markerPath);
-    expect(args).toContain('--paths');
-  });
-
-  it('always emits --no-playlist so a playlist URL pasted into a single Download row never iterates the surrounding playlist', () => {
-    // Auto mode AND override mode both run through the framework
-    // block which pins --no-playlist. Guards against yt-dlp's default
-    // playlist-iteration behavior for `playlist?list=Y` URLs.
-    const auto = buildDownloadArgs(optsForPreset('best'), DEPS);
-    expect(auto.args).toContain('--no-playlist');
-    const override = buildDownloadArgs(
-      optsForPreset('best', { ytDlpCommandOverride: 'yt-dlp -f best' }),
-      DEPS,
-    );
-    expect(override.args).toContain('--no-playlist');
-  });
-
-  it('always emits --sleep-subtitles 3 to space out the subtitle download burst', () => {
-    // YouTube's anonymous subtitle endpoint rate-limits aggressively
-    // (~2 requests per few seconds before HTTP 429), so 3 seconds
-    // keeps us under the threshold even when the IP is in a cool-
-    // down state from prior testing.
-    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
-    const idx = args.indexOf('--sleep-subtitles');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('3');
-  });
-
-  it('always emits --retries 30 to give the linear backoff room to relax YouTube', () => {
-    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
-    const idx = args.indexOf('--retries');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('30');
-  });
-
-  it('always emits --retry-sleep with linear backoff for transient errors', () => {
-    // yt-dlp's default retry backoff is exponential — fast enough to
-    // keep tripping 429 in a row. linear=5:30 starts slower and tops
-    // out at 30s, giving the rate limiter time to relax.
-    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
-    const idx = args.indexOf('--retry-sleep');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('linear=5:30');
-  });
-
-  it('emits --sleep-requests <n> when requestSleepSeconds is set', () => {
-    const { args } = buildDownloadArgs(optsForPreset('best', { requestSleepSeconds: 1 }), DEPS);
-    const idx = args.indexOf('--sleep-requests');
-    expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('1');
-  });
-
-  it('omits --sleep-requests when requestSleepSeconds is unset, zero, or negative', () => {
-    for (const value of [undefined, 0, -1]) {
-      const opts =
-        value === undefined
-          ? optsForPreset('best')
-          : optsForPreset('best', { requestSleepSeconds: value });
-      const { args } = buildDownloadArgs(opts, DEPS);
-      expect(args).not.toContain('--sleep-requests');
-    }
-  });
-});
-
 // ---- buildMetadataArgs --------------------------------------------------
 
 describe('buildMetadataArgs', () => {
@@ -485,7 +324,7 @@ describe('buildMetadataArgs', () => {
   });
 });
 
-// ---- buildDownloadArgs --------------------------------------------------
+// ---- buildDownloadArgs base path ---------------------------------------
 
 describe('buildDownloadArgs', () => {
   it('produces a markerPath under the tempFolder', () => {
@@ -552,5 +391,154 @@ describe('buildDownloadArgs', () => {
     expect(args).toContain(
       'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
     );
+  });
+
+  it('always emits English subtitle flags; extends to 4 langs when cookiesFromBrowser is set', () => {
+    // No cookies → English only (en.* + en-orig).
+    const without = buildDownloadArgs(optsForPreset('best'), DEPS);
+    expect(without.args).toContain('--embed-subs');
+    expect(without.args).toContain('--write-auto-subs');
+    const defaultLangIdx = without.args.indexOf('--sub-langs');
+    expect(defaultLangIdx).toBeGreaterThanOrEqual(0);
+    expect(without.args[defaultLangIdx + 1]).toBe('en.*,en-orig');
+
+    // Cookies → extended language list.
+    const withCookies = buildDownloadArgs(
+      optsForPreset('best', { cookiesFromBrowser: 'chrome' }),
+      DEPS,
+    );
+    expect(withCookies.args).toContain('--embed-subs');
+    expect(withCookies.args).toContain('--write-auto-subs');
+    const extendedLangIdx = withCookies.args.indexOf('--sub-langs');
+    expect(extendedLangIdx).toBeGreaterThanOrEqual(0);
+    expect(withCookies.args[extendedLangIdx + 1]).toBe('en.*,en-orig,zh.*,es.*,fr.*');
+  });
+
+  it('always emits --no-playlist so a playlist URL pasted into a single Download row never iterates the surrounding playlist', () => {
+    // Auto mode AND override mode both run through the framework
+    // block which pins --no-playlist. Guards against yt-dlp's default
+    // playlist-iteration behavior for `playlist?list=Y` URLs.
+    const auto = buildDownloadArgs(optsForPreset('best'), DEPS);
+    expect(auto.args).toContain('--no-playlist');
+    const override = buildDownloadArgs(
+      optsForPreset('best', { ytDlpCommandOverride: 'yt-dlp -f best' }),
+      DEPS,
+    );
+    expect(override.args).toContain('--no-playlist');
+  });
+
+  it('always emits --sleep-subtitles 3 to space out the subtitle download burst', () => {
+    // YouTube's anonymous subtitle endpoint rate-limits aggressively
+    // (~2 requests per few seconds before HTTP 429), so 3 seconds
+    // keeps requests under the threshold even when the IP is in a
+    // cool-down state from prior testing.
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--sleep-subtitles');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('3');
+  });
+
+  it('always emits --retries 30 to give the linear backoff room to relax YouTube', () => {
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--retries');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('30');
+  });
+
+  it('always emits --retry-sleep with linear backoff for transient errors', () => {
+    // yt-dlp's default retry backoff is exponential — fast enough to
+    // keep tripping 429 in a row. linear=5:30 starts slower and tops
+    // out at 30s, giving the rate limiter time to relax.
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--retry-sleep');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('linear=5:30');
+  });
+
+  it('emits --sleep-requests <n> when requestSleepSeconds is set', () => {
+    const { args } = buildDownloadArgs(optsForPreset('best', { requestSleepSeconds: 1 }), DEPS);
+    const idx = args.indexOf('--sleep-requests');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('1');
+  });
+
+  it('omits --sleep-requests when requestSleepSeconds is unset, zero, or negative', () => {
+    for (const value of [undefined, 0, -1]) {
+      const opts =
+        value === undefined
+          ? optsForPreset('best')
+          : optsForPreset('best', { requestSleepSeconds: value });
+      const { args } = buildDownloadArgs(opts, DEPS);
+      expect(args).not.toContain('--sleep-requests');
+    }
+  });
+});
+
+// ---- buildDownloadArgs override branch ---------------------------------
+
+describe('buildDownloadArgs override mode', () => {
+  it('substitutes <URL> placeholder when the override contains it', () => {
+    const { args } = buildDownloadArgs(
+      optsForPreset('best', {
+        ytDlpCommandOverride: `yt-dlp -f best ${URL_PLACEHOLDER_TOKEN} --some-flag`,
+      }),
+      DEPS,
+    );
+    expect(args).toContain('https://example.com/x');
+    expect(args.indexOf('https://example.com/x')).toBeLessThan(args.indexOf('--some-flag'));
+    expect(args).not.toContain(URL_PLACEHOLDER_TOKEN);
+  });
+
+  it('appends URL at the end when the override has no <URL> placeholder', () => {
+    const { args } = buildDownloadArgs(
+      optsForPreset('best', { ytDlpCommandOverride: 'yt-dlp -f best' }),
+      DEPS,
+    );
+    expect(args.at(-1)).toBe('https://example.com/x');
+  });
+
+  it('falls through to auto mode when the override fails to parse', () => {
+    const { args } = buildDownloadArgs(
+      optsForPreset('best', { ytDlpCommandOverride: "yt-dlp -f 'unterminated" }),
+      DEPS,
+    );
+    expect(args).toContain('-N');
+    expect(args).toContain('-f');
+    expect(args.at(-1)).toBe('https://example.com/x');
+  });
+
+  it('appends --video-password when the override did not pin one', () => {
+    const { args } = buildDownloadArgs(
+      optsForPreset('best', {
+        ytDlpCommandOverride: 'yt-dlp -f best',
+        videoPassword: 'sekret',
+      }),
+      DEPS,
+    );
+    expect(args).toContain('--video-password');
+    expect(args[args.indexOf('--video-password') + 1]).toBe('sekret');
+  });
+
+  it("doesn't double-append --video-password when the override already supplies one", () => {
+    const { args } = buildDownloadArgs(
+      optsForPreset('best', {
+        ytDlpCommandOverride: 'yt-dlp --video-password user-pw -f best',
+        videoPassword: 'queue-pw',
+      }),
+      DEPS,
+    );
+    const occurrences = args.filter((a) => a === '--video-password').length;
+    expect(occurrences).toBe(1);
+  });
+
+  it('still emits framework flags so progress + final-path tracking works', () => {
+    const { args, markerPath } = buildDownloadArgs(
+      optsForPreset('best', { ytDlpCommandOverride: 'yt-dlp -f best' }),
+      DEPS,
+    );
+    expect(args).toContain('--progress-template');
+    expect(args).toContain('--print-to-file');
+    expect(args).toContain(markerPath);
+    expect(args).toContain('--paths');
   });
 });
