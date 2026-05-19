@@ -268,4 +268,18 @@ describe('StartPlaylistDownload IPC handler', () => {
     invokeStartPlaylistDownload('not a payload');
     expect(enqueueCalls).toEqual([]);
   });
+
+  it('bails (zero enqueues) on an empty entries array even with valid format + context', () => {
+    // Defense in depth: an empty enumerate result (deleted playlist,
+    // region-locked, etc.) shouldn't produce zero-row enqueues that
+    // then immediately do nothing. Renderer guards against this too;
+    // this confirms the IPC handler stays consistent.
+    invokeStartPlaylistDownload({
+      entries: [],
+      format: STATIC_FORMAT_CHOICES.best,
+      playlistContext: fakeContext,
+      order: 'oldest_first',
+    });
+    expect(enqueueCalls).toEqual([]);
+  });
 });

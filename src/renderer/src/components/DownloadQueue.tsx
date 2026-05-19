@@ -13,10 +13,14 @@ type Props = {
    * at the top of the active section — gives the user instant
    * feedback that the "All videos" click landed, instead of a 5-10 s
    * blank screen while `yt-dlp -J --flat-playlist` runs. App removes
-   * each entry in the IPC chain's `finally`, by which time either
-   * the real rows have shown up in `rows` or the enumerate failed
-   * (and the placeholder shouldn't orphan). */
-  pendingEnumerations?: { id: string; context: PlaylistContext | undefined }[];
+   * each entry on the success path (rows have been broadcast); on
+   * the failure path App sets `error` on the entry instead so the
+   * placeholder flips into the red error state and stays until the
+   * user dismisses. */
+  pendingEnumerations?: { id: string; context: PlaylistContext | undefined; error?: string }[];
+  /** Called when the user clicks Dismiss on a failed-enumerate
+   * placeholder. App removes the entry from `pendingEnumerations`. */
+  onDismissPendingEnumeration?: (id: string) => void;
   /** Forwarded to each row; opens the password prompt for that id. App
    * owns the prompt state. */
   onOpenPasswordPrompt?: (id: string) => void;
@@ -45,6 +49,7 @@ type Props = {
 export const DownloadQueue = ({
   rows,
   pendingEnumerations = [],
+  onDismissPendingEnumeration,
   onOpenPasswordPrompt,
   debugMode,
   debugLogs,
@@ -71,7 +76,16 @@ export const DownloadQueue = ({
       {hasActiveSection ? (
         <div className="space-y-2">
           {pendingEnumerations.map((entry) => (
-            <PlaylistGroupPlaceholder key={entry.id} context={entry.context} />
+            <PlaylistGroupPlaceholder
+              key={entry.id}
+              context={entry.context}
+              error={entry.error}
+              onDismiss={
+                onDismissPendingEnumeration
+                  ? () => onDismissPendingEnumeration(entry.id)
+                  : undefined
+              }
+            />
           ))}
           {activeItems.map((item) => renderItem(item, renderRow))}
         </div>
