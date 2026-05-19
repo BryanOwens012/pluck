@@ -33,12 +33,18 @@ const optsForPreset = (
 // runner.test.ts cover the integration via real spawn.
 
 describe('STATIC_FORMAT_CHOICES', () => {
-  it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort', () => {
+  it('best: mp4 filter + av1 exclusion + m4a audio + single-file mp4 fallback + -S sort + embed flags', () => {
     expect(STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs).toEqual([
       '-f',
       'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
       '-S',
       'res,vcodec:h264,fps',
+      '--embed-thumbnail',
+      '--add-metadata',
+      '--embed-subs',
+      '--write-auto-subs',
+      '--sub-langs',
+      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
@@ -48,6 +54,12 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
       '-S',
       'res,vcodec:h264,fps',
+      '--embed-thumbnail',
+      '--add-metadata',
+      '--embed-subs',
+      '--write-auto-subs',
+      '--sub-langs',
+      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
@@ -57,20 +69,31 @@ describe('STATIC_FORMAT_CHOICES', () => {
       'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
       '-S',
       'res,vcodec:h264,fps',
+      '--embed-thumbnail',
+      '--add-metadata',
+      '--embed-subs',
+      '--write-auto-subs',
+      '--sub-langs',
+      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
     ]);
   });
 
-  it('audio_mp3: extraction path with mp3 + best quality, no -S sort', () => {
+  it('audio_mp3: extraction path with mp3 + best quality + audio embed flags, no -S sort, no subs', () => {
     // -S would be wasted here — mp3 re-encodes regardless of source
     // container, so sorting by res/fps/vcodec doesn't affect the output.
+    // --embed-subs is also pointless (mp3 has no subtitle track concept)
+    // so audio_mp3 only carries the audio-shared embed flags.
     expect(STATIC_FORMAT_CHOICES.audio_mp3.ytDlpFormatArgs).toEqual([
       '-x',
       '--audio-format',
       'mp3',
       '--audio-quality',
       '0',
+      '--embed-thumbnail',
+      '--add-metadata',
     ]);
     expect(STATIC_FORMAT_CHOICES.audio_mp3.ytDlpFormatArgs).not.toContain('-S');
+    expect(STATIC_FORMAT_CHOICES.audio_mp3.ytDlpFormatArgs).not.toContain('--embed-subs');
   });
 
   it('every video preset pins [ext=mp4] in its selector', () => {
@@ -80,6 +103,17 @@ describe('STATIC_FORMAT_CHOICES', () => {
     for (const id of ['best', '1080p', '720p'] as const) {
       const flag = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs.join(' ');
       expect(flag).toContain('[ext=mp4]');
+    }
+  });
+
+  it('every video preset embeds thumbnail + metadata + subs', () => {
+    for (const id of ['best', '1080p', '720p'] as const) {
+      const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
+      expect(args).toContain('--embed-thumbnail');
+      expect(args).toContain('--add-metadata');
+      expect(args).toContain('--embed-subs');
+      expect(args).toContain('--write-auto-subs');
+      expect(args).toContain('--sub-langs');
     }
   });
 });
