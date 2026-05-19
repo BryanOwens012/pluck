@@ -334,22 +334,25 @@ export const buildDownloadArgs = (
     // per-entry enqueue flow, so it doesn't need playlist-mode
     // here either.
     '--no-playlist',
-    // Space out subtitle downloads — we fetch ~20 sub files per
-    // video (11 language patterns × multiple variants each) and
-    // YouTube rate-limits the burst with HTTP 429 once you hit a
-    // few requests in a single second. 1s sleep keeps us safely
-    // under the threshold without dramatically slowing the sub
-    // phase. Applies to every download, single-video or playlist
-    // row, because both paths pull the same sub set.
+    // Space out subtitle downloads — YouTube's anonymous subtitle
+    // endpoint rate-limits aggressively (HTTP 429 after roughly 2
+    // requests in quick succession from an IP that's already been
+    // active). 3 seconds keeps us comfortably under the threshold
+    // even when the IP is in a cool-down state from prior testing.
+    // Applies to every download, single-video or playlist row.
     '--sleep-subtitles',
-    '1',
-    // Retry on transient errors (the default is 10) with linear
-    // backoff between attempts. Belt-and-suspenders against the
-    // occasional 429 that slips through despite the sleep flags:
-    // a slow climb is much less likely to keep tripping the rate
-    // limiter than yt-dlp's default exponential burst.
+    '3',
+    // Retry on transient errors more times than yt-dlp's default
+    // 10. 30 attempts gives enough headroom for the linear backoff
+    // (below) to climb to 30s+ before giving up, which usually
+    // outlasts a brief YouTube cool-down.
+    '--retries',
+    '30',
+    // Linear backoff between retries — yt-dlp's default exponential
+    // backoff starts fast and re-trips 429 immediately, while linear
+    // 5→30 gives the rate limiter time to relax between attempts.
     '--retry-sleep',
-    'linear=2:10',
+    'linear=5:30',
     '--ffmpeg-location',
     deps.ffmpegPath,
     '--paths',

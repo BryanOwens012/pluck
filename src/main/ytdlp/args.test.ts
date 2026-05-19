@@ -44,7 +44,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
+      'en.*,zh.*,es.*,fr.*,de.*',
     ]);
   });
 
@@ -59,7 +59,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
+      'en.*,zh.*,es.*,fr.*,de.*',
     ]);
   });
 
@@ -74,7 +74,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
       '--embed-subs',
       '--write-auto-subs',
       '--sub-langs',
-      'en.*,zh.*,es.*,hi.*,ar.*,bn.*,pt.*,fr.*,de.*,ja.*,ko.*',
+      'en.*,zh.*,es.*,fr.*,de.*',
     ]);
   });
 
@@ -394,24 +394,32 @@ describe('buildDownloadArgs override mode', () => {
     expect(override.args).toContain('--no-playlist');
   });
 
-  it('always emits --sleep-subtitles 1 to space out the subtitle download burst', () => {
-    // We fetch ~20 sub files per video (11 lang patterns × variants),
-    // which trips YouTube's 429 rate limit if downloaded in rapid
-    // succession. 1s sleep keeps the burst under the threshold.
+  it('always emits --sleep-subtitles 3 to space out the subtitle download burst', () => {
+    // YouTube's anonymous subtitle endpoint rate-limits aggressively
+    // (~2 requests per few seconds before HTTP 429), so 3 seconds
+    // keeps us under the threshold even when the IP is in a cool-
+    // down state from prior testing.
     const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
     const idx = args.indexOf('--sleep-subtitles');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('1');
+    expect(args[idx + 1]).toBe('3');
+  });
+
+  it('always emits --retries 30 to give the linear backoff room to relax YouTube', () => {
+    const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
+    const idx = args.indexOf('--retries');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(args[idx + 1]).toBe('30');
   });
 
   it('always emits --retry-sleep with linear backoff for transient errors', () => {
     // yt-dlp's default retry backoff is exponential — fast enough to
-    // keep tripping 429 in a row. linear=2:10 starts slower and tops
-    // out at 10s, giving the rate limiter time to relax.
+    // keep tripping 429 in a row. linear=5:30 starts slower and tops
+    // out at 30s, giving the rate limiter time to relax.
     const { args } = buildDownloadArgs(optsForPreset('best'), DEPS);
     const idx = args.indexOf('--retry-sleep');
     expect(idx).toBeGreaterThanOrEqual(0);
-    expect(args[idx + 1]).toBe('linear=2:10');
+    expect(args[idx + 1]).toBe('linear=5:30');
   });
 
   it('emits --sleep-requests <n> when requestSleepSeconds is set', () => {

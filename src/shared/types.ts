@@ -51,27 +51,28 @@ export type FormatChoice = {
  * atoms (or ID3v2 tags). */
 const AUDIO_EMBED_FLAGS = ['--embed-thumbnail', '--add-metadata'] as const;
 
-/** Languages we grab subs for: the top ~11 spoken languages by global
- * speaker count, covering most likely use cases without the noise of
- * `all` (YouTube auto-translates into ~120 languages, mostly bad).
- * Each entry is a `<lang>.*` wildcard so we match manual uploads,
- * regional variants, and the `<lang>-orig` code YouTube assigns to
- * auto-generated original-language captions. Codes follow yt-dlp's
- * names: `zh.*` covers `zh-Hans` / `zh-Hant` / `zh-CN` / `zh-TW`;
- * `pt.*` covers `pt-BR`. Unknown codes on non-YouTube sources are
- * silently ignored. */
+/** Languages we grab subs for. Trimmed to a tight set after live
+ * testing showed YouTube's anonymous subtitle endpoint has an
+ * aggressive per-IP rate limit (HTTP 429 after roughly 2 requests in
+ * quick succession). Each entry yt-dlp expands into 2-3 language
+ * variants (e.g., `en.*` matches `en`, `en-US`, `en-orig`), so even
+ * 5 patterns yields ~10 actual fetches per video. Adding more would
+ * trip the limiter even with `--sleep-subtitles` spacing.
+ *
+ * Power users with browser cookies set (Settings → Browser cookies)
+ * are authenticated and have a much higher rate limit — they can
+ * override this list via the yt-dlp command override field if they
+ * want more languages.
+ *
+ * Codes follow yt-dlp's names: `zh.*` covers `zh-Hans` / `zh-Hant`
+ * / `zh-CN` / `zh-TW`; `pt.*` covers `pt-BR`. Unknown codes on
+ * non-YouTube sources are silently ignored. */
 const SUBTITLE_LANGS = [
   'en.*', // English
   'zh.*', // Chinese (Simplified + Traditional + regional variants)
   'es.*', // Spanish
-  'hi.*', // Hindi
-  'ar.*', // Arabic
-  'bn.*', // Bengali
-  'pt.*', // Portuguese (covers Brazilian)
   'fr.*', // French
   'de.*', // German
-  'ja.*', // Japanese
-  'ko.*', // Korean
 ].join(',');
 
 /** Video-only additions on top of the audio flags. `--embed-subs`
@@ -268,9 +269,12 @@ export type PlaylistEntry = {
 
 /** Hard cap on how many entries we enqueue from a playlist in one go.
  * Larger playlists prompt a warning in the modal and only the first N
- * are queued. Power users can re-submit with a slice URL
- * (`...&playlist_items=51-100`). */
-export const PLAYLIST_ENTRY_CAP = 50;
+ * are queued. The cap is a safety net against accidentally pasting a
+ * URL that resolves to thousands of entries (e.g., a YouTube channel
+ * page). Power users with a real 500-video playlist can run multiple
+ * passes using yt-dlp's `--playlist-items` slice via the override
+ * field in Settings → Developer → yt-dlp command. */
+export const PLAYLIST_ENTRY_CAP = 200;
 
 /** Per-row `-N` cap when a Download row is part of a playlist enqueue.
  * Multiple playlist rows in flight at once × the user's default -N

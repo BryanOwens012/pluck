@@ -171,15 +171,17 @@ describe('createHistoryStore', () => {
     errorSpy.mockRestore();
   });
 
-  it('caps at 50 entries on save', async () => {
+  it('caps at 500 entries on save (oldest dropped)', async () => {
     const store = createHistoryStore(dir);
-    const items = Array.from({ length: 75 }, (_, i) =>
+    const items = Array.from({ length: 600 }, (_, i) =>
       makeDownload({ id: `id-${i}`, createdAt: i }),
     );
     await store.save(items);
     const loaded = await store.load();
-    expect(loaded).toHaveLength(50);
-    expect(loaded[0]?.id).toBe('id-25');
+    expect(loaded).toHaveLength(500);
+    // The 100 oldest fell off — first row in the loaded set is the
+    // 101st item (id-100).
+    expect(loaded[0]?.id).toBe('id-100');
   });
 
   it('rewrites interrupted rows on load (crash recovery)', async () => {

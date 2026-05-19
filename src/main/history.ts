@@ -4,10 +4,12 @@ import type { Download } from '../shared/types';
 import { atomicWriteJson } from './atomic-json';
 
 /** Hard cap on persisted entries. When a write would exceed this, oldest
- * (by createdAt) is dropped. 50 is the spec's number — keeps the JSON file
- * small (< 50 KB even with long titles and paths) and keeps the renderer's
- * initial list reasonable. */
-const MAX_ENTRIES = 50;
+ * (by createdAt) is dropped. Sized to comfortably hold one large playlist
+ * (capped at 200 rows) plus several smaller follow-up downloads without
+ * the playlist's rows getting evicted before they finish. ~500 entries
+ * × ~1 KB each = ~500 KB on disk, fine for a JSON parse + renderer
+ * boot. */
+const MAX_ENTRIES = 500;
 
 /** Schema version. Bump on any breaking change to the on-disk shape so we
  * can migrate or discard cleanly. Currently v1 — initial schema. */
