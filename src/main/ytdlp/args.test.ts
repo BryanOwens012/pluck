@@ -100,14 +100,14 @@ describe('STATIC_FORMAT_CHOICES', () => {
     // A bare `bv*+ba/b` selector lets yt-dlp serve YouTube's vp9/webm
     // by default, which silently breaks QuickTime / iMessage. This
     // guard catches accidental removal of the container constraint.
-    for (const id of ['best', '1080p', '720p'] as const) {
+    for (const id of ['best', '1080p', '720p', '480p', '360p'] as const) {
       const flag = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs.join(' ');
       expect(flag).toContain('[ext=mp4]');
     }
   });
 
   it('every video preset embeds thumbnail + metadata + subs', () => {
-    for (const id of ['best', '1080p', '720p'] as const) {
+    for (const id of ['best', '1080p', '720p', '480p', '360p'] as const) {
       const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
       expect(args).toContain('--embed-thumbnail');
       expect(args).toContain('--add-metadata');
@@ -115,6 +115,18 @@ describe('STATIC_FORMAT_CHOICES', () => {
       expect(args).toContain('--write-auto-subs');
       expect(args).toContain('--sub-langs');
     }
+  });
+
+  it('480p caps height in the selector', () => {
+    const flag = STATIC_FORMAT_CHOICES['480p'].ytDlpFormatArgs.join(' ');
+    expect(flag).toContain('[height<=480]');
+    expect(flag).not.toContain('[height<=1080]');
+  });
+
+  it('360p caps height in the selector', () => {
+    const flag = STATIC_FORMAT_CHOICES['360p'].ytDlpFormatArgs.join(' ');
+    expect(flag).toContain('[height<=360]');
+    expect(flag).not.toContain('[height<=720]');
   });
 });
 
@@ -367,6 +379,19 @@ describe('buildDownloadArgs override mode', () => {
     expect(args).toContain('--print-to-file');
     expect(args).toContain(markerPath);
     expect(args).toContain('--paths');
+  });
+
+  it('always emits --no-playlist so a playlist URL pasted into a single Download row never iterates the surrounding playlist', () => {
+    // Auto mode AND override mode both run through the framework
+    // block which pins --no-playlist. Guards against yt-dlp's default
+    // playlist-iteration behavior for `playlist?list=Y` URLs.
+    const auto = buildDownloadArgs(optsForPreset('best'), DEPS);
+    expect(auto.args).toContain('--no-playlist');
+    const override = buildDownloadArgs(
+      optsForPreset('best', { ytDlpCommandOverride: 'yt-dlp -f best' }),
+      DEPS,
+    );
+    expect(override.args).toContain('--no-playlist');
   });
 });
 

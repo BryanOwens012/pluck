@@ -324,6 +324,16 @@ export const buildDownloadArgs = (
   const framework = [
     '--newline',
     '--no-mtime',
+    // Lock every per-row download to the single video the URL
+    // identifies, never the surrounding playlist. yt-dlp's default
+    // for `playlist?list=Y` URLs (and sometimes `watch?v=X&list=Y`)
+    // is to iterate every entry inside a single process — which
+    // breaks our queue model (one row = one video) and silently
+    // downloads 50+ videos when the user only meant one. The
+    // whole-playlist path goes through the dedicated enumerate +
+    // per-entry enqueue flow, so it doesn't need playlist-mode
+    // here either.
+    '--no-playlist',
     '--ffmpeg-location',
     deps.ffmpegPath,
     '--paths',

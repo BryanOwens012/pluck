@@ -4,10 +4,18 @@
  * from here.
  */
 
-/** Stable ids for the four built-in format presets. The optional 5th
- * dropdown entry (a non-mp4 alternative when it strictly beats best mp4)
- * uses the dynamic id 'best_alt'. Any future ids land here too. */
-export const FORMAT_IDS = ['best', '1080p', '720p', 'audio_mp3', 'best_alt'] as const;
+/** Stable ids for the six built-in format presets. The optional 7th
+ * dropdown entry (a non-mp4 alternative when it strictly beats best
+ * mp4) uses the dynamic id 'best_alt'. Any future ids land here too. */
+export const FORMAT_IDS = [
+  'best',
+  '1080p',
+  '720p',
+  '480p',
+  '360p',
+  'audio_mp3',
+  'best_alt',
+] as const;
 export type FormatId = (typeof FORMAT_IDS)[number];
 
 /** What the renderer picks and what the runner consumes. The id is
@@ -118,6 +126,16 @@ export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, Format
     label: '720p',
     ytDlpFormatArgs: ['-f', mp4VideoSelector(720), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
+  '480p': {
+    id: '480p',
+    label: '480p',
+    ytDlpFormatArgs: ['-f', mp4VideoSelector(480), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
+  },
+  '360p': {
+    id: '360p',
+    label: '360p',
+    ytDlpFormatArgs: ['-f', mp4VideoSelector(360), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
+  },
   audio_mp3: {
     id: 'audio_mp3',
     label: 'Audio only (mp3)',
@@ -138,8 +156,25 @@ export const STATIC_FORMAT_CHOICES_ORDERED: readonly FormatChoice[] = [
   STATIC_FORMAT_CHOICES.best,
   STATIC_FORMAT_CHOICES['1080p'],
   STATIC_FORMAT_CHOICES['720p'],
+  STATIC_FORMAT_CHOICES['480p'],
+  STATIC_FORMAT_CHOICES['360p'],
   STATIC_FORMAT_CHOICES.audio_mp3,
 ];
+
+/** The height-capped mp4 tiers in descending order — used by both the
+ * format-selector (to decide which tier rows survive the dedupe pass)
+ * and by any future code that wants to iterate the lower tiers. The
+ * `best` and `audio_mp3` presets are not in this list because they're
+ * not height-capped tiers. */
+export const VIDEO_TIER_PRESETS = [
+  { id: '1080p', height: 1080 },
+  { id: '720p', height: 720 },
+  { id: '480p', height: 480 },
+  { id: '360p', height: 360 },
+] as const satisfies ReadonlyArray<{
+  id: Exclude<FormatId, 'best' | 'audio_mp3' | 'best_alt'>;
+  height: number;
+}>;
 
 /** Browsers yt-dlp can pull cookies from. Subset of yt-dlp's full list
  * (chromium, opera, vivaldi, whale also work) — these are the common

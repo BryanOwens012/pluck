@@ -41,12 +41,15 @@ describe('resolveFormatChoices', () => {
     expect(resolveFormatChoices([audioOnly(), audioOnly()])).toEqual(STATIC_FORMAT_CHOICES_ORDERED);
   });
 
-  it('drops the duplicate 1080p tier when best mp4 is 1080p (no double row)', () => {
-    // Best is exactly 1080p. The dropdown should be:
-    //   Best (1080p)  ← shorthand-annotated best
-    //   720p
+  it('drops the duplicate 1080p tier when best mp4 is 1080p, keeps the lower tiers the URL actually has', () => {
+    // Best is exactly 1080p. The fixture also has mp4 at 720p and 360p
+    // (but NOT 480p). The dropdown should be:
+    //   Best (1080p) ← shorthand-annotated best, dedupe of the 1080p tier
+    //   720p          ← present in source
+    //   360p          ← present in source
     //   Audio only (mp3)
-    // No separate 1080p row — that would duplicate "Best (1080p)".
+    // 480p is dropped because the source has no ≥480p mp4 besides the
+    // ones that already get covered by other rows.
     const choices = resolveFormatChoices([
       mp4(1080, 60),
       mp4(1080, 30),
@@ -56,7 +59,7 @@ describe('resolveFormatChoices', () => {
       audioOnly(),
     ]);
 
-    expect(choices.map((c) => c.id)).toEqual(['best', '720p', 'audio_mp3']);
+    expect(choices.map((c) => c.id)).toEqual(['best', '720p', '360p', 'audio_mp3']);
 
     const best = choices[0];
     expect(best?.id).toBe('best');
@@ -70,25 +73,39 @@ describe('resolveFormatChoices', () => {
     expect(p720?.shorthand).toBeUndefined();
     expect(p720?.detail).toBe('1280×720 mp4, 60fps');
 
-    const audio = choices[2];
+    const audio = choices[3];
     expect(audio?.id).toBe('audio_mp3');
     expect(audio?.label).toBe('Audio only (mp3)');
     expect(audio?.shorthand).toBeUndefined();
     expect(audio?.detail).toBeUndefined();
   });
 
-  it('keeps the 1080p and 720p tiers when best mp4 exceeds them (4K best)', () => {
-    // Best is 4K. Both lower tiers offer real value and stay.
-    const choices = resolveFormatChoices([mp4(2160, 60), mp4(1080, 60), mp4(720, 60)]);
-    expect(choices.map((c) => c.id)).toEqual(['best', '1080p', '720p', 'audio_mp3']);
+  it('keeps every available lower tier when best mp4 exceeds all of them (4K best)', () => {
+    // Best is 4K. All four lower tiers offer real value and stay.
+    const choices = resolveFormatChoices([
+      mp4(2160, 60),
+      mp4(1080, 60),
+      mp4(720, 60),
+      mp4(480, 60),
+      mp4(360, 60),
+    ]);
+    expect(choices.map((c) => c.id)).toEqual([
+      'best',
+      '1080p',
+      '720p',
+      '480p',
+      '360p',
+      'audio_mp3',
+    ]);
     expect(choices[0]?.shorthand).toBe('4K');
   });
 
-  it('drops the 1080p tier when best mp4 only goes to 720p (avoids misleading row)', () => {
+  it('drops the 1080p tier when best mp4 only goes to 720p, keeps lower tiers that exist', () => {
     // Showing "1080p" when no 1080p is available would silently fall
-    // back to 720p and confuse the user.
+    // back to 720p and confuse the user. 720p is the best, so it gets
+    // deduped too. 480p exists in the fixture so it stays.
     const choices = resolveFormatChoices([mp4(720, 30), mp4(480, 30)]);
-    expect(choices.map((c) => c.id)).toEqual(['best', 'audio_mp3']);
+    expect(choices.map((c) => c.id)).toEqual(['best', '480p', 'audio_mp3']);
     expect(choices[0]?.shorthand).toBe('720p');
   });
 
