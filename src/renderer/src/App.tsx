@@ -214,6 +214,22 @@ const App = (): React.JSX.Element => {
   const [pendingPlaylistPrompt, setPendingPlaylistPrompt] = useState<
     { context: PlaylistContext | undefined; url: string; format: FormatChoice } | undefined
   >(undefined);
+  // Enumerations in flight — set when the user picks "All videos" so
+  // the queue can render a placeholder accordion right away (yt-dlp -J
+  // --flat-playlist takes 5-10 s; without the placeholder the page
+  // appears unresponsive). Two terminal states:
+  //   - Success: `startPlaylistDownload` resolves → entry is removed
+  //     from the list (the real PlaylistGroup takes over).
+  //   - Failure: `error` is set on the entry → placeholder flips to
+  //     the red error state with a Dismiss button; entry stays until
+  //     the user clicks Dismiss. Silent vanish was a UX regression in
+  //     an earlier iteration — the user couldn't tell whether their
+  //     click had failed or just hadn't happened yet.
+  // Keyed by a renderer-side id so multiple simultaneous enumerations
+  // each get their own placeholder.
+  const [pendingEnumerations, setPendingEnumerations] = useState<
+    { id: string; context: PlaylistContext | undefined; error?: string }[]
+  >([]);
 
   // Per-URL format probe. Driven off the debounced URL so we don't IPC
   // on every keystroke. The IPC handler shares the metadataCache with
@@ -327,33 +343,65 @@ const App = (): React.JSX.Element => {
     }
     const { url: pendingUrl, format: pendingFormat, context } = pendingPlaylistPrompt;
     setPendingPlaylistPrompt(undefined);
-    // Enumerate then enqueue. Failures bubble to console — a friendly
-    // toast surface could be added later. The enumerate IPC always
-    // returns an authoritative context for real playlist URLs, but we
-    // fall back to the modal's snapshot context (from the format-probe
-    // pass) if for some reason the enumerate response is missing it.
+
+    // Push a placeholder onto the pending-enumerations list BEFORE
+    // firing the enumerate IPC. The DownloadQueue renders a
+    // PlaylistGroupPlaceholder for each pending entry — gives the
+    // user instant feedback that their click registered, instead of
+    // staring at an empty queue for the 5-10 s
+    // `yt-dlp -J --flat-playlist` run.
+    const enumerationId = crypto.randomUUID();
+    setPendingEnumerations((prev) => [...prev, { id: enumerationId, context }]);
+
+    // Mark the entry as failed in place. The user dismisses manually
+    // via the placeholder's Dismiss button (wired below) so the
+    // error message stays on screen long enough to read.
+    const markFailed = (error: string): void => {
+      setPendingEnumerations((prev) =>
+        prev.map((e) => (e.id === enumerationId ? { ...e, error } : e)),
+      );
+    };
+    // Drop the entry entirely — used on the success path once the
+    // real rows have been broadcast to the queue.
+    const removeEntry = (): void => {
+      setPendingEnumerations((prev) => prev.filter((e) => e.id !== enumerationId));
+    };
+
     api
       .enumeratePlaylist(pendingUrl)
       .then((result) => {
         if (!result.ok) {
-          console.error('enumeratePlaylist returned no entries', result);
+          console.error('enumeratePlaylist returned an error', result);
+          markFailed(result.error || 'Failed to load playlist details.');
           return;
         }
+        // The enumerate IPC always returns an authoritative context
+        // for real playlist URLs, but fall back to the modal's
+        // snapshot context (from the format-probe pass) if for some
+        // reason the enumerate response is missing it.
         const resolvedContext = result.context ?? context;
         if (result.entries.length === 0 || !resolvedContext) {
           console.error('enumeratePlaylist returned no entries', result);
+          markFailed('No videos found in this playlist.');
           return;
         }
-        return api.startPlaylistDownload({
-          entries: result.entries,
-          format: pendingFormat,
-          playlistContext: resolvedContext,
-          order,
-        });
+        return api
+          .startPlaylistDownload({
+            entries: result.entries,
+            format: pendingFormat,
+            playlistContext: resolvedContext,
+            order,
+          })
+          .then(removeEntry);
       })
       .catch((err: unknown) => {
         console.error('playlist enqueue rejected:', err);
+        markFailed('Failed to load playlist details.');
       });
+  };
+
+  const dismissPendingEnumeration = (enumerationId: string): void => {
+    setPendingEnumerations((prev) => prev.filter((e) => e.id !== enumerationId));
   };
 
   // Stable so SettingsPanel's window-level Esc listener doesn't
@@ -428,6 +476,8 @@ const App = (): React.JSX.Element => {
           </form>
           <DownloadQueue
             rows={rows}
+            pendingEnumerations={pendingEnumerations}
+            onDismissPendingEnumeration={dismissPendingEnumeration}
             onOpenPasswordPrompt={handleOpenPasswordPrompt}
             debugMode={debugMode}
             debugLogs={debugLogs}
