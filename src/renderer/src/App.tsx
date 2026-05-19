@@ -214,6 +214,17 @@ const App = (): React.JSX.Element => {
   const [pendingPlaylistPrompt, setPendingPlaylistPrompt] = useState<
     { context: PlaylistContext | undefined; url: string; format: FormatChoice } | undefined
   >(undefined);
+  // Enumerations in flight — set when the user picks "All videos" so the
+  // queue can render a placeholder accordion right away (yt-dlp -J
+  // --flat-playlist takes 5-10 s; without the placeholder the page
+  // appears unresponsive). Each entry is removed in the IPC chain's
+  // `finally` — either when the real rows have been enqueued (success)
+  // or when enumerate fails (so the placeholder doesn't orphan). Keyed
+  // by a renderer-side id so multiple simultaneous enumerations each
+  // get their own placeholder.
+  const [pendingEnumerations, setPendingEnumerations] = useState<
+    { id: string; context: PlaylistContext | undefined }[]
+  >([]);
 
   // Per-URL format probe. Driven off the debounced URL so we don't IPC
   // on every keystroke. The IPC handler shares the metadataCache with
@@ -327,11 +338,18 @@ const App = (): React.JSX.Element => {
     }
     const { url: pendingUrl, format: pendingFormat, context } = pendingPlaylistPrompt;
     setPendingPlaylistPrompt(undefined);
-    // Enumerate then enqueue. Failures bubble to console — a friendly
-    // toast surface could be added later. The enumerate IPC always
-    // returns an authoritative context for real playlist URLs, but we
-    // fall back to the modal's snapshot context (from the format-probe
-    // pass) if for some reason the enumerate response is missing it.
+
+    // Push a placeholder onto the pending-enumerations list BEFORE
+    // firing the enumerate IPC. The DownloadQueue renders a
+    // PlaylistGroupPlaceholder for each pending entry — gives the user
+    // instant feedback that their click registered, instead of staring
+    // at an empty queue for the 5-10 s `yt-dlp -J --flat-playlist` run.
+    // The entry is cleared in `finally`, by which time either the real
+    // rows have shown up in the queue (success) or the enumerate
+    // bailed (failure / no entries).
+    const enumerationId = crypto.randomUUID();
+    setPendingEnumerations((prev) => [...prev, { id: enumerationId, context }]);
+
     api
       .enumeratePlaylist(pendingUrl)
       .then((result) => {
@@ -353,6 +371,9 @@ const App = (): React.JSX.Element => {
       })
       .catch((err: unknown) => {
         console.error('playlist enqueue rejected:', err);
+      })
+      .finally(() => {
+        setPendingEnumerations((prev) => prev.filter((e) => e.id !== enumerationId));
       });
   };
 
@@ -428,6 +449,7 @@ const App = (): React.JSX.Element => {
           </form>
           <DownloadQueue
             rows={rows}
+            pendingEnumerations={pendingEnumerations}
             onOpenPasswordPrompt={handleOpenPasswordPrompt}
             debugMode={debugMode}
             debugLogs={debugLogs}

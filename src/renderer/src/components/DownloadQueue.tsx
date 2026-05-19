@@ -1,10 +1,24 @@
-import type { DebugLogEvent, Download, DownloadStatus } from '../../../shared/types';
+import type {
+  DebugLogEvent,
+  Download,
+  DownloadStatus,
+  PlaylistContext,
+} from '../../../shared/types';
 import { DownloadRow } from './DownloadRow';
+import { PlaylistGroupPlaceholder } from './PlaylistGroupPlaceholder';
 
 type Props = {
   /** Newest-first list of downloads (history + live). Empty renders the
    * paste-a-URL hint instead of an empty container. */
   rows: Download[];
+  /** Playlist enumerations the user kicked off but yt-dlp hasn't yet
+   * expanded into individual rows. Renders as a placeholder accordion
+   * above the active section — gives the user instant feedback that
+   * the "All videos" click landed, instead of a 5-10 s blank screen
+   * while `yt-dlp -J --flat-playlist` runs. App removes each entry in
+   * the IPC chain's `finally`, by which time either the real rows are
+   * showing up here or the enumerate has failed. */
+  pendingEnumerations?: { id: string; context: PlaylistContext | undefined }[];
   /** Forwarded to each row; opens the password prompt for that id. App
    * owns the prompt state. */
   onOpenPasswordPrompt?: (id: string) => void;
@@ -27,11 +41,12 @@ const HISTORY_STATUSES = new Set<DownloadStatus>(['completed', 'cancelled', 'fai
  * the user sees the playlist as a unit instead of N disjoint rows. */
 export const DownloadQueue = ({
   rows,
+  pendingEnumerations = [],
   onOpenPasswordPrompt,
   debugMode,
   debugLogs,
 }: Props): React.JSX.Element => {
-  if (rows.length === 0) {
+  if (rows.length === 0 && pendingEnumerations.length === 0) {
     return <p className="text-sm text-neutral-500">Paste a video URL above to start a download.</p>;
   }
 
@@ -55,10 +70,22 @@ export const DownloadQueue = ({
     />
   );
 
+  const hasActiveSection = pendingEnumerations.length > 0 || activeRows.length > 0;
+
   return (
     <div>
-      {activeRows.length > 0 ? (
-        <div className="space-y-2">{renderGroupedRows(activeRows, renderRow)}</div>
+      {hasActiveSection ? (
+        <div className="space-y-2">
+          {/* Placeholders render at the top of the active section so the
+              user sees instant feedback after "All videos". Real
+              PlaylistGroups for any rows that ARE already enqueued
+              render below — typically there are none yet (enumerate is
+              still in flight) but the layout handles mixed cases too. */}
+          {pendingEnumerations.map((entry) => (
+            <PlaylistGroupPlaceholder key={entry.id} context={entry.context} />
+          ))}
+          {renderGroupedRows(activeRows, renderRow)}
+        </div>
       ) : null}
       {historyRows.length > 0 ? (
         <section className="mt-10 space-y-3 border-t border-neutral-800 pt-6">

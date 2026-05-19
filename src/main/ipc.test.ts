@@ -1,5 +1,41 @@
-import { describe, expect, it } from 'vitest';
-import { generateDownloadId } from './ipc';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+// Mock `electron` BEFORE importing anything that pulls it in. ipc.ts
+// calls `ipcMain.handle(...)` at module-init time inside
+// `registerIpcHandlers`; the mock captures each handler so the tests
+// below can invoke them with a synthetic payload.
+type Handler = (event: unknown, payload: unknown) => unknown;
+const handlersByChannel = new Map<string, Handler>();
+
+vi.mock('electron', () => ({
+  ipcMain: {
+    handle: (channel: string, handler: Handler): void => {
+      handlersByChannel.set(channel, handler);
+    },
+  },
+  // App + dialog + shell are referenced by registerIpcHandlers for
+  // OpenTempFolder + ChooseOutputFolder / etc. Stub them so the
+  // module loads cleanly under the test env (no real Electron).
+  app: { getPath: (): string => '/tmp/userdata' },
+  dialog: { showOpenDialog: vi.fn() },
+  shell: {
+    showItemInFolder: vi.fn(),
+    openExternal: vi.fn(),
+    openPath: vi.fn(),
+  },
+  BrowserWindow: { getAllWindows: (): unknown[] => [] },
+}));
+
+import { IpcChannels } from '../shared/ipc-channels';
+import {
+  type DownloadRequest,
+  type PlaylistContext,
+  type PlaylistEntry,
+  STATIC_FORMAT_CHOICES,
+} from '../shared/types';
+import { generateDownloadId, registerIpcHandlers } from './ipc';
+
+// ---- existing pure-helper coverage -------------------------------------
 
 describe('generateDownloadId', () => {
   const FIXED_NOW = new Date('2026-05-16T20:45:30');
@@ -48,8 +84,6 @@ describe('generateDownloadId', () => {
   });
 
   it('produces distinct ids across rapid successive calls (same URL, same second)', () => {
-    // 64 in a tight loop. The random 6-char base-36 tail is the only thing
-    // that varies; collisions would still be extremely unlikely but verify.
     const ids = new Set(
       Array.from({ length: 64 }, () =>
         generateDownloadId('https://youtube.com/watch?v=jNQXAC9IVRw', FIXED_NOW),
@@ -76,5 +110,162 @@ describe('generateDownloadId', () => {
       expect(parsed).toBeGreaterThanOrEqual(before - 1000);
       expect(parsed).toBeLessThanOrEqual(after + 1000);
     }
+  });
+});
+
+// ---- StartPlaylistDownload IPC handler ---------------------------------
+
+/** Capture every `queue.enqueue` call so each test can assert on the
+ * playlist fields that landed on the request. Reset between tests. */
+let enqueueCalls: DownloadRequest[];
+
+const buildFakeDeps = (): Parameters<typeof registerIpcHandlers>[0] => {
+  enqueueCalls = [];
+  return {
+    queue: {
+      enqueue: (request: DownloadRequest): string => {
+        enqueueCalls.push(request);
+        return `id-${enqueueCalls.length}`;
+      },
+      cancel: vi.fn(),
+      submitPassword: vi.fn(),
+      getAll: (): never[] => [],
+      rehydrate: vi.fn(),
+    },
+    metadataCache: { get: vi.fn(), prefetch: vi.fn(), size: (): number => 0 },
+    settings: {
+      get: vi.fn(),
+      update: vi.fn(),
+    } as unknown as Parameters<typeof registerIpcHandlers>[0]['settings'],
+    secrets: {} as Parameters<typeof registerIpcHandlers>[0]['secrets'],
+    tempBaseDir: '/tmp/pluck-cache',
+    enumeratePlaylist: vi.fn(),
+  };
+};
+
+const invokeStartPlaylistDownload = (payload: unknown): unknown => {
+  const handler = handlersByChannel.get(IpcChannels.StartPlaylistDownload);
+  if (!handler) {
+    throw new Error('StartPlaylistDownload handler not registered');
+  }
+  return handler({}, payload);
+};
+
+const fakeEntry = (id: string, index: number): PlaylistEntry => ({
+  url: `https://www.youtube.com/watch?v=${id}`,
+  title: `Episode ${index}`,
+  index,
+});
+
+const fakeContext: PlaylistContext = {
+  id: 'PLZbbT5o_s2xr17PqeytCKiCD',
+  title: 'Coinbase Trading Series',
+  entryCount: 3,
+  isExplicitPlaylistUrl: true,
+};
+
+describe('StartPlaylistDownload IPC handler', () => {
+  beforeEach(() => {
+    handlersByChannel.clear();
+    registerIpcHandlers(buildFakeDeps());
+  });
+
+  it('enqueues every entry with playlistId / playlistTitle / playlistIndex / playlistTotal set from the context', () => {
+    invokeStartPlaylistDownload({
+      entries: [fakeEntry('v1', 1), fakeEntry('v2', 2), fakeEntry('v3', 3)],
+      format: STATIC_FORMAT_CHOICES.best,
+      playlistContext: fakeContext,
+      order: 'oldest_first',
+    });
+
+    expect(enqueueCalls).toHaveLength(3);
+    expect(enqueueCalls).toEqual([
+      expect.objectContaining({
+        url: 'https://www.youtube.com/watch?v=v1',
+        playlistId: 'PLZbbT5o_s2xr17PqeytCKiCD',
+        playlistTitle: 'Coinbase Trading Series',
+        playlistIndex: 1,
+        playlistTotal: 3,
+      }),
+      expect.objectContaining({
+        url: 'https://www.youtube.com/watch?v=v2',
+        playlistId: 'PLZbbT5o_s2xr17PqeytCKiCD',
+        playlistTitle: 'Coinbase Trading Series',
+        playlistIndex: 2,
+        playlistTotal: 3,
+      }),
+      expect.objectContaining({
+        url: 'https://www.youtube.com/watch?v=v3',
+        playlistId: 'PLZbbT5o_s2xr17PqeytCKiCD',
+        playlistTitle: 'Coinbase Trading Series',
+        playlistIndex: 3,
+        playlistTotal: 3,
+      }),
+    ]);
+  });
+
+  it('reverses entries when order=newest_first and re-numbers indices 1..N along the reversed order', () => {
+    // The user picked "All videos (newest to oldest)" — the file
+    // prefixes should count up in REVERSED playlist order so the
+    // newest video is "01" in the resulting folder. This matches
+    // user expectation that the prefix is the position in their
+    // chosen ordering, not the canonical playlist order.
+    invokeStartPlaylistDownload({
+      entries: [fakeEntry('v1', 1), fakeEntry('v2', 2), fakeEntry('v3', 3)],
+      format: STATIC_FORMAT_CHOICES.best,
+      playlistContext: fakeContext,
+      order: 'newest_first',
+    });
+
+    expect(enqueueCalls.map((r) => ({ url: r.url, playlistIndex: r.playlistIndex }))).toEqual([
+      { url: 'https://www.youtube.com/watch?v=v3', playlistIndex: 1 },
+      { url: 'https://www.youtube.com/watch?v=v2', playlistIndex: 2 },
+      { url: 'https://www.youtube.com/watch?v=v1', playlistIndex: 3 },
+    ]);
+  });
+
+  it('skips entries with a non-http URL (defense-in-depth against bad enumerate output)', () => {
+    invokeStartPlaylistDownload({
+      entries: [
+        fakeEntry('v1', 1),
+        { url: 'javascript:alert(1)', title: 'evil', index: 2 },
+        fakeEntry('v3', 3),
+      ],
+      format: STATIC_FORMAT_CHOICES.best,
+      playlistContext: fakeContext,
+      order: 'oldest_first',
+    });
+
+    expect(enqueueCalls.map((r) => r.url)).toEqual([
+      'https://www.youtube.com/watch?v=v1',
+      'https://www.youtube.com/watch?v=v3',
+    ]);
+  });
+
+  it('bails (zero enqueues) on missing playlistContext', () => {
+    invokeStartPlaylistDownload({
+      entries: [fakeEntry('v1', 1)],
+      format: STATIC_FORMAT_CHOICES.best,
+      // playlistContext omitted
+      order: 'oldest_first',
+    });
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  it('bails (zero enqueues) on missing format', () => {
+    invokeStartPlaylistDownload({
+      entries: [fakeEntry('v1', 1)],
+      // format omitted
+      playlistContext: fakeContext,
+      order: 'oldest_first',
+    });
+    expect(enqueueCalls).toEqual([]);
+  });
+
+  it('bails (zero enqueues) on a non-object payload', () => {
+    invokeStartPlaylistDownload(null);
+    expect(enqueueCalls).toEqual([]);
+    invokeStartPlaylistDownload('not a payload');
+    expect(enqueueCalls).toEqual([]);
   });
 });
