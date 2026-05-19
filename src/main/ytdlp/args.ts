@@ -3,7 +3,8 @@ import {
   BROWSER_NAMES,
   type BrowserName,
   type ExtractedFlags,
-  SUBTITLE_DOWNLOAD_FLAGS,
+  SUBTITLE_DOWNLOAD_FLAGS_DEFAULT,
+  SUBTITLE_DOWNLOAD_FLAGS_EXTENDED,
 } from '../../shared/types';
 import type { FetchMetadataOptions, RunDownloadOptions, RunnerDeps } from './types';
 
@@ -394,16 +395,16 @@ export const buildDownloadArgs = (
   }
   if (opts.cookiesFromBrowser) {
     autoArgs.push('--cookies-from-browser', opts.cookiesFromBrowser);
-    // Subs are conditional on cookies. YouTube's anonymous subtitle
-    // endpoint rate-limits hard (HTTP 429 after ~2 fetches in quick
-    // succession) — even aggressive sleep + retry tuning can't beat
-    // a cooled IP. Authenticated requests, on the other hand, have a
-    // much higher per-account rate limit; users with cookies set rarely
-    // 429. So: cookies → full subs; no cookies → no subs, but the
-    // video itself downloads cleanly with no 429 risk from the sub
-    // phase.
-    autoArgs.push(...SUBTITLE_DOWNLOAD_FLAGS);
   }
+  // Sub flags: English-only by default (light enough to clear YouTube's
+  // anonymous rate limit with `--sleep-subtitles` spacing), extended
+  // to en/zh/es/fr when the user has cookies set (authenticated
+  // requests have a much higher per-IP limit).
+  autoArgs.push(
+    ...(opts.cookiesFromBrowser
+      ? SUBTITLE_DOWNLOAD_FLAGS_EXTENDED
+      : SUBTITLE_DOWNLOAD_FLAGS_DEFAULT),
+  );
   autoArgs.push(opts.url);
 
   return { args: [...framework, ...autoArgs], markerPath };

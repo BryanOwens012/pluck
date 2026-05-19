@@ -5,8 +5,13 @@ import {
 } from '../../../shared/types';
 
 type Props = {
-  /** Playlist info to render in the modal subtitle (title + count). */
-  context: PlaylistContext;
+  /** Playlist info to render in the modal subtitle (title + count).
+   * Undefined when the user clicked Download before the metadata
+   * probe returned but the URL syntactically looks like a playlist
+   * (has `list=` or ends in `/playlist`) — we still pop the modal so
+   * the user gets to choose, and fill in the title/count from the
+   * enumerate pass if they pick "All videos". */
+  context: PlaylistContext | undefined;
   /** Called when the user clicks "Just this video" (or hits Esc /
    * backdrop). On an explicit playlist URL this becomes "Just the
    * first video" and the caller is expected to honor that intent. */
@@ -33,12 +38,18 @@ export const PlaylistPrompt = ({
   onJustOne,
   onWholePlaylist,
 }: Props): React.JSX.Element => {
-  const justOneLabel = context.isExplicitPlaylistUrl ? 'Just the first video' : 'Just this video';
-  const subtitle =
-    context.entryCount !== undefined
+  // When context is undefined (probe still in flight), we don't yet
+  // know whether the URL is an explicit playlist URL or a video URL
+  // that happens to carry playlist context. "Just this video" is the
+  // safe default copy — the IPC handler honors `--no-playlist` in
+  // both shapes, so it's accurate either way.
+  const justOneLabel = context?.isExplicitPlaylistUrl ? 'Just the first video' : 'Just this video';
+  const subtitle = context
+    ? context.entryCount !== undefined
       ? `${context.title} (${context.entryCount} videos)`
-      : context.title;
-  const overCap = context.entryCount !== undefined && context.entryCount > PLAYLIST_ENTRY_CAP;
+      : context.title
+    : 'Fetching playlist details…';
+  const overCap = context?.entryCount !== undefined && context.entryCount > PLAYLIST_ENTRY_CAP;
 
   return (
     <div
@@ -64,7 +75,7 @@ export const PlaylistPrompt = ({
           This video is part of a playlist.
         </h2>
         <p className="mt-1 break-words text-xs text-neutral-400">{subtitle}</p>
-        {overCap ? (
+        {overCap && context ? (
           <p className="mt-2 rounded-md border border-amber-900/70 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-300">
             This playlist has {context.entryCount} videos. Pluck will queue the first{' '}
             {PLAYLIST_ENTRY_CAP}.

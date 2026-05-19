@@ -8,7 +8,7 @@ import {
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../../shared/types';
-import { isHttpUrl } from '../../shared/url';
+import { isHttpUrl, looksLikePlaylistUrl } from '../../shared/url';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { PasswordPrompt } from './components/PasswordPrompt';
@@ -212,7 +212,7 @@ const App = (): React.JSX.Element => {
   // playlist-enumerate-then-enqueue IPC). When non-null, the modal is
   // visible. Reset to null on resolve / dismiss.
   const [pendingPlaylistPrompt, setPendingPlaylistPrompt] = useState<
-    { context: PlaylistContext; url: string; format: FormatChoice } | undefined
+    { context: PlaylistContext | undefined; url: string; format: FormatChoice } | undefined
   >(undefined);
 
   // Per-URL format probe. Driven off the debounced URL so we don't IPC
@@ -291,7 +291,15 @@ const App = (): React.JSX.Element => {
     // want the playlist) or the enumerate-then-enqueue path. We
     // snapshot the format + URL on the pending prompt so re-fetches
     // mid-prompt don't change what gets enqueued.
-    if (playlistContext) {
+    //
+    // Trigger on EITHER the resolved playlistContext (probe has
+    // landed) OR a sync URL-shape match (probe still in flight). The
+    // latter handles the common "paste then immediately click
+    // Download" race — the probe takes a few seconds, but the modal
+    // should pop the moment the click happens. The enumerate IPC the
+    // "All videos" path triggers will fill in the title/count
+    // authoritatively.
+    if (playlistContext || looksLikePlaylistUrl(trimmedUrl)) {
       setPendingPlaylistPrompt({ context: playlistContext, url: trimmedUrl, format });
       setUrl('');
       return;
@@ -320,20 +328,26 @@ const App = (): React.JSX.Element => {
     const { url: pendingUrl, format: pendingFormat, context } = pendingPlaylistPrompt;
     setPendingPlaylistPrompt(undefined);
     // Enumerate then enqueue. Failures bubble to console — a friendly
-    // toast surface could be added later. The single-download path
-    // stays a fallback if enumeration returns zero entries (rare —
-    // happens on yt-dlp extractor edge cases).
+    // toast surface could be added later. The enumerate IPC always
+    // returns an authoritative context for real playlist URLs, but we
+    // fall back to the modal's snapshot context (from the format-probe
+    // pass) if for some reason the enumerate response is missing it.
     api
       .enumeratePlaylist(pendingUrl)
       .then((result) => {
-        if (!result.ok || result.entries.length === 0 || !result.context) {
+        if (!result.ok) {
+          console.error('enumeratePlaylist returned no entries', result);
+          return;
+        }
+        const resolvedContext = result.context ?? context;
+        if (result.entries.length === 0 || !resolvedContext) {
           console.error('enumeratePlaylist returned no entries', result);
           return;
         }
         return api.startPlaylistDownload({
           entries: result.entries,
           format: pendingFormat,
-          playlistContext: result.context ?? context,
+          playlistContext: resolvedContext,
           order,
         });
       })

@@ -97,33 +97,38 @@ describe('STATIC_FORMAT_CHOICES', () => {
     }
   });
 
-  it('every video preset embeds thumbnail + metadata (subs added conditionally at spawn time)', () => {
+  it('every video preset embeds thumbnail + metadata (subs added at spawn time, not on the preset)', () => {
     for (const id of ['best', '1080p', '720p', '480p', '360p'] as const) {
       const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
       expect(args).toContain('--embed-thumbnail');
       expect(args).toContain('--add-metadata');
       // Subtitle flags are NOT in the preset itself — they're added by
-      // buildDownloadArgs only when cookiesFromBrowser is set.
+      // buildDownloadArgs (English-only by default, extended to 4 langs
+      // when cookiesFromBrowser is set).
       expect(args).not.toContain('--embed-subs');
       expect(args).not.toContain('--write-auto-subs');
     }
   });
 
-  it('appends subtitle download flags only when cookiesFromBrowser is set', () => {
+  it('always emits English subtitle flags; extends to 4 langs when cookiesFromBrowser is set', () => {
+    // No cookies → English only (en.* + en-orig).
     const without = buildDownloadArgs(optsForPreset('best'), DEPS);
-    expect(without.args).not.toContain('--embed-subs');
-    expect(without.args).not.toContain('--write-auto-subs');
-    expect(without.args).not.toContain('--sub-langs');
+    expect(without.args).toContain('--embed-subs');
+    expect(without.args).toContain('--write-auto-subs');
+    const defaultLangIdx = without.args.indexOf('--sub-langs');
+    expect(defaultLangIdx).toBeGreaterThanOrEqual(0);
+    expect(without.args[defaultLangIdx + 1]).toBe('en.*,en-orig');
 
+    // Cookies → extended language list.
     const withCookies = buildDownloadArgs(
       optsForPreset('best', { cookiesFromBrowser: 'chrome' }),
       DEPS,
     );
     expect(withCookies.args).toContain('--embed-subs');
     expect(withCookies.args).toContain('--write-auto-subs');
-    const langIdx = withCookies.args.indexOf('--sub-langs');
-    expect(langIdx).toBeGreaterThanOrEqual(0);
-    expect(withCookies.args[langIdx + 1]).toBe('en.*,zh.*,es.*,fr.*');
+    const extendedLangIdx = withCookies.args.indexOf('--sub-langs');
+    expect(extendedLangIdx).toBeGreaterThanOrEqual(0);
+    expect(withCookies.args[extendedLangIdx + 1]).toBe('en.*,en-orig,zh.*,es.*,fr.*');
   });
 
   it('480p caps height in the selector', () => {

@@ -51,48 +51,58 @@ export type FormatChoice = {
  * atoms (or ID3v2 tags). */
 const AUDIO_EMBED_FLAGS = ['--embed-thumbnail', '--add-metadata'] as const;
 
-/** Languages we grab subs for. Trimmed to a tight set after live
- * testing showed YouTube's anonymous subtitle endpoint has an
- * aggressive per-IP rate limit (HTTP 429 after roughly 2 requests in
- * quick succession). Each entry yt-dlp expands into 2-3 language
- * variants (e.g., `en.*` matches `en`, `en-US`, `en-orig`), so even
- * 5 patterns yields ~10 actual fetches per video. Adding more would
- * trip the limiter even with `--sleep-subtitles` spacing.
- *
- * Power users with browser cookies set (Settings → Browser cookies)
- * are authenticated and have a much higher rate limit — they can
- * override this list via the yt-dlp command override field if they
- * want more languages.
- *
- * Codes follow yt-dlp's names: `zh.*` covers `zh-Hans` / `zh-Hant`
- * / `zh-CN` / `zh-TW`; `pt.*` covers `pt-BR`. Unknown codes on
- * non-YouTube sources are silently ignored. */
-const SUBTITLE_LANGS = [
-  'en.*', // English
+/** English-only sub patterns — always emitted on every download.
+ * `en.*` matches `en`, `en-US`, `en-GB`, etc.; `en-orig` is yt-dlp's
+ * synthetic code for the auto-generated transcript in the source's
+ * original language tag (often the only "auto-subs" entry that
+ * actually exists when manual `en` subs do too). Combined that's at
+ * most 2-3 sub files per video — light enough to clear YouTube's
+ * anonymous rate limit when spaced by `--sleep-subtitles`. */
+const SUBTITLE_LANGS_DEFAULT = ['en.*', 'en-orig'].join(',');
+
+/** Full multi-language list — only emitted when the user has browser
+ * cookies set (authenticated requests have a much higher per-IP rate
+ * limit, so 4 langs × 2-3 variants each is safe). Codes follow
+ * yt-dlp's names: `zh.*` covers `zh-Hans` / `zh-Hant` / `zh-CN` /
+ * `zh-TW`; `pt.*` would cover `pt-BR`. Unknown codes on non-YouTube
+ * sources are silently ignored. */
+const SUBTITLE_LANGS_EXTENDED = [
+  'en.*',
+  'en-orig',
   'zh.*', // Chinese (Simplified + Traditional + regional variants)
   'es.*', // Spanish
   'fr.*', // French
 ].join(',');
 
 /** Video-only additions on top of the audio flags. Currently just an
- * alias — subtitle flags moved out to `SUBTITLE_DOWNLOAD_FLAGS`
- * because they're now applied conditionally (only when the user has
- * browser cookies set). Exported so format-selector.ts can reuse
- * them on the dynamic best_alt entry. */
+ * alias — subtitle flags moved out to the SUBTITLE_DOWNLOAD_FLAGS_*
+ * constants because they're applied as a separate group with the
+ * language list chosen at args-build time based on cookies. Exported
+ * so format-selector.ts can reuse the embed flags on the dynamic
+ * best_alt entry. */
 export const VIDEO_EMBED_FLAGS = AUDIO_EMBED_FLAGS;
 
-/** Subtitle-download flags. Only emitted by `buildDownloadArgs` when
- * the request includes `cookiesFromBrowser` — YouTube's anonymous
- * subtitle endpoint rate-limits aggressively (HTTP 429 after roughly
- * 2 fetches in quick succession), but authenticated requests have a
- * much higher limit. The user opts into subs by setting Browser
- * Cookies in Settings; anonymous downloads skip subs entirely so the
- * video itself never fails because the sub phase tripped a 429. */
-export const SUBTITLE_DOWNLOAD_FLAGS = [
+/** Sub-download flags emitted on EVERY download — manual + auto-
+ * generated English only. The user expects at least English subs on
+ * every video regardless of whether they've set cookies, and 1 lang
+ * × ≤3 variants spaced by `--sleep-subtitles` clears the anonymous
+ * rate limit reliably. */
+export const SUBTITLE_DOWNLOAD_FLAGS_DEFAULT = [
   '--embed-subs',
   '--write-auto-subs',
   '--sub-langs',
-  SUBTITLE_LANGS,
+  SUBTITLE_LANGS_DEFAULT,
+] as const;
+
+/** Sub-download flags emitted ONLY when the user has browser cookies
+ * set — extends the language list to en/zh/es/fr. Authenticated
+ * requests have a much higher rate limit, so the wider pull doesn't
+ * trip 429s. */
+export const SUBTITLE_DOWNLOAD_FLAGS_EXTENDED = [
+  '--embed-subs',
+  '--write-auto-subs',
+  '--sub-langs',
+  SUBTITLE_LANGS_EXTENDED,
 ] as const;
 
 /** Sort priority for every video preset: highest resolution first,
@@ -294,6 +304,15 @@ export const PLAYLIST_ROW_CONCURRENT_FRAGMENTS = 2;
  * rows (passed through `--sleep-requests`). Smooths the burst of
  * metadata fetches that comes from N rows pre-fetching at once. */
 export const PLAYLIST_ROW_REQUEST_SLEEP_SECONDS = 1;
+
+/** Max playlist rows allowed to run concurrently. Set to 1 (serial)
+ * because YouTube's per-IP request limit applies across processes —
+ * two parallel playlist rows means double the connection count of
+ * `PLAYLIST_ROW_CONCURRENT_FRAGMENTS` plus double the extractor
+ * request rate, which trips 429 even with `--sleep-requests` spacing.
+ * Non-playlist (single-video) rows keep the user's normal global
+ * concurrency cap; only playlist-row picks are throttled. */
+export const PLAYLIST_ROW_CONCURRENT_DOWNLOADS = 1;
 
 /** Direction the user chose at the playlist prompt — only used for
  * the `enumeratePlaylist` IPC arg; persisted nowhere. */

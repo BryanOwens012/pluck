@@ -681,4 +681,66 @@ describe('DownloadQueue', () => {
     expect(fakeRuns[0]?.opts.requestSleepSeconds).toBeUndefined();
     queue.cancel(id);
   });
+
+  it('serializes playlist rows even when the global cap allows more concurrency', async () => {
+    // Global cap is 3 (default). Three playlist rows enqueued — only
+    // ONE should start. The other two sit in 'queued' until the first
+    // finishes. Anonymous YouTube rate-limits accumulate across
+    // processes, so running playlist rows in parallel re-trips 429s
+    // even with the per-row -N + sleep throttles.
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    queue.enqueue({
+      ...makeRequest('https://example.com/p1'),
+      playlistId: 'PLxxx',
+      playlistIndex: 1,
+      playlistTotal: 3,
+    });
+    queue.enqueue({
+      ...makeRequest('https://example.com/p2'),
+      playlistId: 'PLxxx',
+      playlistIndex: 2,
+      playlistTotal: 3,
+    });
+    queue.enqueue({
+      ...makeRequest('https://example.com/p3'),
+      playlistId: 'PLxxx',
+      playlistIndex: 3,
+      playlistTotal: 3,
+    });
+
+    await waitFor(() => fakeRuns.length === 1);
+    // Give the queue a tick to potentially (incorrectly) promote more.
+    await new Promise((r) => setTimeout(r, 30));
+    expect(fakeRuns.length).toBe(1);
+    expect(queue.getAll().filter((d) => d.status === 'downloading')).toHaveLength(1);
+    expect(queue.getAll().filter((d) => d.status === 'queued')).toHaveLength(2);
+
+    // Finish the first playlist row; the next should promote.
+    const firstRun = fakeRuns[0];
+    if (!firstRun) {
+      throw new Error('expected first run to be captured');
+    }
+    const fakeFile = join(firstRun.opts.tempFolder, 'fake.mp4');
+    await fs.writeFile(fakeFile, 'x');
+    firstRun.resolve({ filePath: fakeFile });
+    await waitFor(() => fakeRuns.length === 2);
+    expect(fakeRuns.length).toBe(2);
+  });
+
+  it('promotes a non-playlist row alongside an active playlist row', async () => {
+    // The serial cap is per-playlist-source, not global. A single-video
+    // row should be allowed to run in parallel with an active playlist
+    // row up to the global cap.
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    queue.enqueue({
+      ...makeRequest('https://example.com/p1'),
+      playlistId: 'PLxxx',
+      playlistIndex: 1,
+      playlistTotal: 2,
+    });
+    queue.enqueue(makeRequest('https://example.com/single'));
+
+    await waitFor(() => fakeRuns.length === 2);
+    expect(queue.getAll().filter((d) => d.status === 'downloading')).toHaveLength(2);
+  });
 });
