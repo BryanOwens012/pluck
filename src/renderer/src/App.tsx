@@ -8,7 +8,7 @@ import {
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../../shared/types';
-import { isHttpUrl, looksLikePlaylistUrl } from '../../shared/url';
+import { isHttpUrl, looksLikePlaylistUrl, normalizeUrl } from '../../shared/url';
 import { DownloadQueue } from './components/DownloadQueue';
 import { FormatSelector } from './components/FormatSelector';
 import { PasswordPrompt } from './components/PasswordPrompt';
@@ -83,9 +83,13 @@ const App = (): React.JSX.Element => {
   // FormatSelector until a real URL is present. Debounced separately
   // below for the format-probe IPC.
   const [url, setUrl] = useState('');
-  const trimmedUrl = url.trim();
-  const urlIsValid = isHttpUrl(trimmedUrl);
-  const debouncedUrl = useDebouncedValue(urlIsValid ? trimmedUrl : '', FORMAT_PROBE_DEBOUNCE_MS);
+  // Normalized for validation + IPC: bare `youtube.com/X` paste gets
+  // `https://` prepended so downstream code can keep its strict
+  // `isHttpUrl` guard. The input box continues to show whatever the
+  // user typed — we only normalize for the URL we act on.
+  const normalizedUrl = normalizeUrl(url);
+  const urlIsValid = isHttpUrl(normalizedUrl);
+  const debouncedUrl = useDebouncedValue(urlIsValid ? normalizedUrl : '', FORMAT_PROBE_DEBOUNCE_MS);
   // Settings snapshot. Loaded once on mount and refreshed after a save
   // from SettingsPanel. The folder picker lives inside Settings now;
   // App keeps the value so startDownload doesn't need to re-fetch.
@@ -185,11 +189,11 @@ const App = (): React.JSX.Element => {
   // the instant the URL changes to a valid one. Sync, off the raw
   // (non-debounced) URL so the dropdown reflects the paste immediately
   // and the user can click Download without waiting on the probe.
-  // `trimmedUrl` is included in deps even though the body doesn't read
-  // it directly: switching from valid URL A to valid URL B must re-run
-  // the effect so the placeholder kicks in for the new URL instead of
-  // leaving stale enriched choices from A on screen.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: trimmedUrl drives re-fires intentionally
+  // `normalizedUrl` is included in deps even though the body doesn't
+  // read it directly: switching from valid URL A to valid URL B must
+  // re-run the effect so the placeholder kicks in for the new URL
+  // instead of leaving stale enriched choices from A on screen.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: normalizedUrl drives re-fires intentionally
   useEffect(() => {
     if (!urlIsValid) {
       setFormatChoices(STATIC_FORMAT_CHOICES_ORDERED);
@@ -200,7 +204,7 @@ const App = (): React.JSX.Element => {
     if (placeholder !== undefined) {
       setFormat(placeholder);
     }
-  }, [trimmedUrl, urlIsValid]);
+  }, [normalizedUrl, urlIsValid]);
 
   // Currently-known playlist context for the URL the user is typing.
   // Populated by the format-probe IPC alongside the choices; undefined
@@ -315,12 +319,12 @@ const App = (): React.JSX.Element => {
     // should pop the moment the click happens. The enumerate IPC the
     // "All videos" path triggers will fill in the title/count
     // authoritatively.
-    if (playlistContext || looksLikePlaylistUrl(trimmedUrl)) {
-      setPendingPlaylistPrompt({ context: playlistContext, url: trimmedUrl, format });
+    if (playlistContext || looksLikePlaylistUrl(normalizedUrl)) {
+      setPendingPlaylistPrompt({ context: playlistContext, url: normalizedUrl, format });
       setUrl('');
       return;
     }
-    api.startDownload({ url: trimmedUrl, format }).catch((err: unknown) => {
+    api.startDownload({ url: normalizedUrl, format }).catch((err: unknown) => {
       console.error('startDownload rejected:', err);
     });
     setUrl('');

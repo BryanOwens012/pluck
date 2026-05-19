@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { isHttpUrl } from '../../../shared/url';
+import { isHttpUrl, normalizeUrl } from '../../../shared/url';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { api } from '../lib/api';
 
@@ -33,13 +33,16 @@ export const UrlInput = ({ value, onChange }: Props): React.JSX.Element => {
   // Speculative metadata warm. The cache layer in main coalesces
   // concurrent fetches for the same URL, so it's fine that App.tsx
   // also triggers a format probe off its own debounced URL — they
-  // share the cache.
+  // share the cache. Normalize first so a bare `youtube.com/X` paste
+  // warms the cache for the same URL App will later request, instead
+  // of a no-op on the unnormalized form.
   const debouncedUrl = useDebouncedValue(trimmed, PREFETCH_DEBOUNCE_MS);
   useEffect(() => {
-    if (debouncedUrl.length < MIN_PREFETCH_URL_LENGTH || !isHttpUrl(debouncedUrl)) {
+    const candidate = normalizeUrl(debouncedUrl);
+    if (candidate.length < MIN_PREFETCH_URL_LENGTH || !isHttpUrl(candidate)) {
       return;
     }
-    api.prefetchMetadata(debouncedUrl).catch(() => {
+    api.prefetchMetadata(candidate).catch(() => {
       // Prefetch failures are silent — the actual download attempt will
       // surface them via the friendly-error path.
     });

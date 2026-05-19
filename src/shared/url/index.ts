@@ -3,3 +3,4 @@
  * import from this barrel or from the specific file. */
 export { isHttpUrl } from './is-http';
 export { looksLikePlaylistUrl } from './looks-like-playlist';
+export { normalizeUrl } from './normalize';
