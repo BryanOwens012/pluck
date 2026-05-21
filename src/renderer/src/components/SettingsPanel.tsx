@@ -227,6 +227,7 @@ const DeveloperSection = ({
       {open ? (
         <div className="space-y-2">
           <DebugModeRow debugMode={debugMode} onChange={onDebugModeChange} />
+          <YtDlpUpdaterRow />
           <ConcurrentDownloadsRow />
           <ConcurrentFragmentsRow overrideExtracted={overrideExtracted} />
           <YtDlpCommandOverrideRow onExtractedChange={onOverrideExtractedChange} />
@@ -614,6 +615,256 @@ const YtDlpCommandOverrideRow = ({ onExtractedChange }: OverrideRowProps): React
     </div>
   );
 };
+
+/** Phase-tagged state for the yt-dlp updater row. `idle` is the
+ * pre-mount placeholder; the boot useEffect immediately calls
+ * `api.getYtDlpStatus()` and flips to `loaded`. `checking` /
+ * `installing` are the in-flight states for the two manual buttons.
+ * After install completes we hold the result in `installed` so the
+ * UI can surface "Restart Pluck to use vX.Y.Z" until the user
+ * acts. Discriminated union (rather than the const-array string-
+ * union pattern) because each phase carries different payload. */
+type YtDlpUpdaterState =
+  | { phase: 'idle' }
+  | { phase: 'loaded'; installedVersion: string | undefined; source: 'bundled' | 'auto-updated' }
+  | {
+      phase: 'checking';
+      installedVersion: string | undefined;
+      source: 'bundled' | 'auto-updated';
+    }
+  | {
+      phase: 'install-prompt';
+      installedVersion: string | undefined;
+      source: 'bundled' | 'auto-updated';
+      latestVersion: string;
+      checkedAt: number;
+      checkError?: string;
+    }
+  | {
+      phase: 'installing';
+      installedVersion: string | undefined;
+      source: 'bundled' | 'auto-updated';
+      latestVersion: string;
+    }
+  | { phase: 'installed'; newVersion: string }
+  | { phase: 'install-failed'; error: string };
+
+/** Developer-accordion row for yt-dlp: shows the current version +
+ * source (bundled / auto-updated), the auto-update toggle, a
+ * "Check now" button, and an inline "Update available — Install"
+ * affordance when GitHub reports a newer build. After a successful
+ * install the row shows a "restart to apply" notice; the new
+ * binary takes effect on the next app launch (the current session
+ * keeps using whatever was captured at boot). */
+const YtDlpUpdaterRow = (): React.JSX.Element => {
+  const [state, setState] = useState<YtDlpUpdaterState>({ phase: 'idle' });
+  const [autoUpdate, setAutoUpdate] = useState<boolean>(true);
+
+  // Boot: read the current installation (cheap, sub-second) +
+  // pull the persisted auto-update flag. Don't kick off the
+  // GitHub check automatically — main does that at app launch
+  // when the toggle is on; the user can hit "Check now" if they
+  // want a fresh status mid-session.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getYtDlpStatus()
+      .then((status) => {
+        if (cancelled) {
+          return;
+        }
+        setState({
+          phase: 'loaded',
+          installedVersion: status.version,
+          source: status.source,
+        });
+      })
+      .catch((err: unknown) => {
+        console.error('getYtDlpStatus rejected:', err);
+      });
+    api
+      .getSettings()
+      .then((s) => {
+        if (!cancelled) {
+          setAutoUpdate(s.ytDlpAutoUpdate);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('getSettings rejected:', err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleAutoUpdateToggle = (event: React.ChangeEvent<HTMLInputElement>): void => {
+    const next = event.target.checked;
+    setAutoUpdate(next);
+    api.updateSettings({ ytDlpAutoUpdate: next }).catch((err: unknown) => {
+      console.error('updateSettings ytDlpAutoUpdate rejected:', err);
+      setAutoUpdate(!next);
+    });
+  };
+
+  const handleCheck = async (): Promise<void> => {
+    if (state.phase !== 'loaded' && state.phase !== 'install-prompt') {
+      return;
+    }
+    setState({
+      phase: 'checking',
+      installedVersion: state.installedVersion,
+      source: state.source,
+    });
+    const result = await api.checkYtDlpUpdate();
+    if (result.updateAvailable && result.latestVersion !== undefined) {
+      setState({
+        phase: 'install-prompt',
+        installedVersion: result.current.version,
+        source: result.current.source,
+        latestVersion: result.latestVersion,
+        checkedAt: result.checkedAt,
+        checkError: result.error,
+      });
+    } else {
+      // Either up-to-date or the check failed. Stay in `loaded`;
+      // surface any error in a subtitle so the user can tell a
+      // "checked OK, no update" from a "couldn't check at all".
+      setState({
+        phase: 'loaded',
+        installedVersion: result.current.version,
+        source: result.current.source,
+      });
+    }
+  };
+
+  const handleInstall = async (): Promise<void> => {
+    if (state.phase !== 'install-prompt') {
+      return;
+    }
+    setState({
+      phase: 'installing',
+      installedVersion: state.installedVersion,
+      source: state.source,
+      latestVersion: state.latestVersion,
+    });
+    const result = await api.installYtDlpUpdate();
+    if (result.ok) {
+      setState({ phase: 'installed', newVersion: state.latestVersion });
+    } else {
+      setState({ phase: 'install-failed', error: result.error });
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="text-xs font-medium text-neutral-200">yt-dlp</div>
+          <div className="mt-0.5 break-words text-xs text-neutral-500">
+            <YtDlpStatusLine state={state} />
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {state.phase === 'install-prompt' ? (
+            <button
+              type="button"
+              onClick={() => {
+                void handleInstall();
+              }}
+              className="rounded-md border border-sky-900/70 bg-sky-950/40 px-2 py-0.5 text-xs font-medium text-sky-300 transition hover:bg-sky-900/50 hover:text-sky-200"
+            >
+              Install update
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => {
+              void handleCheck();
+            }}
+            disabled={state.phase === 'checking' || state.phase === 'installing'}
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-600"
+          >
+            Check now
+          </button>
+        </div>
+      </div>
+      <label className="mt-2 flex items-center gap-2">
+        <input
+          type="checkbox"
+          checked={autoUpdate}
+          onChange={handleAutoUpdateToggle}
+          className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-100"
+        />
+        <span className="text-xs text-neutral-400">
+          Auto-update on launch — checks GitHub for a newer yt-dlp release each time the app starts.
+          New versions take effect on the next launch.
+        </span>
+      </label>
+    </div>
+  );
+};
+
+/** One-line status sentence under the "yt-dlp" header that reads
+ * differently in each phase. Extracted so the row's render stays
+ * legible — the seven phases would otherwise create a wall of
+ * ternaries inline. */
+const YtDlpStatusLine = ({ state }: { state: YtDlpUpdaterState }): React.JSX.Element => {
+  if (state.phase === 'idle') {
+    return <span>Loading…</span>;
+  }
+  if (state.phase === 'checking') {
+    return (
+      <span>
+        <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} /> ·
+        Checking GitHub…
+      </span>
+    );
+  }
+  if (state.phase === 'installing') {
+    return (
+      <span>
+        <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} /> ·
+        Installing {state.latestVersion}…
+      </span>
+    );
+  }
+  if (state.phase === 'install-prompt') {
+    return (
+      <span>
+        <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} /> ·{' '}
+        <span className="text-sky-400">Update available — {state.latestVersion}</span>
+        {state.checkError ? (
+          <span className="block text-red-400">Last check failed: {state.checkError}</span>
+        ) : null}
+      </span>
+    );
+  }
+  if (state.phase === 'installed') {
+    return (
+      <span className="text-emerald-400">
+        Installed {state.newVersion}. Restart Pluck to use the new version.
+      </span>
+    );
+  }
+  if (state.phase === 'install-failed') {
+    return <span className="text-red-400">Install failed: {state.error}</span>;
+  }
+  // phase === 'loaded'
+  return <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} />;
+};
+
+const CurrentVersionLabel = ({
+  installedVersion,
+  source,
+}: {
+  installedVersion: string | undefined;
+  source: 'bundled' | 'auto-updated';
+}): React.JSX.Element => (
+  <>
+    Current: {installedVersion ?? 'unknown'}{' '}
+    <span className="text-neutral-600">({source === 'bundled' ? 'bundled' : 'auto-updated'})</span>
+  </>
+);
 
 const ClearTempFoldersRow = (): React.JSX.Element => {
   const [state, setState] = useState<ClearState>({ phase: 'idle' });

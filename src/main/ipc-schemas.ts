@@ -192,4 +192,5 @@ export const UpdateSettingsPatchSchema = z.strictObject({
   ytDlpCommandOverride: z.string().nullish(),
   developerSectionOpen: z.boolean().optional(),
   transcriptionEnabled: z.boolean().optional(),
+  ytDlpAutoUpdate: z.boolean().optional(),
 });

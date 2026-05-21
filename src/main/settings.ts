@@ -79,6 +79,13 @@ export type Settings = {
    * presence of the ElevenLabs key (both must be true for the
    * button to appear). */
   transcriptionEnabled: boolean;
+  /** When on, Pluck checks GitHub for a newer yt-dlp release at app
+   * startup and (if one's available) downloads it into the user-data
+   * dir for use on the next launch. The current session keeps the
+   * already-running binary. Default on — yt-dlp ships roughly
+   * weekly and a stale binary stops working on YouTube as the
+   * player JS changes. */
+  ytDlpAutoUpdate: boolean;
 };
 
 type SettingsFile = {
@@ -128,6 +135,7 @@ const SettingsFileSchema = z.looseObject({
     ytDlpCommandOverride: z.string().optional(),
     developerSectionOpen: z.boolean().optional(),
     transcriptionEnabled: z.boolean().optional(),
+    ytDlpAutoUpdate: z.boolean().optional(),
   }),
 });
 
@@ -144,6 +152,7 @@ export const createSettingsStore = async (dir: string): Promise<SettingsStore> =
     concurrentDownloads: DEFAULT_CONCURRENT_DOWNLOADS,
     developerSectionOpen: false,
     transcriptionEnabled: false,
+    ytDlpAutoUpdate: true,
   };
   let current: Settings = defaults;
 

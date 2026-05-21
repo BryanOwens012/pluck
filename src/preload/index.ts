@@ -1,6 +1,8 @@
 import { contextBridge, type IpcRendererEvent, ipcRenderer } from 'electron';
 import type { SecretName } from '../main/secrets';
 import type { Settings } from '../main/settings';
+import type { UpdateCheckResult } from '../main/yt-dlp-updater/updater';
+import type { YtDlpInstallation } from '../main/yt-dlp-updater/version';
 import { IpcChannels } from '../shared/ipc-channels';
 import type {
   BrowserName,
@@ -97,6 +99,24 @@ const api = {
    * completed). */
   transcribeDownload: (id: string): Promise<{ ok: true } | { ok: false; error: string }> =>
     ipcRenderer.invoke(IpcChannels.TranscribeDownload, id),
+
+  /** Read the currently-installed yt-dlp version + which copy is
+   * in use (bundled / auto-updated). Cheap — runs `yt-dlp --version`
+   * + an fs.access. */
+  getYtDlpStatus: (): Promise<YtDlpInstallation> => ipcRenderer.invoke(IpcChannels.GetYtDlpStatus),
+
+  /** Hit GitHub for the latest yt-dlp release. Returns installed
+   * + latest + a derived `updateAvailable` flag. Network failures
+   * land in the result's `error` field rather than throwing. */
+  checkYtDlpUpdate: (): Promise<UpdateCheckResult> =>
+    ipcRenderer.invoke(IpcChannels.CheckYtDlpUpdate),
+
+  /** Download the latest yt-dlp into the user-data dir. Takes effect
+   * on next app launch (the current session keeps using its
+   * already-spawned binary). */
+  installYtDlpUpdate: (): Promise<
+    { ok: true; installedPath: string } | { ok: false; error: string }
+  > => ipcRenderer.invoke(IpcChannels.InstallYtDlpUpdate),
 
   /** Deliver a password for a row that's waiting in 'needs_password'.
    * Main re-runs the download with the password as `--video-password`.

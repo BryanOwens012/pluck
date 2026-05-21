@@ -29,6 +29,8 @@ import type { MetadataCache } from './metadata-cache';
 import type { SecretsStore } from './secrets';
 import type { Settings, SettingsStore } from './settings';
 import { transcribeDownload } from './transcription/transcriber';
+import { checkForUpdate, installUpdate, type UpdateCheckResult } from './yt-dlp-updater/updater';
+import { readCurrentYtDlpInstallation, type YtDlpInstallation } from './yt-dlp-updater/version';
 import {
   buildDownloadArgs,
   extractKnownFlags,
@@ -208,6 +210,9 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     }
     if (parsed.data.transcriptionEnabled !== undefined) {
       sanitized.transcriptionEnabled = parsed.data.transcriptionEnabled;
+    }
+    if (parsed.data.ytDlpAutoUpdate !== undefined) {
+      sanitized.ytDlpAutoUpdate = parsed.data.ytDlpAutoUpdate;
     }
     if (Object.keys(sanitized).length === 0) {
       return deps.settings.get();
@@ -518,6 +523,18 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
         console.error('GetFormatChoices: metadata fetch failed, returning static defaults', err);
         return { choices: [...STATIC_FORMAT_CHOICES_ORDERED] };
       }
+    },
+  );
+  ipcMain.handle(IpcChannels.GetYtDlpStatus, async (): Promise<YtDlpInstallation> => {
+    return readCurrentYtDlpInstallation();
+  });
+  ipcMain.handle(IpcChannels.CheckYtDlpUpdate, async (): Promise<UpdateCheckResult> => {
+    return checkForUpdate();
+  });
+  ipcMain.handle(
+    IpcChannels.InstallYtDlpUpdate,
+    async (): Promise<{ ok: true; installedPath: string } | { ok: false; error: string }> => {
+      return installUpdate();
     },
   );
   ipcMain.handle(
