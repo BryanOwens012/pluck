@@ -24,11 +24,13 @@ import { api } from './lib/api';
  * throttled progress + scattered yt-dlp chatter. */
 const MAX_LOG_LINES_PER_ID = 500;
 
-/** Trailing-edge wait before firing the per-URL format probe. Just
- * long enough to coalesce a burst of keystrokes into a single IPC
- * (avoids spawning yt-dlp once per character if the user is typing
- * a URL manually) — short enough that a paste feels instant. */
-const FORMAT_PROBE_DEBOUNCE_MS = 100;
+/** Trailing-edge wait before firing the per-URL format probe. Zero for
+ * a valid URL so the probe starts the instant a recognisable URL lands
+ * in the input — the debounce hook still coalesces rapid keystrokes
+ * while the URL is being typed (because it's invalid until complete),
+ * so we're not spamming yt-dlp on every character; only a fully-valid
+ * URL triggers the zero-delay path. */
+const FORMAT_PROBE_DEBOUNCE_MS = 0;
 
 /** Single-entry placeholder shown the instant a URL becomes valid,
  * before the metadata probe has resolved. The user can still click
@@ -36,15 +38,12 @@ const FORMAT_PROBE_DEBOUNCE_MS = 100;
  * excluded) — yt-dlp picks the right stream without us needing the
  * probe result. We show the full static-preset list so the user can
  * immediately pick a specific tier (e.g., 720p for a bandwidth save)
- * without waiting on the probe. Only the "Best" entry gets a "(TBD)"
- * suffix because we don't know the actual top resolution yet — the
- * other tiers' labels already say their height. Each preset's
- * `ytDlpFormatArgs` selects the highest mp4 ≤ its tier height, so
- * clicking "720p" before the probe lands still produces the right
- * file. The dropdown swaps in enriched + deduplicated choices when
- * the probe resolves. */
+ * without waiting on the probe. Each preset's `ytDlpFormatArgs`
+ * selects the highest mp4 ≤ its tier height, so clicking "720p"
+ * before the probe lands still produces the right file. The dropdown
+ * swaps in enriched + deduplicated choices when the probe resolves. */
 const PROBING_PLACEHOLDER_CHOICES: readonly FormatChoice[] = [
-  { ...STATIC_FORMAT_CHOICES.best, label: 'Best (TBD)' },
+  STATIC_FORMAT_CHOICES.best,
   STATIC_FORMAT_CHOICES['1080p'],
   STATIC_FORMAT_CHOICES['720p'],
   STATIC_FORMAT_CHOICES['480p'],
@@ -66,12 +65,16 @@ const App = (): React.JSX.Element => {
   // effect swaps it for the matching id from the real choice list when
   // the IPC returns.
   const [format, setFormat] = useState<FormatChoice>(STATIC_FORMAT_CHOICES.best);
+  // True while the format probe IPC is in flight. The spinner next to
+  // the format dropdown signals "choices will refine" so a user who
+  // sees "Best" doesn't assume it's already resolved to 4K.
+  const [isProbing, setIsProbing] = useState(false);
   // Available choices for the dropdown. Three phases:
   //   - URL empty / invalid: STATIC_FORMAT_CHOICES_ORDERED (dropdown
   //     itself is hidden, but render-ready in case validity flips).
-  //   - URL valid, probe in flight: PROBING_PLACEHOLDER_CHOICES (a
-  //     single "Best (TBD)" entry so the user can click Download
-  //     immediately without waiting on the probe).
+  //   - URL valid, probe in flight: PROBING_PLACEHOLDER_CHOICES (full
+  //     static preset list so the user can click Download immediately
+  //     without waiting on the probe).
   //   - Probe landed: the enriched per-URL list (4 defaults with
   //     shorthand on 'best', dedupe of any tier matching best's
   //     shorthand, optional 5th `best_alt` for non-mp4 alternatives).
@@ -196,8 +199,8 @@ const App = (): React.JSX.Element => {
     };
   }, []);
 
-  // Reset the dropdown to the single-option "Best (TBD)" placeholder
-  // the instant the URL changes to a valid one. Sync, off the raw
+  // Reset the dropdown to PROBING_PLACEHOLDER_CHOICES the instant the
+  // URL changes to a valid one. Sync, off the raw
   // (non-debounced) URL so the dropdown reflects the paste immediately
   // and the user can click Download without waiting on the probe.
   // `normalizedUrl` is included in deps even though the body doesn't
@@ -208,9 +211,11 @@ const App = (): React.JSX.Element => {
   useEffect(() => {
     if (!urlIsValid) {
       setFormatChoices(STATIC_FORMAT_CHOICES_ORDERED);
+      setIsProbing(false);
       return;
     }
     setFormatChoices(PROBING_PLACEHOLDER_CHOICES);
+    setIsProbing(true);
     const placeholder = PROBING_PLACEHOLDER_CHOICES[0];
     if (placeholder !== undefined) {
       setFormat(placeholder);
@@ -265,6 +270,7 @@ const App = (): React.JSX.Element => {
         if (cancelled) {
           return;
         }
+        setIsProbing(false);
         setPlaylistContext(result.playlistContext);
         if (result.choices.length === 0) {
           return;
@@ -276,6 +282,9 @@ const App = (): React.JSX.Element => {
       })
       .catch((err: unknown) => {
         console.error('getFormatChoices rejected:', err);
+        if (!cancelled) {
+          setIsProbing(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -476,12 +485,24 @@ const App = (): React.JSX.Element => {
             <UrlInput value={url} onChange={setUrl} />
             {urlIsValid ? (
               <div className="flex gap-2">
-                <FormatSelector
-                  value={format}
-                  onChange={setFormat}
-                  choices={formatChoices}
-                  debugMode={debugMode}
-                />
+                <div className="relative flex items-center">
+                  <FormatSelector
+                    value={format}
+                    onChange={setFormat}
+                    choices={formatChoices}
+                    debugMode={debugMode}
+                  />
+                  {isProbing ? (
+                    <span
+                      role="status"
+                      aria-label="Detecting available formats…"
+                      title="Detecting available formats…"
+                      className="pointer-events-none absolute right-7 text-neutral-400"
+                    >
+                      <ProbeSpinner />
+                    </span>
+                  ) : null}
+                </div>
                 <button
                   type="submit"
                   className="flex-1 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800"
@@ -538,6 +559,25 @@ const GearIcon = (): React.JSX.Element => (
   >
     <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+  </svg>
+);
+
+/** Animated spinner shown inside the format dropdown while the yt-dlp
+ * metadata probe is in flight. Pure CSS animation — no JS timer, no
+ * re-render per frame. The aria-label on the wrapper span handles
+ * screen-reader announcement. */
+const ProbeSpinner = (): React.JSX.Element => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    aria-hidden="true"
+    className="h-3 w-3 animate-spin"
+  >
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
   </svg>
 );
 

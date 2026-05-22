@@ -14,10 +14,11 @@ type Props = {
 };
 
 // Wait this long after the user stops typing before firing the speculative
-// metadata prefetch. Long enough that we don't spam yt-dlp while the user
-// is mid-paste / mid-edit; short enough that by the time they reach for the
-// Download button the cache has already started warming.
-const PREFETCH_DEBOUNCE_MS = 400;
+// metadata prefetch. Short enough that a paste warms the cache well before
+// the user reaches for the Download button — the App.tsx format probe fires
+// immediately on a valid URL, and a warm cache turns that 5-15 s cold fetch
+// into a near-instant cache hit.
+const PREFETCH_DEBOUNCE_MS = 100;
 
 // Minimum URL length before we consider warming the cache. Avoids firing
 // prefetch on a half-pasted URL like "h" or "https://" that yt-dlp couldn't
