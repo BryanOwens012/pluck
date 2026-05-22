@@ -23,6 +23,11 @@ files:
   - '!{biome.json,.prettierignore,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,yarn.lock}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Local-only tooling dirs that have no business in a packaged build.
+  # See electron-builder.prod.yml for the full rationale.
+  - '!.entire/**'
+  - '!.claude/**'
+  - '!electron-builder.{prod,local}.yml'
 extraResources:
   - from: resources/binaries
     to: binaries
