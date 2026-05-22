@@ -35,8 +35,9 @@
     "dev": "electron-vite dev",
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "install-electron && electron-builder install-app-deps && ./scripts/fetch-binaries.sh",
-    "build:unpack": "npm run build && electron-builder --dir",
-    "build:mac": "./scripts/fetch-binaries.sh --universal && electron-vite build && electron-builder --mac",
+    "build:unpack": "npm run build && cp electron-builder.local.yml electron-builder.yml && electron-builder --dir",
+    "build:mac": "cp electron-builder.prod.yml electron-builder.yml && ./scripts/fetch-binaries.sh --universal && electron-vite build && electron-builder --mac",
+    "build:mac:local": "cp electron-builder.local.yml electron-builder.yml && ./scripts/fetch-binaries.sh --universal && electron-vite build && electron-builder --mac",
     "prepare": "husky"
   },
   "lint-staged": {
