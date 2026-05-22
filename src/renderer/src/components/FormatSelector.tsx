@@ -10,16 +10,15 @@ type Props = {
   onChange: (choice: FormatChoice) => void;
   /** Choices to render. Comes from App, which uses one of: the static
    * defaults (boot / invalid URL — dropdown is hidden in that case),
-   * the single-entry "Best (TBD)" placeholder while a probe runs, or
-   * the per-URL probe result (1-3 dedup'd tiers + audio_mp3 + an
-   * optional 5th `best_alt` for non-mp4 alternatives). */
+   * the pre-probe placeholder list while a probe runs ("Best", "1080p
+   * mp4", …, "Audio-only mp3"), or the per-URL probe result (Best
+   * annotated with actual resolution + merged container, plus the
+   * subset of lower tiers that are available and don't duplicate
+   * Best). */
   choices: readonly FormatChoice[];
-  /** When true, append the per-URL `detail` ("1920×1080 mp4, 60fps")
-   * to every choice. When false, only `best_alt` shows its detail —
-   * the four standard presets stay terse so the dropdown labels don't
-   * shift length when the probe lands. `best_alt` is the exception
-   * because its whole purpose is to surface a different container /
-   * higher resolution, which the detail spells out. */
+  /** Reserved for future verbose detail annotation. Currently the same
+   * label is shown regardless — the post-probe Best already carries
+   * its resolution + container in `detail`, which is sufficient. */
   debugMode: boolean;
 };
 
@@ -60,17 +59,23 @@ const formatLabel = (choice: FormatChoice, debugMode: boolean): string => {
 };
 
 /** Which parenthesised suffix to render next to a choice's label.
- *  - `best_alt`: always full `detail` (its whole purpose is to tell the
- *    user "different container, higher specs"), regardless of debug.
- *  - Debug on: full `detail` for any choice that has one.
- *  - Debug off: `shorthand` only (terse — "1080p", "4K"). The four
- *    standard presets that lack a shorthand render bare. */
+ *
+ * - `detail` is the canonical post-probe annotation for "Best" —
+ *   "1080p mp4" / "4K mkv". Other presets carry their resolution +
+ *   container directly in the label ("1080p mp4", "Audio-only mp3")
+ *   so they have no detail and render bare.
+ * - Debug mode preserves the wider verbose detail (e.g. "1920×1080
+ *   mp4, 60fps") if any preset surfaces one in the future, but the
+ *   default path is the same.
+ *
+ * Pre-probe choices have no detail and so render with just their
+ * static label ("Best", "1080p mp4", …). */
 const pickSuffix = (choice: FormatChoice, debugMode: boolean): string | undefined => {
-  if (choice.id === 'best_alt') {
+  if (choice.detail !== undefined) {
     return choice.detail;
   }
   if (debugMode) {
     return choice.detail;
   }
-  return choice.shorthand;
+  return undefined;
 };

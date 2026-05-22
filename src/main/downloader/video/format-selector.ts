@@ -1,37 +1,41 @@
 import type { FormatChoice } from '../../../shared/types';
-import {
-  STATIC_FORMAT_CHOICES,
-  STATIC_FORMAT_CHOICES_ORDERED,
-  VIDEO_EMBED_FLAGS,
-  VIDEO_TIER_PRESETS,
-} from '../../../shared/types';
+import { STATIC_FORMAT_CHOICES, STATIC_FORMAT_CHOICES_ORDERED } from '../../../shared/types';
 import type { FormatInfo } from '../../ytdlp/types';
 
 /**
  * Per-URL FormatChoice resolution. Input: yt-dlp's `formats` array.
- * Output: a dynamic dropdown list built from the probed metadata:
- *   - "Best" with a resolution shorthand attached (e.g. "4K",
- *     "1080p", "720p") so the user sees what they'll get.
- *   - Lower mp4 tiers (1080p / 720p / 480p / 360p) — included only
- *     when (a) an mp4 stream actually exists at that height and (b)
- *     it isn't a duplicate of the "Best" pick.
- *   - "Audio only (mp3)" — always.
- *   - Optional trailing `best_alt` entry labelled by shorthand +
- *     container ("4K (webm)") when a non-mp4 stream strictly beats
- *     the best mp4.
+ * Output: a dynamic dropdown list built from the probed metadata.
  *
- * AV1-in-mp4 is filtered out across the board because M1 / M2 Macs
- * have no hardware AV1 decode and QuickTime treats some AV1 files as
- * corrupt. Both the format-args and the label-picking logic stay in
- * sync via the same filter applied here.
+ * Pre-probe labels (the renderer's PROBING_PLACEHOLDER_CHOICES) read:
  *
- * Pure function. The renderer's FormatSelector falls back to the four
- * static defaults when no probe data is available (initial mount,
- * invalid URL, network failure).
+ *   Best
+ *   1080p mp4
+ *   720p mp4
+ *   480p mp4
+ *   360p mp4
+ *   Audio-only mp3
  *
- * Module is decoupled from the runner / IPC layer — feed it any
- * FormatInfo[] (real-world or test fixture) and it returns a stable
- * FormatChoice[].
+ * Post-probe, "Best" gains a detail suffix describing the resolution
+ * AND the actual merged output container — e.g. "Best (1080p mp4)"
+ * when the source's top non-AV1 stream merges to mp4, "Best (4K mkv)"
+ * when it merges to mkv (mp4 video + webm audio, or vice versa). The
+ * container distinction is meaningful for users who care about iMovie
+ * / Final Cut compatibility.
+ *
+ * The lower-tier rows survive only when they're (a) actually available
+ * as non-AV1 mp4 at the URL and (b) NOT duplicates of what "Best"
+ * already resolves to. The `audio_mp3` row is always included so
+ * audio-only extraction stays one click away.
+ *
+ * AV1 is filtered out entirely. On YouTube, AV1 is the only codec at
+ * 8K (no h264 or VP9 alternative), so this filter caps the dropdown
+ * at the highest non-AV1 stream — 4K VP9 in practice. Users who want
+ * AV1 can use the override box in Settings.
+ *
+ * Pure function. The renderer's FormatSelector falls back to the
+ * static defaults (with "mp4" suffixes baked into the labels) when no
+ * probe data is available (initial mount, invalid URL, network
+ * failure).
  */
 export const resolveFormatChoices = (formats: readonly FormatInfo[]): FormatChoice[] => {
   // Audio-only URL or unparsed formats array: stick to defaults.
@@ -41,112 +45,78 @@ export const resolveFormatChoices = (formats: readonly FormatInfo[]): FormatChoi
     return [...STATIC_FORMAT_CHOICES_ORDERED];
   }
 
-  // Exclude AV1 streams everywhere — they don't decode well on M1/M2.
-  // The runtime -f filter has the same `[vcodec!*=av01]` clause, so
-  // keeping the label logic in step means the dropdown never advertises
-  // a stream that yt-dlp won't actually download.
   const videoFormats = formats.filter((f) => f.vcodec !== 'none' && !isAv1(f));
+  const audioFormats = formats.filter((f) => f.acodec !== 'none' && f.vcodec === 'none');
   const mp4Videos = videoFormats.filter((f) => f.ext === 'mp4');
 
-  // No video entries at all → audio-only extractor (Vimeo for some
-  // private URLs, podcast feeds). Static fallback is correct: the
-  // user picks audio_mp3 and yt-dlp does its thing.
+  // No non-AV1 video entries at all → audio-only extractor (Vimeo for
+  // some private URLs, podcast feeds) or an AV1-only source. Static
+  // fallback is correct: the user picks audio_mp3 and yt-dlp does its
+  // thing.
   if (videoFormats.length === 0) {
     return [...STATIC_FORMAT_CHOICES_ORDERED];
   }
 
-  // For each height-capped tier, find the best mp4 within it. "Best"
-  // here is (height, fps, tbr) descending. We pre-pick so labels can
-  // describe the actual file that lands on disk, not the theoretical
-  // max.
-  const bestMp4Unrestricted = pickBestVideo(mp4Videos);
+  // The "Best" pick uses the unrestricted top non-AV1 video. This
+  // matches what QUALITY_FIRST_BEST_CHOICE actually downloads pre-
+  // probe, so the post-probe detail describes the file the user will
+  // get if they click Best now.
+  const bestVideo = pickBestVideo(videoFormats);
+  if (bestVideo === undefined) {
+    return [...STATIC_FORMAT_CHOICES_ORDERED];
+  }
 
-  // Enrich the "Best" entry with a shorthand bucket ("4K", "1080p")
-  // computed from the actual top-pick height; the lower tiers carry
-  // their resolution in the label already so no shorthand needed.
-  const best = enrich(STATIC_FORMAT_CHOICES.best, bestMp4Unrestricted, { withShorthand: true });
+  // Predict the merged output container. yt-dlp keeps mp4 when both
+  // video and audio sit in compatible mp4-family containers (m4a is
+  // mp4-family). Mixed-container merges (mp4 video + webm audio, or
+  // webm video + m4a audio) get muxed to mkv.
+  const m4aAudio = audioFormats.find((a) => a.ext === 'm4a');
+  const mergedContainer = bestVideo.ext === 'mp4' && m4aAudio !== undefined ? 'mp4' : 'mkv';
+  const bestShorthand = bestVideo.height !== undefined ? resolutionShorthand(bestVideo.height) : '';
+  const bestDetail = bestShorthand ? `${bestShorthand} ${mergedContainer}` : mergedContainer;
+  const best: FormatChoice = {
+    ...STATIC_FORMAT_CHOICES.best,
+    detail: bestDetail,
+    shorthand: bestShorthand,
+  };
 
   // Lower-tier inclusion is filtered against what's actually available:
-  //   1. Drop tier if its shorthand matches "Best"'s — no duplicate row.
-  //   2. Drop tier if the URL doesn't offer an mp4 stream at (or above)
-  //      that height. Otherwise picking the tier would silently fall
-  //      back to a lower-res stream and confuse the user.
+  //   1. Drop tier if its height matches "Best"'s pick — no duplicate
+  //      row would show the same file under two labels.
+  //   2. Drop tier if the URL doesn't offer a non-AV1 mp4 stream at
+  //      (or above) that height. Otherwise picking the tier would
+  //      silently fall to a lower-res stream and confuse the user.
   // VIDEO_TIER_PRESETS lists tiers in descending order (1080p, 720p,
-  // 480p, 360p), which is the same order they're displayed in the
-  // dropdown.
+  // 480p, 360p), the same order they're displayed in the dropdown.
   const choices: FormatChoice[] = [best];
+  const bestHeight = bestVideo.height ?? 0;
   for (const tier of VIDEO_TIER_PRESETS) {
-    if (best.shorthand === tier.id) {
+    if (bestHeight === tier.height) {
+      // Dedupe: Best already resolves to this exact tier.
       continue;
     }
     const tierMp4 = pickBestVideo(mp4Videos.filter((f) => (f.height ?? 0) <= tier.height));
     if ((tierMp4?.height ?? 0) < tier.height) {
       continue;
     }
-    choices.push(enrich(STATIC_FORMAT_CHOICES[tier.id], tierMp4));
+    choices.push(STATIC_FORMAT_CHOICES[tier.id]);
   }
   choices.push(STATIC_FORMAT_CHOICES.audio_mp3);
-
-  // Optional trailing `best_alt`: the best non-mp4 unrestricted, IFF
-  // it strictly beats the best unrestricted mp4. "Strictly beats" =
-  // higher height, OR (same height AND higher fps), OR (same height
-  // AND fps AND higher tbr). Equal-quality non-mp4 doesn't earn a
-  // slot — there's no benefit, only the cost of a less-compatible
-  // container.
-  const nonMp4Videos = videoFormats.filter((f) => f.ext !== 'mp4');
-  const bestNonMp4 = pickBestVideo(nonMp4Videos);
-  if (bestNonMp4 !== undefined && strictlyBeats(bestNonMp4, bestMp4Unrestricted)) {
-    // Label uses the resolution shorthand ("4K"); detail is just the
-    // container ("webm"). FormatSelector always shows detail for
-    // best_alt regardless of debug mode, so users see e.g. "4K (webm)"
-    // at the bottom of the dropdown — telling them in two tokens that
-    // this is the higher-quality alternative in a different container.
-    const altLabel =
-      bestNonMp4.height !== undefined ? resolutionShorthand(bestNonMp4.height) : 'Best';
-    choices.push({
-      id: 'best_alt',
-      label: altLabel,
-      detail: bestNonMp4.ext,
-      // Match by container ext. No height cap (this is the "give me
-      // the best regardless of container" path). Sort by (res, fps,
-      // tbr) — `vcodec:h264` doesn't apply here because the whole
-      // point of best_alt is a non-mp4 codec. ffmpeg's mkv/webm
-      // muxers handle the embed-thumbnail / embed-subs flags the same
-      // way they handle mp4, so we reuse VIDEO_EMBED_FLAGS verbatim.
-      ytDlpFormatArgs: [
-        '-f',
-        `bv*[ext=${bestNonMp4.ext}]+ba/b[ext=${bestNonMp4.ext}]`,
-        '-S',
-        'res,fps,tbr',
-        ...VIDEO_EMBED_FLAGS,
-      ],
-    });
-  }
 
   return choices;
 };
 
-/** Comparator: returns true iff `a` strictly beats `b` on the (height,
- * fps, tbr) ladder. `undefined` b counts as "no mp4 was found"; the
- * non-mp4 entry then trivially earns its slot. */
-const strictlyBeats = (a: FormatInfo, b: FormatInfo | undefined): boolean => {
-  if (b === undefined) {
-    return true;
-  }
-  const ah = a.height ?? 0;
-  const bh = b.height ?? 0;
-  if (ah !== bh) {
-    return ah > bh;
-  }
-  const af = a.fps ?? 0;
-  const bf = b.fps ?? 0;
-  if (af !== bf) {
-    return af > bf;
-  }
-  const at = a.tbr ?? 0;
-  const bt = b.tbr ?? 0;
-  return at > bt;
-};
+/** Tier heights for the lower-resolution mp4 entries. Order matters —
+ * displayed in this order in the dropdown. */
+const VIDEO_TIER_PRESETS = [
+  { id: '1080p', height: 1080 },
+  { id: '720p', height: 720 },
+  { id: '480p', height: 480 },
+  { id: '360p', height: 360 },
+] as const satisfies ReadonlyArray<{
+  id: '1080p' | '720p' | '480p' | '360p';
+  height: number;
+}>;
 
 /** Pick the best video format by (height, fps, tbr) descending. Empty
  * input returns undefined so callers can branch. */
@@ -167,30 +137,9 @@ const pickBestVideo = (entries: readonly FormatInfo[]): FormatInfo | undefined =
   })[0];
 };
 
-/** Attach the actual dimensions + ext as `detail` (visible in debug
- * mode) and, optionally, a terse resolution shorthand like "1080p" or
- * "4K" (visible always) without changing the base label. When `info`
- * is undefined (no mp4 found in this tier), the base is returned
- * unchanged — the user still sees the preset name and no stale data
- * gets attached. */
-const enrich = (
-  base: FormatChoice,
-  info: FormatInfo | undefined,
-  options: { withShorthand?: boolean } = {},
-): FormatChoice => {
-  if (info === undefined) {
-    return base;
-  }
-  const enriched: FormatChoice = { ...base, detail: describeFormat(info) };
-  if (options.withShorthand && info.height !== undefined) {
-    enriched.shorthand = resolutionShorthand(info.height);
-  }
-  return enriched;
-};
-
 /** True for any format whose vcodec id starts with "av01" — the yt-dlp
  * codec naming convention for AV1. Matches the runtime filter
- * `[vcodec!*=av01]` we set in STATIC_FORMAT_CHOICES so labels stay
+ * `[vcodec!*=av01]` in QUALITY_FIRST_BEST_CHOICE so labels stay
  * consistent with what actually downloads. */
 const isAv1 = (info: FormatInfo): boolean => info.vcodec.startsWith('av01');
 
@@ -226,26 +175,4 @@ const resolutionShorthand = (height: number): string => {
     return '360p';
   }
   return '240p';
-};
-
-/** Compose the parenthesised detail string. Shape examples:
- *  - "1920×1080 mp4"
- *  - "1920×1080 mp4, 60fps"
- *  - "1080p mp4" (when yt-dlp only gave us a height, not width)
- *
- * Comma before the fps so the eye can split "dimensions + container"
- * (the primary axis) from "framerate" (the qualifier). */
-const describeFormat = (info: FormatInfo): string => {
-  let main: string;
-  if (info.width !== undefined && info.height !== undefined) {
-    main = `${info.width}×${info.height} ${info.ext}`;
-  } else if (info.height !== undefined) {
-    main = `${info.height}p ${info.ext}`;
-  } else {
-    main = info.ext;
-  }
-  if (info.fps !== undefined && info.fps > 30) {
-    return `${main}, ${Math.round(info.fps)}fps`;
-  }
-  return main;
 };

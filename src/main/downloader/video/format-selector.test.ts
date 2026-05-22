@@ -26,68 +26,90 @@ const webm = (height: number, fps = 30, tbr = 1500): FormatInfo => ({
   tbr,
 });
 
-const audioOnly = (): FormatInfo => ({
+const m4aAudio = (): FormatInfo => ({
   ext: 'm4a',
   vcodec: 'none',
   acodec: 'mp4a.40.2',
 });
 
+const opusAudio = (): FormatInfo => ({
+  ext: 'webm',
+  vcodec: 'none',
+  acodec: 'opus',
+});
+
+const av01Mp4 = (height: number, fps = 30, tbr = 3000): FormatInfo => ({
+  ext: 'mp4',
+  vcodec: 'av01.0.08M.08',
+  acodec: 'mp4a.40.2',
+  width: (height * 16) / 9,
+  height,
+  fps,
+  tbr,
+});
+
 describe('resolveFormatChoices', () => {
-  it('returns the static four defaults when formats array is empty', () => {
+  it('returns the static defaults when formats array is empty', () => {
     expect(resolveFormatChoices([])).toEqual(STATIC_FORMAT_CHOICES_ORDERED);
   });
 
-  it('returns the static four defaults when all formats are audio-only (no video extractor)', () => {
-    expect(resolveFormatChoices([audioOnly(), audioOnly()])).toEqual(STATIC_FORMAT_CHOICES_ORDERED);
+  it('returns the static defaults when all formats are audio-only', () => {
+    expect(resolveFormatChoices([m4aAudio(), opusAudio()])).toEqual(STATIC_FORMAT_CHOICES_ORDERED);
   });
 
-  it('drops the duplicate 1080p tier when best mp4 is 1080p, keeps the lower tiers the URL actually has', () => {
-    // Best is exactly 1080p. The fixture also has mp4 at 720p and 360p
-    // (but NOT 480p). The dropdown should be:
-    //   Best (1080p) ← shorthand-annotated best, dedupe of the 1080p tier
-    //   720p          ← present in source
-    //   360p          ← present in source
-    //   Audio only (mp3)
-    // 480p is dropped because the source has no ≥480p mp4 besides the
-    // ones that already get covered by other rows.
-    const choices = resolveFormatChoices([
-      mp4(1080, 60),
-      mp4(1080, 30),
-      mp4(720, 60),
-      mp4(720, 30),
-      mp4(360, 30),
-      audioOnly(),
-    ]);
+  it("returns the static defaults when the only video is AV1 (AV1-only sources can't be downloaded)", () => {
+    expect(resolveFormatChoices([av01Mp4(1080, 60), m4aAudio()])).toEqual(
+      STATIC_FORMAT_CHOICES_ORDERED,
+    );
+  });
+
+  it('1080p source: Best detail is "1080p mp4", 1080p tier is deduped', () => {
+    // Source has 1080p mp4 + m4a audio. Best resolves to 1080p mp4.
+    // Dropdown should be: Best (1080p mp4), 720p mp4, 360p mp4, Audio-only mp3.
+    // 480p is absent from source so dropped.
+    const choices = resolveFormatChoices([mp4(1080, 60), mp4(720, 60), mp4(360, 30), m4aAudio()]);
 
     expect(choices.map((c) => c.id)).toEqual(['best', '720p', '360p', 'audio_mp3']);
 
     const best = choices[0];
-    expect(best?.id).toBe('best');
     expect(best?.label).toBe('Best');
+    expect(best?.detail).toBe('1080p mp4');
     expect(best?.shorthand).toBe('1080p');
-    expect(best?.detail).toBe('1920×1080 mp4, 60fps');
 
-    const p720 = choices[1];
-    expect(p720?.id).toBe('720p');
-    expect(p720?.label).toBe('720p');
-    expect(p720?.shorthand).toBeUndefined();
-    expect(p720?.detail).toBe('1280×720 mp4, 60fps');
-
-    const audio = choices[3];
-    expect(audio?.id).toBe('audio_mp3');
-    expect(audio?.label).toBe('Audio only (mp3)');
-    expect(audio?.shorthand).toBeUndefined();
-    expect(audio?.detail).toBeUndefined();
+    // Lower tiers carry their resolution + container in the label.
+    expect(choices[1]?.label).toBe('720p mp4');
+    expect(choices[2]?.label).toBe('360p mp4');
+    expect(choices[3]?.label).toBe('Audio-only mp3');
   });
 
-  it('keeps every available lower tier when best mp4 exceeds all of them (4K best)', () => {
-    // Best is 4K. All four lower tiers offer real value and stay.
+  it('4K WebM source: Best detail is "4K mkv" (mixed container merges to mkv)', () => {
+    // YouTube 4K is VP9 webm. Audio is m4a. Mixed container merge → mkv.
+    const choices = resolveFormatChoices([webm(2160, 60), mp4(1080, 60), mp4(720, 60), m4aAudio()]);
+
+    expect(choices.map((c) => c.id)).toEqual(['best', '1080p', '720p', 'audio_mp3']);
+
+    const best = choices[0];
+    expect(best?.detail).toBe('4K mkv');
+    expect(best?.shorthand).toBe('4K');
+
+    // Lower mp4 tiers still appear because the source has them.
+    expect(choices[1]?.label).toBe('1080p mp4');
+  });
+
+  it('4K WebM + opus only (no m4a): Best detail is "4K mkv"', () => {
+    // Without m4a audio, predicted output container is mkv regardless.
+    const choices = resolveFormatChoices([webm(2160, 60), opusAudio()]);
+    expect(choices[0]?.detail).toBe('4K mkv');
+  });
+
+  it('keeps every lower tier when Best is higher than 1080p', () => {
     const choices = resolveFormatChoices([
-      mp4(2160, 60),
+      webm(2160, 60),
       mp4(1080, 60),
       mp4(720, 60),
       mp4(480, 60),
       mp4(360, 60),
+      m4aAudio(),
     ]);
     expect(choices.map((c) => c.id)).toEqual([
       'best',
@@ -97,19 +119,22 @@ describe('resolveFormatChoices', () => {
       '360p',
       'audio_mp3',
     ]);
-    expect(choices[0]?.shorthand).toBe('4K');
   });
 
-  it('drops the 1080p tier when best mp4 only goes to 720p, keeps lower tiers that exist', () => {
-    // Showing "1080p" when no 1080p is available would silently fall
-    // back to 720p and confuse the user. 720p is the best, so it gets
-    // deduped too. 480p exists in the fixture so it stays.
-    const choices = resolveFormatChoices([mp4(720, 30), mp4(480, 30)]);
+  it('drops the 1080p tier when no non-AV1 mp4 reaches 1080p', () => {
+    // Source has 4K webm + 720p mp4 only. "1080p mp4" would silently
+    // resolve to 720p mp4, so we omit it from the dropdown.
+    const choices = resolveFormatChoices([webm(2160, 60), mp4(720, 60), m4aAudio()]);
+    expect(choices.map((c) => c.id)).toEqual(['best', '720p', 'audio_mp3']);
+  });
+
+  it('720p mp4 source: Best resolves to 720p mp4, the 720p tier is deduped', () => {
+    const choices = resolveFormatChoices([mp4(720, 30), mp4(480, 30), m4aAudio()]);
     expect(choices.map((c) => c.id)).toEqual(['best', '480p', 'audio_mp3']);
-    expect(choices[0]?.shorthand).toBe('720p');
+    expect(choices[0]?.detail).toBe('720p mp4');
   });
 
-  it('maps probed height to the right consumer shorthand on the `best` choice', () => {
+  it('maps probed height to the right consumer shorthand', () => {
     const cases: Array<{ height: number; shorthand: string }> = [
       { height: 4320, shorthand: '8K' },
       { height: 3456, shorthand: '6K' },
@@ -124,156 +149,47 @@ describe('resolveFormatChoices', () => {
       { height: 144, shorthand: '240p' }, // floor — never go below 240p
     ];
     for (const { height, shorthand } of cases) {
-      const choices = resolveFormatChoices([mp4(height, 30)]);
+      const choices = resolveFormatChoices([mp4(height, 30), m4aAudio()]);
       expect(choices[0]?.shorthand).toBe(shorthand);
     }
   });
 
-  it('omits the fps suffix when fps is <= 30 (standard 24/25/30 footage)', () => {
-    const choices = resolveFormatChoices([mp4(1080, 30), mp4(720, 24)]);
-    expect(choices[0]?.detail).toBe('1920×1080 mp4');
-    expect(choices[0]?.detail).not.toMatch(/fps/);
+  it('AV1 streams are ignored when a non-AV1 alternative exists at the same height', () => {
+    // 1080p has both AV1 mp4 and h264 mp4. Best should be the h264 stream,
+    // not the AV1 one. Detail should be "1080p mp4" (predicted output).
+    const choices = resolveFormatChoices([av01Mp4(1080, 60), mp4(1080, 30), m4aAudio()]);
+    const best = choices[0];
+    expect(best?.shorthand).toBe('1080p');
+    expect(best?.detail).toBe('1080p mp4');
   });
 
-  it('adds a best_alt option labelled by shorthand + ext when non-mp4 beats best mp4 (4K webm vs 1080p mp4)', () => {
+  it('AV1 is the only option at 8K but VP9 is best at 4K: Best caps at 4K (matches QUALITY_FIRST_BEST_CHOICE behaviour)', () => {
+    // YouTube's actual structure: 8K AV1-only, 4K both VP9 and AV1, lower h264.
     const choices = resolveFormatChoices([
-      mp4(1080, 60),
-      mp4(720, 60),
-      webm(2160, 60),
-      webm(1440, 60),
-      audioOnly(),
+      av01Mp4(4320, 60), // 8K — excluded by AV1 filter
+      webm(2160, 60), // 4K VP9 — Best lands here
+      av01Mp4(2160, 60), // 4K AV1 — excluded
+      mp4(1080, 60), // 1080p h264
+      m4aAudio(),
     ]);
-
-    const alt = choices.find((c) => c.id === 'best_alt');
-    expect(alt).toBeDefined();
-    expect(alt?.label).toBe('4K');
-    expect(alt?.detail).toBe('webm');
-    // The args target the winning container by ext.
-    expect(alt?.ytDlpFormatArgs).toContain('bv*[ext=webm]+ba/b[ext=webm]');
-    // best_alt still gets the audio embed flags so the webm/mkv file
-    // shows cover art + metadata the same way mp4 presets do. Subtitle
-    // flags are NOT in the preset — they're added by buildDownloadArgs
-    // only when the user has cookies set.
-    expect(alt?.ytDlpFormatArgs).toContain('--embed-thumbnail');
-    expect(alt?.ytDlpFormatArgs).toContain('--add-metadata');
-    expect(alt?.ytDlpFormatArgs).not.toContain('--embed-subs');
-    // best_alt always lands at the bottom.
-    expect(choices.at(-1)?.id).toBe('best_alt');
+    expect(choices[0]?.shorthand).toBe('4K');
+    expect(choices[0]?.detail).toBe('4K mkv'); // 4K VP9 webm + m4a → mkv
   });
 
-  it('adds a best_alt option when same-resolution webm has higher fps (1080p60 webm vs 1080p30 mp4)', () => {
-    const choices = resolveFormatChoices([mp4(1080, 30, 2000), webm(1080, 60, 3000)]);
-    const alt = choices.find((c) => c.id === 'best_alt');
-    expect(alt).toBeDefined();
-    expect(alt?.label).toBe('1080p');
-    expect(alt?.detail).toBe('webm');
-  });
-
-  it('adds a best_alt option when same-res same-fps webm has higher tbr (bitrate tiebreaker)', () => {
-    const choices = resolveFormatChoices([
-      mp4(1080, 60, 5000), //
-      webm(1080, 60, 8000),
-    ]);
-    expect(choices.find((c) => c.id === 'best_alt')).toBeDefined();
-  });
-
-  it('does NOT add a best_alt option when mp4 and webm match exactly (no benefit)', () => {
-    const choices = resolveFormatChoices([
-      mp4(1080, 60, 5000), //
-      webm(1080, 60, 5000),
-    ]);
-    expect(choices.find((c) => c.id === 'best_alt')).toBeUndefined();
-  });
-
-  it('does NOT add a best_alt option when mp4 strictly beats webm', () => {
-    const choices = resolveFormatChoices([mp4(2160, 60), webm(1080, 60)]);
-    expect(choices.find((c) => c.id === 'best_alt')).toBeUndefined();
-  });
-
-  it('leaves detail undefined when no mp4 exists at the tier (Vimeo-style webm-only)', () => {
-    // No mp4 → enrich returns the static base unchanged (no `detail`
-    // attached). The best_alt option still appears for the webm.
-    const choices = resolveFormatChoices([webm(1080, 30), webm(720, 30)]);
-    expect(choices[0]?.label).toBe('Best');
-    expect(choices[0]?.detail).toBeUndefined();
-    expect(choices.find((c) => c.id === 'best_alt')).toBeDefined();
-  });
-
-  it('always includes audio_mp3 with its static label (no per-URL enrichment)', () => {
-    // Regardless of available video formats, audio_mp3 stays plain
-    // because its output is always re-encoded mp3 — describing the
-    // SOURCE container would mislead.
-    for (const fixture of [[], [mp4(720, 30)], [mp4(2160, 60), webm(2160, 60)]]) {
+  it('always includes audio_mp3 with the static "Audio-only mp3" label', () => {
+    for (const fixture of [[], [mp4(720, 30), m4aAudio()], [webm(2160, 60), m4aAudio()]]) {
       const choices = resolveFormatChoices(fixture);
       const audio = choices.find((c) => c.id === 'audio_mp3');
-      expect(audio?.label).toBe('Audio only (mp3)');
+      expect(audio?.label).toBe('Audio-only mp3');
     }
   });
 
   it('handles formats missing fps/tbr fields without throwing', () => {
-    // Older yt-dlp versions or weird extractors sometimes omit these.
     const choices = resolveFormatChoices([
       { ext: 'mp4', vcodec: 'avc1', acodec: 'mp4a', height: 720 },
       { ext: 'webm', vcodec: 'vp9', acodec: 'opus', height: 1080 },
     ]);
-    const alt = choices.find((c) => c.id === 'best_alt');
-    expect(alt).toBeDefined();
-    expect(alt?.label).toBe('1080p');
-    expect(alt?.detail).toBe('webm');
-  });
-
-  it('handles formats with only height (no width) — uses Np shorthand in detail', () => {
-    const choices = resolveFormatChoices([
-      { ext: 'mp4', vcodec: 'avc1', acodec: 'mp4a', height: 1080, fps: 30 },
-    ]);
-    expect(choices[0]?.detail).toBe('1080p mp4');
-  });
-
-  it('places best_alt at the bottom of the dropdown', () => {
-    const choices = resolveFormatChoices([mp4(1080, 30), webm(2160, 60)]);
-    expect(choices.at(-1)?.id).toBe('best_alt');
-  });
-
-  it('excludes AV1-in-mp4 from the best-mp4 pick (M1/M2 Macs have no AV1 hw decode)', () => {
-    // Source serves 1080p60 in av01-mp4 AND 1080p30 in h264-mp4. The
-    // av01 entry would otherwise win the (height, fps) tiebreaker; we
-    // skip it so the labels match what `[vcodec!*=av01]` actually
-    // downloads.
-    const av01_1080p60: FormatInfo = {
-      ext: 'mp4',
-      vcodec: 'av01.0.08M.08',
-      acodec: 'mp4a.40.2',
-      width: 1920,
-      height: 1080,
-      fps: 60,
-      tbr: 3000,
-    };
-    const choices = resolveFormatChoices([av01_1080p60, mp4(1080, 30, 2000)]);
-    const best = choices[0];
-    expect(best?.id).toBe('best');
-    // Detail should describe the h264 30fps stream, not the av01 60fps.
-    expect(best?.detail).toBe('1920×1080 mp4');
-    expect(best?.detail).not.toMatch(/fps/);
-  });
-
-  it('falls back to static defaults when the only video is AV1-in-mp4', () => {
-    const av01: FormatInfo = {
-      ext: 'mp4',
-      vcodec: 'av01.0.08M.08',
-      acodec: 'mp4a.40.2',
-      width: 1920,
-      height: 1080,
-      fps: 60,
-    };
-    expect(resolveFormatChoices([av01])).toEqual(STATIC_FORMAT_CHOICES_ORDERED);
-  });
-
-  it('drops the 1080p tier when no mp4 reaches 1080p even though best is higher (mp4 mix)', () => {
-    // Hypothetical: best mp4 is at 4K but no 1080p mp4 stream exists —
-    // the only mp4 below 4K is at 720p. Showing "1080p" in the dropdown
-    // would silently pick the 720p file. Better to omit the tier.
-    const choices = resolveFormatChoices([mp4(2160, 60), mp4(720, 60)]);
-    expect(choices.map((c) => c.id)).toEqual(['best', '720p', 'audio_mp3']);
-    expect(choices[0]?.shorthand).toBe('4K');
+    expect(choices[0]?.shorthand).toBe('1080p');
+    expect(choices[0]?.detail).toBe('1080p mkv'); // webm video + (no m4a) → mkv
   });
 });

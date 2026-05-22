@@ -4,32 +4,20 @@
  * from here.
  */
 
-/** Stable ids for the six built-in format presets. The optional 7th
- * dropdown entry (a non-mp4 alternative when it strictly beats best
- * mp4) uses the dynamic id 'best_alt'. Any future ids land here too. */
-export const FORMAT_IDS = [
-  'best',
-  '1080p',
-  '720p',
-  '480p',
-  '360p',
-  'audio_mp3',
-  'best_alt',
-] as const;
+/** Stable ids for the six built-in format presets. */
+export const FORMAT_IDS = ['best', '1080p', '720p', '480p', '360p', 'audio_mp3'] as const;
 export type FormatId = (typeof FORMAT_IDS)[number];
 
 /** What the renderer picks and what the runner consumes. The id is
- * stable across UI / IPC / history; `label` is the always-visible base
- * name ("Best"); `shorthand` is a terse resolution bucket
- * ("4K", "1080p") shown next to the label in non-debug mode — only the
- * `best` preset populates this since "1080p" / "720p" are already the
- * label, and audio_mp3 has no resolution; `detail` is the full per-URL
- * specifics ("1920×1080 mp4, 60fps") which the UI only renders in
- * debug mode (or always, for the trailing `best_alt` entry whose
- * entire purpose is to surface a different container); `ytDlpFormatArgs`
- * carries the actual yt-dlp flags. Storing the args frozen at enqueue
- * time means Retry replays the same flag set even if the source URL's
- * available formats have changed since.
+ * stable across UI / IPC / history; `label` is the always-visible
+ * base name (e.g. "Best", "1080p mp4"); `detail` is the post-probe
+ * suffix shown for the Best entry (e.g. "1080p mp4", "4K mkv") — the
+ * label becomes "Best (1080p mp4)" via the FormatSelector; `shorthand`
+ * is a terse resolution bucket retained as a structured field for
+ * future use; `ytDlpFormatArgs` carries the actual yt-dlp flags.
+ * Storing the args frozen at enqueue time means Retry replays the
+ * same flag set even if the source URL's available formats have
+ * changed since.
  *
  * For video presets the args are like `['-f', '...', '-S', 'res,vcodec:h264,fps']`.
  * For audio_mp3 they're `['-x', '--audio-format', 'mp3', '--audio-quality', '0']`.
@@ -54,9 +42,7 @@ const AUDIO_EMBED_FLAGS = ['--embed-thumbnail', '--add-metadata'] as const;
 /** Video-only additions on top of the audio flags. Currently just an
  * alias — subtitle flags moved out to
  * `src/main/downloader/subtitles/flags.ts` because they're applied
- * conditionally at spawn time based on cookies. Exported so the
- * format-selector can reuse the embed flags on the dynamic best_alt
- * entry. */
+ * conditionally at spawn time based on cookies. */
 export const VIDEO_EMBED_FLAGS = AUDIO_EMBED_FLAGS;
 
 /** Sort priority for every video preset: highest resolution first,
@@ -117,25 +103,33 @@ const mp4VideoSelector = (maxHeight?: number): string => {
  * restriction. The `-S res,vcodec:h264,fps` sort still prefers h264
  * (so 1080p YouTube stays mp4), but at 4K YouTube only has VP9/WebM
  * available — no mp4 — so h264 preference is moot and the user gets
- * the actual highest quality (4K WebM) instead of silently capping
- * at 1080p mp4.
+ * the actual highest quality (4K WebM merged to mkv) instead of
+ * silently capping at 1080p mp4. Audio pinned to m4a so 1080p sources
+ * (h264 video + m4a audio) merge to clean mp4.
  *
- * AV1 is still excluded: M1 Macs can't hardware-decode it, and
- * QuickTime playback is unreliable. On YouTube, VP9 WebM is always
- * available alongside AV1 at every resolution, so the exclusion
- * doesn't forfeit 4K.
+ * AV1 is excluded as a hard filter: M1 Macs can't hardware-decode it,
+ * and QuickTime playback is unreliable. On YouTube, this means 8K
+ * (which is AV1-only on YouTube) can't be downloaded — the selector
+ * caps at the highest non-AV1 stream (4K VP9). Users who want AV1
+ * can use the override box in Settings → Developer.
  *
- * Used in PROBING_PLACEHOLDER_CHOICES (pre-probe state) and as the
- * initial format selection before any URL is pasted. When the probe
- * lands and best_alt exists (meaning a higher-res non-mp4 option was
- * found), the probe effect auto-promotes the selection to best_alt —
- * consistent with this quality-first intent. */
+ * Used as the initial format selection and as the "Best" entry of
+ * PROBING_PLACEHOLDER_CHOICES. After the probe lands, the renderer
+ * swaps this for the enriched post-probe "Best" whose detail string
+ * describes the actual resolution + merged container the user will
+ * get ("1080p mp4" / "4K mkv"). */
 export const QUALITY_FIRST_BEST_CHOICE: FormatChoice = {
   id: 'best',
   label: 'Best',
   ytDlpFormatArgs: [
     '-f',
-    'bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b',
+    // Pin audio to m4a so a 1080p YouTube source (h264 mp4 + m4a) merges
+    // to clean mp4 instead of mkv (the mixed-container fallback). At
+    // resolutions above 1080p where only WebM video exists, m4a audio
+    // is still available — yt-dlp merges to mkv in that case, which
+    // matches what the user sees in the "Best (4K mkv)" post-probe
+    // label.
+    'bv*[vcodec!*=av01]+ba[ext=m4a]/b[vcodec!*=av01]/b',
     ...VIDEO_SORT_FLAGS,
     ...VIDEO_EMBED_FLAGS,
   ],
@@ -144,7 +138,7 @@ export const QUALITY_FIRST_BEST_CHOICE: FormatChoice = {
 /** Static fallback table — used by the renderer before a URL probe
  * runs. Labels are generic ("Best") because we don't know per-URL
  * dimensions until format-selector runs on a fetched metadata pass. */
-export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, FormatChoice> = {
+export const STATIC_FORMAT_CHOICES: Record<FormatId, FormatChoice> = {
   best: {
     id: 'best',
     label: 'Best',
@@ -152,27 +146,27 @@ export const STATIC_FORMAT_CHOICES: Record<Exclude<FormatId, 'best_alt'>, Format
   },
   '1080p': {
     id: '1080p',
-    label: '1080p',
+    label: '1080p mp4',
     ytDlpFormatArgs: ['-f', mp4VideoSelector(1080), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   '720p': {
     id: '720p',
-    label: '720p',
+    label: '720p mp4',
     ytDlpFormatArgs: ['-f', mp4VideoSelector(720), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   '480p': {
     id: '480p',
-    label: '480p',
+    label: '480p mp4',
     ytDlpFormatArgs: ['-f', mp4VideoSelector(480), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   '360p': {
     id: '360p',
-    label: '360p',
+    label: '360p mp4',
     ytDlpFormatArgs: ['-f', mp4VideoSelector(360), ...VIDEO_SORT_FLAGS, ...VIDEO_EMBED_FLAGS],
   },
   audio_mp3: {
     id: 'audio_mp3',
-    label: 'Audio only (mp3)',
+    label: 'Audio-only mp3',
     // `--audio-quality 0` is LAME `-V 0` — variable bitrate, highest
     // quality. The encoder adapts per-frame to the source: complex
     // audio gets allocated up to 320 kbps (LAME's hard ceiling),
@@ -194,21 +188,6 @@ export const STATIC_FORMAT_CHOICES_ORDERED: readonly FormatChoice[] = [
   STATIC_FORMAT_CHOICES['360p'],
   STATIC_FORMAT_CHOICES.audio_mp3,
 ];
-
-/** The height-capped mp4 tiers in descending order — used by both the
- * format-selector (to decide which tier rows survive the dedupe pass)
- * and by any future code that wants to iterate the lower tiers. The
- * `best` and `audio_mp3` presets are not in this list because they're
- * not height-capped tiers. */
-export const VIDEO_TIER_PRESETS = [
-  { id: '1080p', height: 1080 },
-  { id: '720p', height: 720 },
-  { id: '480p', height: 480 },
-  { id: '360p', height: 360 },
-] as const satisfies ReadonlyArray<{
-  id: Exclude<FormatId, 'best' | 'audio_mp3' | 'best_alt'>;
-  height: number;
-}>;
 
 /** Browsers yt-dlp can pull cookies from. Subset of yt-dlp's full list
  * (chromium, opera, vivaldi, whale also work) — these are the common

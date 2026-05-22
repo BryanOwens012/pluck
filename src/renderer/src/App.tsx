@@ -76,9 +76,10 @@ const App = (): React.JSX.Element => {
   //   - URL valid, probe in flight: PROBING_PLACEHOLDER_CHOICES (full
   //     static preset list so the user can click Download immediately
   //     without waiting on the probe).
-  //   - Probe landed: the enriched per-URL list (4 defaults with
-  //     shorthand on 'best', dedupe of any tier matching best's
-  //     shorthand, optional 5th `best_alt` for non-mp4 alternatives).
+  //   - Probe landed: the enriched per-URL list. "Best" picks up a
+  //     detail describing actual resolution + merged container (e.g.
+  //     "1080p mp4", "4K mkv"); a lower tier is omitted from the
+  //     dropdown when its height matches the picked Best.
   const [formatChoices, setFormatChoices] = useState<readonly FormatChoice[]>(
     STATIC_FORMAT_CHOICES_ORDERED,
   );
@@ -277,19 +278,9 @@ const App = (): React.JSX.Element => {
           return;
         }
         setFormatChoices(result.choices);
-        setFormat((prev) => {
-          // If the user is on the quality-first "Best" placeholder AND
-          // the probe found a best_alt (higher-res non-mp4, e.g. 4K
-          // WebM), auto-promote to best_alt — consistent with the
-          // quality-first intent of the pre-probe selector. If they
-          // explicitly picked a tier (1080p, 720p, …) before the probe
-          // landed, we honour that choice instead.
-          const bestAlt = result.choices.find((c) => c.id === 'best_alt');
-          if (bestAlt !== undefined && prev.id === 'best') {
-            return bestAlt;
-          }
-          return result.choices.find((c) => c.id === prev.id) ?? result.choices[0] ?? prev;
-        });
+        setFormat(
+          (prev) => result.choices.find((c) => c.id === prev.id) ?? result.choices[0] ?? prev,
+        );
       })
       .catch((err: unknown) => {
         console.error('getFormatChoices rejected:', err);
