@@ -40,7 +40,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
     // itself just covers thumbnail + metadata.
     expect(STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs).toEqual([
       '-f',
-      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
       '-S',
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
@@ -51,7 +51,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
   it('1080p: same shape with height cap', () => {
     expect(STATIC_FORMAT_CHOICES['1080p'].ytDlpFormatArgs).toEqual([
       '-f',
-      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]/b[ext=mp4][height<=1080]/b[height<=1080]/b',
+      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
       '-S',
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
@@ -112,28 +112,35 @@ describe('STATIC_FORMAT_CHOICES', () => {
     expect(flag).not.toContain('[height<=720]');
   });
 
-  it('every video preset ends with an unrestricted /b fallback', () => {
-    // Ensures sites that serve a single pre-merged stream (Zoom,
-    // direct CDN links) can always be downloaded even when the
-    // preferred mp4 tier doesn't match any available format.
-    for (const id of ['best', '1080p', '720p', '480p', '360p'] as const) {
+  it('unrestricted Best ends with a /b fallback for permissive sources', () => {
+    // The "Best" preset is permissive by design — single-stream sites
+    // (Zoom, direct CDN links) and AV1-only sources still produce a
+    // file rather than erroring out.
+    const args = STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs;
+    const fIdx = args.indexOf('-f');
+    const selector = fIdx !== -1 ? (args[fIdx + 1] ?? '') : '';
+    expect(selector).toMatch(/\/b$/);
+  });
+
+  it('tier-capped presets are strict — no non-mp4 / AV1 fallback', () => {
+    // Picking "1080p" / "720p" / etc. commits to non-AV1 mp4 at or
+    // below the cap. If no such format exists, the download fails
+    // rather than silently giving the user a WebM or AV1 file under
+    // the same label. The selector must contain only the two strict
+    // steps and end on the single-muxed mp4 clause.
+    for (const id of ['1080p', '720p', '480p', '360p'] as const) {
       const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
       const fIdx = args.indexOf('-f');
       const selector = fIdx !== -1 ? (args[fIdx + 1] ?? '') : '';
-      expect(selector).toMatch(/\/b$/);
-    }
-  });
-
-  it('height-capped presets include a height-agnostic final /b', () => {
-    // The last fallback is unconditional so a 360p request on a
-    // 720p-only stream still downloads instead of erroring out.
-    for (const id of ['1080p', '720p', '480p', '360p'] as const) {
-      // The -f flag value is the second element; join from index 1 to
-      // get just the selector string without the flag name.
-      const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
-      const fIdx = args.indexOf('-f');
-      const selector = fIdx !== -1 ? args[fIdx + 1] : args.join(' ');
-      expect(selector).toMatch(/\/b$/);
+      // Two strict steps means exactly one `/` separator.
+      expect(selector.split('/').length).toBe(2);
+      // Every clause keeps both the mp4 and non-AV1 constraints.
+      for (const clause of selector.split('/')) {
+        expect(clause).toContain('[ext=mp4]');
+        expect(clause).toContain('[vcodec!*=av01]');
+      }
+      // No catch-all /b at the tail.
+      expect(selector).not.toMatch(/\/b$/);
     }
   });
 });
@@ -414,7 +421,7 @@ describe('buildDownloadArgs', () => {
     const { args } = buildDownloadArgs(optsForPreset('720p'), DEPS);
     expect(args).toContain('-f');
     expect(args).toContain(
-      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]/b[ext=mp4][height<=720]/b[height<=720]/b',
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
     );
   });
 

@@ -34,6 +34,9 @@ extraResources:
     filter:
       - yt-dlp
       - ffmpeg
+      # ffprobe sits next to ffmpeg so yt-dlp's post-processing can
+      # find it. See electron-builder.prod.yml for the full rationale.
+      - ffprobe
 mac:
   category: public.app-category.utilities
   # No hardened runtime — without signing, hardened runtime causes

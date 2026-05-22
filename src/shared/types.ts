@@ -66,38 +66,48 @@ export const VIDEO_EMBED_FLAGS = AUDIO_EMBED_FLAGS;
  * otherwise pick on the fps tiebreaker. */
 const VIDEO_SORT_FLAGS = ['-S', 'res,vcodec:h264,fps'] as const;
 
-/** Selector for the best stream at or below `maxHeight`. Ordered
- * preference cascade — yt-dlp processes left-to-right and stops at
- * the first matching format:
+/** Build the yt-dlp `-f` selector for a video preset.
  *
- *  1. **`bv*[ext=mp4][vcodec!*=av01]<h>+ba[ext=m4a]`** — ideal for
- *     sites that expose separate video+audio formats (YouTube,
- *     Vimeo). Pinned to mp4 + m4a so the merge yields a native
- *     QuickTime-playable file. AV1 excluded because M1/M2 can't
- *     hardware-decode AV1 well and QuickTime treats some AV1-in-mp4
- *     files as corrupt.
- *  2. **`b[ext=mp4][vcodec!*=av01]<h>`** — single muxed mp4. Hits
- *     for sites that pre-merge their streams (Zoom recordings,
- *     direct CDN links).
- *  3. **`b[ext=mp4]<h>`** — relax the AV1 filter. If the only
- *     available mp4 is AV1, take it; QuickTime usually plays it,
- *     just without hardware decode.
- *  4. **`b<h>`** — any container at the chosen height (webm, mkv,
- *     mov). Last-resort tier-respecting fallback.
- *  5. **`b`** — truly anything. Fires only when the chosen height
- *     tier has zero matches (e.g. a 360p selector on a stream that
- *     only offers 720p). Better to give the user a higher-resolution
- *     file than to error out with "Requested format is not available".
+ * Two distinct shapes depending on whether the caller passes a height
+ * cap:
  *
- * Omit `maxHeight` for "unrestricted" (the Best preset) — steps 4
- * and 5 collapse into the same selector but the dup is harmless. */
+ * **Tier-capped (1080p / 720p / 480p / 360p) — STRICT:**
+ *   1. `bv*[ext=mp4][vcodec!*=av01]<h>+ba[ext=m4a]` — preferred merge
+ *      pair (separate video + audio streams).
+ *   2. `b[ext=mp4][vcodec!*=av01]<h>` — single muxed non-AV1 mp4
+ *      (Zoom, pre-merged CDN links).
+ *
+ *   No further fallback. When the user picks "720p" they're committing
+ *   to mp4 h264 — that label implies a specific container/codec in
+ *   every other tool they've used. If the site offers no non-AV1 mp4
+ *   at or below the cap, the download fails rather than silently
+ *   handing them an AV1 or WebM file under the same label. The user
+ *   can fall back to "Best" if they want the highest-quality option
+ *   regardless of container. Because `[height<=N]` doesn't require an
+ *   exact match, "1080p selected but only 720p mp4 exists" still
+ *   downloads the 720p mp4 — only a complete absence of non-AV1 mp4
+ *   triggers the strict failure.
+ *
+ * **Unrestricted ("Best" — omit `maxHeight`) — CASCADING:**
+ *   1. `bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]` — preferred merge.
+ *   2. `b[ext=mp4][vcodec!*=av01]` — single muxed non-AV1 mp4.
+ *   3. `b[ext=mp4]` — relax the AV1 filter for AV1-only mp4 sources.
+ *   4. `b` — anything (webm, mkv, mov) when no mp4 exists at all.
+ *
+ *   The "Best" label is permissive by design — it means "give me what
+ *   you've got", so single-stream sites (Zoom mp4 with unknown codec)
+ *   and AV1-only sources still produce a downloaded file. */
 const mp4VideoSelector = (maxHeight?: number): string => {
-  const h = maxHeight === undefined ? '' : `[height<=${maxHeight}]`;
+  if (maxHeight !== undefined) {
+    const h = `[height<=${maxHeight}]`;
+    return [`bv*[ext=mp4][vcodec!*=av01]${h}+ba[ext=m4a]`, `b[ext=mp4][vcodec!*=av01]${h}`].join(
+      '/',
+    );
+  }
   return [
-    `bv*[ext=mp4][vcodec!*=av01]${h}+ba[ext=m4a]`,
-    `b[ext=mp4][vcodec!*=av01]${h}`,
-    `b[ext=mp4]${h}`,
-    `b${h}`,
+    'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]',
+    'b[ext=mp4][vcodec!*=av01]',
+    'b[ext=mp4]',
     'b',
   ].join('/');
 };
