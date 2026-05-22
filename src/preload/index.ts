@@ -118,6 +118,26 @@ const api = {
     { ok: true; installedPath: string } | { ok: false; error: string }
   > => ipcRenderer.invoke(IpcChannels.InstallYtDlpUpdate),
 
+  /** Wipe the library: cancel every active download and drop every
+   * row (live + history). Files already saved to disk are untouched.
+   * Main fires a `LibraryCleared` broadcast after wiping; renderers
+   * should subscribe via `onLibraryCleared` and wipe their mirrored
+   * download stores. */
+  clearLibrary: (): Promise<void> => ipcRenderer.invoke(IpcChannels.ClearLibrary),
+
+  /** Subscribe to the main-side library-cleared broadcast. Returns an
+   * unsubscribe function. App-level listener wipes the downloads Map
+   * so the queue view empties out the next render. */
+  onLibraryCleared: (callback: () => void): (() => void) => {
+    const listener = (): void => {
+      callback();
+    };
+    ipcRenderer.on(IpcChannels.LibraryCleared, listener);
+    return (): void => {
+      ipcRenderer.removeListener(IpcChannels.LibraryCleared, listener);
+    };
+  },
+
   /** Deliver a password for a row that's waiting in 'needs_password'.
    * Main re-runs the download with the password as `--video-password`.
    * Empty passwords are silently ignored (no attempt is consumed). */

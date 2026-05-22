@@ -132,6 +132,7 @@ const buildFakeDeps = (): Parameters<typeof registerIpcHandlers>[0] => {
       getAll: (): never[] => [],
       rehydrate: vi.fn(),
       patchTranscription: vi.fn(),
+      clearAll: vi.fn(),
     },
     metadataCache: { get: vi.fn(), prefetch: vi.fn(), size: (): number => 0 },
     settings: {
@@ -142,6 +143,7 @@ const buildFakeDeps = (): Parameters<typeof registerIpcHandlers>[0] => {
     tempBaseDir: '/tmp/pluck-cache',
     ffmpegPath: '/fake/ffmpeg',
     enumeratePlaylist: vi.fn(),
+    broadcastLibraryCleared: vi.fn(),
   };
 };
 

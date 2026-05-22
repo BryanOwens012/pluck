@@ -180,10 +180,19 @@ const App = (): React.JSX.Element => {
         return next;
       });
     });
+    // Main fires this after Settings → "Clear library". Wipe the
+    // mirrored Map so the queue view empties out on the next render.
+    // Per-id debug log buffers also get wiped since their rows no
+    // longer exist.
+    const unsubscribeCleared = api.onLibraryCleared(() => {
+      setDownloads(new Map());
+      setDebugLogs(new Map());
+    });
     return () => {
       cancelled = true;
       unsubscribe();
       unsubscribeDebug();
+      unsubscribeCleared();
     };
   }, []);
 
@@ -438,7 +447,7 @@ const App = (): React.JSX.Element => {
   const promptDownload = passwordPromptId ? downloads.get(passwordPromptId) : undefined;
 
   return (
-    <main className="min-h-screen bg-neutral-950 text-neutral-100">
+    <main className="min-h-screen bg-white text-neutral-900">
       {view === 'settings' && outputFolder !== undefined ? (
         <SettingsPanel
           outputFolder={outputFolder}
@@ -458,7 +467,7 @@ const App = (): React.JSX.Element => {
               onClick={() => setView('settings')}
               aria-label="Open settings"
               title="Settings"
-              className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
+              className="rounded p-1.5 text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-900"
             >
               <GearIcon />
             </button>
@@ -475,7 +484,7 @@ const App = (): React.JSX.Element => {
                 />
                 <button
                   type="submit"
-                  className="flex-1 rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white"
+                  className="flex-1 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800"
                 >
                   Download
                 </button>

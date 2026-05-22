@@ -194,6 +194,13 @@ export type DownloadQueue = {
     id: string,
     patch: { transcriptionStatus: Download['transcriptionStatus']; transcriptPath?: string },
   ): void;
+  /** Drop every row from the library. Active rows are aborted first
+   * (the runner's catch path won't find the row anymore so the
+   * terminal emit is short-circuited — the persist after the wipe is
+   * authoritative). Persists an empty history. Already-downloaded
+   * files on disk are left alone — this only clears Pluck's library
+   * view; the user's actual files at `~/Downloads/...` stay. */
+  clearAll(): void;
 };
 
 export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
@@ -638,5 +645,23 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     }
   };
 
-  return { enqueue, cancel, submitPassword, getAll, rehydrate, patchTranscription };
+  const clearAll = (): void => {
+    // Abort every in-flight runner so the spawned yt-dlp process exits
+    // and the temp folder gets cleaned by runOne's finally. The
+    // runners' terminal emit() is a no-op once `state` is wiped
+    // (emit returns early when state.get(id) is missing), and the
+    // finally's `activeCount -= 1` naturally winds the counter back
+    // down — so we deliberately do NOT reset activeCount /
+    // activePlaylistCount here. Resetting them would push them
+    // negative as the orphaned runners exit, and a subsequent enqueue
+    // would over-promote past the user's concurrency cap.
+    for (const controller of abortControllers.values()) {
+      controller.abort();
+    }
+    state.clear();
+    secrets.clear();
+    persist();
+  };
+
+  return { enqueue, cancel, submitPassword, getAll, rehydrate, patchTranscription, clearAll };
 };

@@ -65,7 +65,7 @@ export const PlaylistGroup = ({ rows, renderRow }: Props): React.JSX.Element | n
   };
 
   return (
-    <section className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3">
+    <section className="rounded-lg border border-neutral-200 bg-neutral-100/40 p-3">
       {/* Header is a flex row of sibling controls — the chevron + title
           toggle button is one element, and the Cancel-all button is a
           separate sibling so nothing nests buttons (invalid HTML +
@@ -79,10 +79,10 @@ export const PlaylistGroup = ({ rows, renderRow }: Props): React.JSX.Element | n
           className="flex min-w-0 flex-1 items-center gap-2 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
         >
           <Chevron expanded={expanded} />
-          <h3 className="min-w-0 flex-1 break-words text-xs font-semibold text-neutral-300">
+          <h3 className="min-w-0 flex-1 break-words text-xs font-semibold text-neutral-800">
             {title}
           </h3>
-          <span className="shrink-0 text-xs text-neutral-500">
+          <span className="shrink-0 text-xs text-neutral-700">
             {rows.length} of {total}
           </span>
         </button>
@@ -92,7 +92,7 @@ export const PlaylistGroup = ({ rows, renderRow }: Props): React.JSX.Element | n
             onClick={handleCancelAll}
             title="Cancel all in-flight rows in this playlist"
             aria-label={`Cancel all ${cancellable.length} in-flight rows in playlist ${title}`}
-            className="shrink-0 rounded-md border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-300 transition hover:bg-red-900/50 hover:text-red-200 focus:outline-none focus-visible:bg-red-900/50"
+            className="shrink-0 rounded-md border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100 hover:text-red-800 focus:outline-none focus-visible:bg-red-100"
           >
             Cancel all
           </button>
@@ -100,13 +100,13 @@ export const PlaylistGroup = ({ rows, renderRow }: Props): React.JSX.Element | n
       </header>
 
       <div className="mt-2 flex items-center gap-2">
-        <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-neutral-800">
+        <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-neutral-200">
           <div
-            className="h-full bg-neutral-100 transition-all"
+            className="h-full bg-neutral-900 transition-all"
             style={{ width: `${aggregate}%` }}
           />
         </div>
-        <span className="shrink-0 text-xs tabular-nums text-neutral-500">
+        <span className="shrink-0 text-xs tabular-nums text-neutral-700">
           {Math.round(aggregate)}%
         </span>
       </div>
@@ -128,7 +128,7 @@ const Chevron = ({ expanded }: { expanded: boolean }): React.JSX.Element => (
     strokeLinecap="round"
     strokeLinejoin="round"
     aria-hidden="true"
-    className={`h-3 w-3 shrink-0 text-neutral-500 transition-transform ${
+    className={`h-3 w-3 shrink-0 text-neutral-700 transition-transform ${
       expanded ? 'rotate-90' : ''
     }`}
   >

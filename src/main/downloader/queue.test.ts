@@ -373,6 +373,51 @@ describe('DownloadQueue', () => {
     }
   });
 
+  it('clearAll drops every row and persists an empty snapshot', async () => {
+    const persisted: Download[][] = [];
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      onPersistChange: (snapshot) => persisted.push(snapshot),
+    });
+    queue.enqueue(makeRequest('https://example.com/1'));
+    queue.enqueue(makeRequest('https://example.com/2'));
+    queue.enqueue(makeRequest('https://example.com/3'));
+    queue.enqueue(makeRequest('https://example.com/4'));
+
+    await waitFor(() => fakeRuns.length === 3);
+    expect(queue.getAll()).toHaveLength(4);
+
+    queue.clearAll();
+
+    expect(queue.getAll()).toHaveLength(0);
+    // Last persisted snapshot must be the empty wipe — disk truth.
+    expect(persisted.at(-1)).toEqual([]);
+  });
+
+  it('clearAll aborts in-flight runners and their post-abort emit is a no-op', async () => {
+    const updates: Download[] = [];
+    const queue = createDownloadQueue(buildQueueDeps((d) => updates.push(d)));
+    queue.enqueue(makeRequest('https://example.com/1'));
+    await waitFor(() => fakeRuns.length === 1);
+
+    queue.clearAll();
+    const updatesBeforeReject = updates.length;
+
+    // Reject the orphaned run as if abort triggered YtDlpCancelledError.
+    // The runner's terminal emit() must not resurrect the wiped row.
+    const run = fakeRuns[0];
+    if (!run) {
+      throw new Error('expected fake run');
+    }
+    run.reject(new (await import('../ytdlp/types')).YtDlpCancelledError());
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(queue.getAll()).toHaveLength(0);
+    // No new updates from the orphaned run's terminal emit — state
+    // lookup misses, emit short-circuits.
+    expect(updates.length).toBe(updatesBeforeReject);
+  });
+
   it('emits no debug log events when getDebugMode returns false', async () => {
     const onDebugLog = vi.fn();
     const queue = createDownloadQueue({

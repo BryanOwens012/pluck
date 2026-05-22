@@ -47,7 +47,7 @@ export const LogBox = ({ lines }: Props): React.JSX.Element => {
     <div
       ref={scrollRef}
       onScroll={handleScroll}
-      className="mt-3 h-48 overflow-y-auto rounded-md border border-neutral-800 bg-neutral-950 p-2 font-mono text-[11px] leading-relaxed text-neutral-400"
+      className="mt-3 h-48 overflow-y-auto rounded-md border border-neutral-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-neutral-700"
     >
       {lines.map((line, idx) => (
         // Lines aren't independently identifiable (timestamp + phase
@@ -57,8 +57,8 @@ export const LogBox = ({ lines }: Props): React.JSX.Element => {
         // state isn't handled here — DownloadRow only mounts LogBox
         // when there's at least one line.
         // biome-ignore lint/suspicious/noArrayIndexKey: append-only bounded buffer
-        <div key={idx} className={LINE_CLASS[line.phase] ?? 'text-neutral-400'}>
-          <span className="text-neutral-600">[{line.phase}]</span> {line.message}
+        <div key={idx} className={LINE_CLASS[line.phase] ?? 'text-neutral-700'}>
+          <span className="text-neutral-700">[{line.phase}]</span> {line.message}
         </div>
       ))}
     </div>
@@ -68,7 +68,7 @@ export const LogBox = ({ lines }: Props): React.JSX.Element => {
 // Phase → text color. Errors red, lifecycle events neutral, yt-dlp
 // chatter a touch dimmer so the structured phases pop visually.
 const LINE_CLASS: Partial<Record<DebugLogEvent['phase'], string>> = {
-  error: 'text-red-400',
-  ytdlp: 'text-neutral-500',
-  'download:progress': 'text-neutral-500',
+  error: 'text-red-700',
+  ytdlp: 'text-neutral-700',
+  'download:progress': 'text-neutral-700',
 };
