@@ -1,0 +1,64 @@
+# Production build config — code-signed, hardened, notarized.
+#
+# Invoked via `npm run build:mac`. Requires the following env vars
+# in the build shell (read by electron-builder + @electron/notarize):
+#   APPLE_ID                       — Apple Developer account email
+#   APPLE_APP_SPECIFIC_PASSWORD    — app-specific password from appleid.apple.com
+#   APPLE_TEAM_ID                  — 10-char team identifier
+# Also requires "Developer ID Application: <name> (<team>)" cert +
+# private key in the login Keychain, paired (My Certificates view).
+#
+# Do NOT edit this for local iteration — use electron-builder.local.yml.
+# Changes here ship in distributed alphas; keep the surface tight.
+
+appId: video.pluck.app
+productName: Pluck
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!**/.husky/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{biome.json,.prettierignore,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,yarn.lock}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+extraResources:
+  - from: resources/binaries
+    to: binaries
+    filter:
+      - yt-dlp
+      - ffmpeg
+mac:
+  category: public.app-category.utilities
+  # Hardened runtime is required for notarization. The disable-library-
+  # validation entitlement in build/entitlements.mac.plist relaxes one
+  # specific rule so the bundled yt-dlp's Python.framework (signed by
+  # the yt-dlp team, not us) can still dlopen at runtime.
+  hardenedRuntime: true
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  # Skip electron-builder's local Gatekeeper assess — it runs `spctl`
+  # against the just-signed app before notarization has happened, so
+  # it fails for any first-time signing. The post-notarization staple
+  # is what makes the artifact pass Gatekeeper on user machines.
+  gatekeeperAssess: false
+  extendInfo:
+    - NSDocumentsFolderUsageDescription: Pluck saves downloaded videos to your Documents folder when chosen.
+    - NSDownloadsFolderUsageDescription: Pluck saves downloaded videos to your Downloads folder by default.
+    - NSDesktopFolderUsageDescription: Pluck saves downloaded videos to your Desktop when chosen.
+  # Notarization runs after signing. Picks up creds from env vars:
+  #   APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+  # (or APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER for the
+  # newer API-key auth). If none are set the build will error rather
+  # than ship an un-notarized DMG.
+  notarize: true
+dmg:
+  artifactName: ${name}-${version}.${ext}
+  # Sign the DMG wrapper too (the .app inside is already signed via
+  # mac.hardenedRuntime + the notarize step). With this on, macOS
+  # reads Apple's stapled approval ticket offline on first mount
+  # instead of phoning home — smoother first-launch for users on
+  # slow / blocked networks.
+  sign: true
+npmRebuild: false

@@ -1,0 +1,49 @@
+# Local dev build config — unsigned, no notarization, no hardened
+# runtime. Use when you want a runnable .app/.dmg from
+# `electron-builder --mac` without burning a notarization round-trip
+# (each prod build takes 3-10 min waiting on Apple's queue).
+#
+# Workflow: `cp electron-builder.local.yml electron-builder.yml`
+# then run the usual build script. The produced .app launches
+# locally but Gatekeeper will warn other users that it's from an
+# unidentified developer — that's expected for a dev build.
+#
+# To flip back to a real signed build: `cp electron-builder.prod.yml
+# electron-builder.yml` and re-run with the APPLE_* env vars set.
+
+appId: video.pluck.app
+productName: Pluck
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!**/.husky/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!{biome.json,.prettierignore,dev-app-update.yml,CHANGELOG.md,README.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,yarn.lock}'
+  - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+extraResources:
+  - from: resources/binaries
+    to: binaries
+    filter:
+      - yt-dlp
+      - ffmpeg
+mac:
+  category: public.app-category.utilities
+  # No hardened runtime — without signing, hardened runtime causes
+  # launchd to reject the binary as "damaged" on first run. The
+  # prod config flips this on alongside notarization.
+  extendInfo:
+    - NSDocumentsFolderUsageDescription: Pluck saves downloaded videos to your Documents folder when chosen.
+    - NSDownloadsFolderUsageDescription: Pluck saves downloaded videos to your Downloads folder by default.
+    - NSDesktopFolderUsageDescription: Pluck saves downloaded videos to your Desktop when chosen.
+  notarize: false
+  # Disable codesign entirely — there's no Developer ID cert needed
+  # for a local-only build, and skipping the signature pass shaves
+  # ~20s off the build.
+  identity: null
+dmg:
+  artifactName: ${name}-${version}-local.${ext}
+  sign: false
+npmRebuild: false

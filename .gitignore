@@ -45,6 +45,12 @@ dist/
 # electron-builder per-user cache (just in case it leaks into the repo)
 .cache/electron/
 .cache/electron-builder/
+# Working copy of the active electron-builder config. The two
+# canonical sources are electron-builder.prod.yml (signed +
+# notarized) and electron-builder.local.yml (unsigned dev). Whichever
+# is active right now gets cp'd to electron-builder.yml — but only
+# the canonicals are committed.
+electron-builder.yml
 
 # ============================================
 # TYPESCRIPT
