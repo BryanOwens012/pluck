@@ -40,7 +40,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
     // itself just covers thumbnail + metadata.
     expect(STATIC_FORMAT_CHOICES.best.ytDlpFormatArgs).toEqual([
       '-f',
-      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]',
+      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
       '-S',
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
@@ -51,7 +51,7 @@ describe('STATIC_FORMAT_CHOICES', () => {
   it('1080p: same shape with height cap', () => {
     expect(STATIC_FORMAT_CHOICES['1080p'].ytDlpFormatArgs).toEqual([
       '-f',
-      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
+      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]/b[ext=mp4][height<=1080]/b[height<=1080]/b',
       '-S',
       'res,vcodec:h264,fps',
       '--embed-thumbnail',
@@ -110,6 +110,31 @@ describe('STATIC_FORMAT_CHOICES', () => {
     const flag = STATIC_FORMAT_CHOICES['360p'].ytDlpFormatArgs.join(' ');
     expect(flag).toContain('[height<=360]');
     expect(flag).not.toContain('[height<=720]');
+  });
+
+  it('every video preset ends with an unrestricted /b fallback', () => {
+    // Ensures sites that serve a single pre-merged stream (Zoom,
+    // direct CDN links) can always be downloaded even when the
+    // preferred mp4 tier doesn't match any available format.
+    for (const id of ['best', '1080p', '720p', '480p', '360p'] as const) {
+      const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
+      const fIdx = args.indexOf('-f');
+      const selector = fIdx !== -1 ? (args[fIdx + 1] ?? '') : '';
+      expect(selector).toMatch(/\/b$/);
+    }
+  });
+
+  it('height-capped presets include a height-agnostic final /b', () => {
+    // The last fallback is unconditional so a 360p request on a
+    // 720p-only stream still downloads instead of erroring out.
+    for (const id of ['1080p', '720p', '480p', '360p'] as const) {
+      // The -f flag value is the second element; join from index 1 to
+      // get just the selector string without the flag name.
+      const args = STATIC_FORMAT_CHOICES[id].ytDlpFormatArgs;
+      const fIdx = args.indexOf('-f');
+      const selector = fIdx !== -1 ? args[fIdx + 1] : args.join(' ');
+      expect(selector).toMatch(/\/b$/);
+    }
   });
 });
 
@@ -389,7 +414,7 @@ describe('buildDownloadArgs', () => {
     const { args } = buildDownloadArgs(optsForPreset('720p'), DEPS);
     expect(args).toContain('-f');
     expect(args).toContain(
-      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]/b[ext=mp4][height<=720]/b[height<=720]/b',
     );
   });
 
