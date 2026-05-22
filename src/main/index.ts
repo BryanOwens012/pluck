@@ -157,6 +157,17 @@ app.whenReady().then(async () => {
     }
   };
 
+  // Fan a library-cleared signal out so every renderer drops its
+  // mirrored downloads Map. Fired by the ClearLibrary IPC handler
+  // after the queue is wiped.
+  const broadcastLibraryCleared = (): void => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.webContents.isDestroyed()) {
+        window.webContents.send(IpcChannels.LibraryCleared);
+      }
+    }
+  };
+
   const queue = createDownloadQueue({
     // Callable so a settings update takes effect on the next enqueue
     // without rebuilding the queue. In-flight rows keep the folder
@@ -201,6 +212,7 @@ app.whenReady().then(async () => {
     tempBaseDir: PLUCK_CACHE_DIR,
     enumeratePlaylist,
     ffmpegPath: runnerDeps.ffmpegPath,
+    broadcastLibraryCleared,
   });
   prewarmYtDlp();
   createWindow();

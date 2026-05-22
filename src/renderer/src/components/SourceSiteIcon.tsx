@@ -21,16 +21,16 @@ type SiteGlyph = {
 
 const GENERIC_GLYPH: SiteGlyph = {
   letter: '↗',
-  bgClass: 'bg-neutral-700',
+  bgClass: 'bg-neutral-600',
   label: 'External site',
 };
 
 const SITE_GLYPHS: Record<string, SiteGlyph> = {
   youtube: { letter: 'Y', bgClass: 'bg-red-600', label: 'YouTube' },
-  vimeo: { letter: 'V', bgClass: 'bg-sky-500', label: 'Vimeo' },
+  vimeo: { letter: 'V', bgClass: 'bg-sky-700', label: 'Vimeo' },
   zoom: { letter: 'Z', bgClass: 'bg-blue-600', label: 'Zoom' },
-  tiktok: { letter: 'T', bgClass: 'bg-neutral-100 text-neutral-900', label: 'TikTok' },
-  twitter: { letter: 'X', bgClass: 'bg-neutral-100 text-neutral-900', label: 'X' },
+  tiktok: { letter: 'T', bgClass: 'bg-neutral-900', label: 'TikTok' },
+  twitter: { letter: 'X', bgClass: 'bg-neutral-900', label: 'X' },
 };
 
 /** Resolve a yt-dlp extractor key to one of our known glyphs. Exported so the

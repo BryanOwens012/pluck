@@ -43,7 +43,7 @@ export const FormatSelector = ({
     <select
       value={value.id}
       onChange={handleChange}
-      className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-2 text-sm text-neutral-100 focus:border-neutral-600 focus:outline-none"
+      className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
     >
       {choices.map((choice) => (
         <option key={choice.id} value={choice.id}>

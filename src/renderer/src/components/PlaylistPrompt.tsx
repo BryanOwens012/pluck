@@ -56,7 +56,7 @@ export const PlaylistPrompt = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="playlist-prompt-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 p-4"
       onClick={(event) => {
         // Backdrop click dismisses; clicks on the inner card land on a
         // descendant so event.target !== currentTarget.
@@ -70,13 +70,13 @@ export const PlaylistPrompt = ({
         }
       }}
     >
-      <div className="w-full max-w-md rounded-lg border border-neutral-800 bg-neutral-900 p-5 shadow-xl">
-        <h2 id="playlist-prompt-title" className="text-sm font-semibold text-neutral-100">
+      <div className="w-full max-w-md rounded-lg border border-neutral-200 bg-white p-5 shadow-xl">
+        <h2 id="playlist-prompt-title" className="text-sm font-semibold text-neutral-900">
           This video is part of a playlist.
         </h2>
-        <p className="mt-1 break-words text-xs text-neutral-400">{subtitle}</p>
+        <p className="mt-1 break-words text-xs text-neutral-700">{subtitle}</p>
         {overCap && context ? (
-          <p className="mt-2 rounded-md border border-amber-900/70 bg-amber-950/40 px-2 py-1.5 text-xs text-amber-300">
+          <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
             This playlist has {context.entryCount} videos. Pluck will queue the first{' '}
             {PLAYLIST_ENTRY_CAP}.
           </p>
@@ -91,21 +91,21 @@ export const PlaylistPrompt = ({
             autoFocus
             type="button"
             onClick={onJustOne}
-            className="w-full rounded-md bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 transition hover:bg-white focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-300"
+            className="w-full rounded-md bg-neutral-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-neutral-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
           >
             {justOneLabel}
           </button>
           <button
             type="button"
             onClick={() => onWholePlaylist('oldest_first')}
-            className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+            className="w-full rounded-md border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
           >
             All videos in the playlist (oldest to newest)
           </button>
           <button
             type="button"
             onClick={() => onWholePlaylist('newest_first')}
-            className="w-full rounded-md border border-neutral-700 bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-100 transition hover:bg-neutral-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
+            className="w-full rounded-md border border-neutral-300 bg-neutral-100 px-3 py-2 text-sm font-medium text-neutral-900 transition hover:bg-neutral-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-neutral-500"
           >
             All videos in the playlist (newest to oldest)
           </button>

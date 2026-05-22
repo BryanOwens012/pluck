@@ -49,7 +49,7 @@ export const PasswordPrompt = ({ download, onDismiss }: Props): React.JSX.Elemen
       role="dialog"
       aria-modal="true"
       aria-labelledby="password-prompt-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/50 p-4"
       onClick={(event) => {
         // Backdrop click dismisses; clicks inside the form land on form
         // / input / button elements, so event.target !== currentTarget
@@ -66,13 +66,13 @@ export const PasswordPrompt = ({ download, onDismiss }: Props): React.JSX.Elemen
     >
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-md space-y-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4 shadow-xl"
+        className="w-full max-w-md space-y-3 rounded-lg border border-neutral-200 bg-white p-4 shadow-xl"
       >
         <div className="space-y-1">
-          <h2 id="password-prompt-title" className="text-sm font-medium text-neutral-100">
+          <h2 id="password-prompt-title" className="text-sm font-medium text-neutral-900">
             This recording requires a password
           </h2>
-          <div className="truncate text-xs text-neutral-400" title={heading}>
+          <div className="truncate text-xs text-neutral-700" title={heading}>
             {heading}
           </div>
         </div>
@@ -83,10 +83,10 @@ export const PasswordPrompt = ({ download, onDismiss }: Props): React.JSX.Elemen
           onChange={(event) => setPassword(event.target.value)}
           placeholder="Password"
           autoComplete="off"
-          className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-100 focus:border-neutral-600 focus:outline-none"
+          className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
         />
         {attempts > 0 ? (
-          <div className="text-xs text-red-400">
+          <div className="text-xs text-red-700">
             Incorrect password. Attempt {attempts + 1} of 3.
           </div>
         ) : null}
@@ -94,14 +94,14 @@ export const PasswordPrompt = ({ download, onDismiss }: Props): React.JSX.Elemen
           <button
             type="button"
             onClick={onDismiss}
-            className="rounded-md border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800"
+            className="rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={password.trim().length === 0}
-            className="rounded-md border border-neutral-600 bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+            className="rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:bg-neutral-300 disabled:text-neutral-700"
           >
             Submit
           </button>

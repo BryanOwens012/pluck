@@ -73,18 +73,18 @@ const LoadingState = ({ context }: { context: PlaylistContext | undefined }): Re
     <section
       aria-live="polite"
       aria-busy="true"
-      className="rounded-lg border border-neutral-800 bg-neutral-950/40 p-3"
+      className="rounded-lg border border-neutral-200 bg-neutral-100/40 p-3"
     >
       <header className="flex items-center gap-2">
         <Spinner />
-        <h3 className="min-w-0 flex-1 break-words text-xs font-semibold text-neutral-300">
+        <h3 className="min-w-0 flex-1 break-words text-xs font-semibold text-neutral-800">
           {title}
         </h3>
-        <span className="shrink-0 text-xs italic text-neutral-500">{subtitle}</span>
+        <span className="shrink-0 text-xs italic text-neutral-700">{subtitle}</span>
       </header>
       <div className="mt-2 flex items-center gap-2">
-        <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-neutral-800">
-          <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-neutral-100" />
+        <div className="relative h-1 flex-1 overflow-hidden rounded-full bg-neutral-200">
+          <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-neutral-900" />
         </div>
       </div>
     </section>
@@ -103,22 +103,22 @@ const ErrorState = ({
   const title = context?.title ?? 'Playlist';
 
   return (
-    <section role="alert" className="rounded-lg border border-red-900/70 bg-red-950/30 p-3">
+    <section role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3">
       <header className="flex items-center gap-2">
         <ErrorIcon />
-        <h3 className="min-w-0 flex-1 break-words text-xs font-semibold text-red-200">{title}</h3>
+        <h3 className="min-w-0 flex-1 break-words text-xs font-semibold text-red-800">{title}</h3>
         {onDismiss ? (
           <button
             type="button"
             onClick={onDismiss}
             aria-label="Dismiss playlist error"
-            className="shrink-0 rounded-md border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-300 transition hover:bg-red-900/50 hover:text-red-200 focus:outline-none focus-visible:bg-red-900/50"
+            className="shrink-0 rounded-md border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100 hover:text-red-800 focus:outline-none focus-visible:bg-red-100"
           >
             Dismiss
           </button>
         ) : null}
       </header>
-      <p className="mt-2 break-words text-xs text-red-300/90">{error}</p>
+      <p className="mt-2 break-words text-xs text-red-700">{error}</p>
     </section>
   );
 };
@@ -135,7 +135,7 @@ const Spinner = (): React.JSX.Element => (
     strokeWidth="2"
     strokeLinecap="round"
     aria-hidden="true"
-    className="h-3 w-3 shrink-0 animate-spin text-neutral-500"
+    className="h-3 w-3 shrink-0 animate-spin text-neutral-700"
   >
     <path d="M21 12a9 9 0 1 1-6.219-8.56" />
   </svg>
@@ -153,7 +153,7 @@ const ErrorIcon = (): React.JSX.Element => (
     strokeLinecap="round"
     strokeLinejoin="round"
     aria-hidden="true"
-    className="h-3 w-3 shrink-0 text-red-400"
+    className="h-3 w-3 shrink-0 text-red-700"
   >
     <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
     <line x1="12" y1="9" x2="12" y2="13" />

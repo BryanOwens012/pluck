@@ -77,14 +77,14 @@ const STATUS_LABEL: Record<Download['status'], string> = {
 // user's choice, not an error. Needs-password uses amber to read as
 // "action required" without claiming the row has actually failed.
 const STATUS_BADGE_CLASS: Record<Download['status'], string> = {
-  queued: 'text-neutral-400',
-  downloading: 'text-neutral-400',
-  canceling: 'text-neutral-500',
-  needs_password: 'text-amber-400',
-  completed: 'text-neutral-400',
-  failed: 'text-red-400',
-  cancelled: 'text-neutral-500',
-  transcribing: 'text-neutral-400',
+  queued: 'text-neutral-700',
+  downloading: 'text-neutral-700',
+  canceling: 'text-neutral-700',
+  needs_password: 'text-amber-800',
+  completed: 'text-neutral-700',
+  failed: 'text-red-700',
+  cancelled: 'text-neutral-700',
+  transcribing: 'text-neutral-700',
 };
 
 const formatPercent = (value: number): string =>
@@ -114,12 +114,12 @@ export const DownloadRow = ({
   const startingLabel = isFetchingMetadata ? 'Reading video info…' : 'Starting download…';
 
   return (
-    <div className="flex gap-3 rounded-lg border border-neutral-800 bg-neutral-900 p-4">
+    <div className="flex gap-3 rounded-lg border border-neutral-200 bg-white p-4">
       {download.thumbnailUrl ? <Thumbnail url={download.thumbnailUrl} /> : null}
       <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <div className="break-words text-sm font-medium text-neutral-100">{headerTitle}</div>
+            <div className="break-words text-sm font-medium text-neutral-900">{headerTitle}</div>
             {download.sourceSite ? (
               <SourceSiteBadge siteKey={download.sourceSite} url={download.url} />
             ) : null}
@@ -151,25 +151,25 @@ export const DownloadRow = ({
 
         {download.status === 'downloading' || download.status === 'canceling' ? (
           <div className="mt-3 space-y-1.5">
-            <div className="relative h-1.5 overflow-hidden rounded-full bg-neutral-800">
+            <div className="relative h-1.5 overflow-hidden rounded-full bg-neutral-200">
               {hasDeterminateProgress ? (
                 <div
-                  className="h-full bg-neutral-100 transition-all"
+                  className="h-full bg-neutral-900 transition-all"
                   style={{ width: `${percent}%` }}
                 />
               ) : (
-                <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-neutral-100" />
+                <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-neutral-900" />
               )}
             </div>
             {hasDeterminateProgress ? (
-              <div className="flex justify-between text-xs text-neutral-500">
+              <div className="flex justify-between text-xs text-neutral-700">
                 <span>{formatPercent(download.progress)}</span>
                 <span>
                   {download.speed ?? '—'} · ETA {download.eta ?? '—'}
                 </span>
               </div>
             ) : (
-              <div className="text-xs text-neutral-500">{startingLabel}</div>
+              <div className="text-xs text-neutral-700">{startingLabel}</div>
             )}
           </div>
         ) : null}
@@ -192,17 +192,17 @@ export const DownloadRow = ({
             than a failure. The auto-popped modal handles the happy path;
             this button reopens it if the user dismissed. */}
         {download.status === 'needs_password' && onOpenPasswordPrompt ? (
-          <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-900/70 bg-amber-950/40 p-2.5">
-            <span aria-hidden="true" className="select-none text-sm leading-none text-amber-400">
+          <div className="mt-3 flex items-center gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5">
+            <span aria-hidden="true" className="select-none text-sm leading-none text-amber-800">
               🔒
             </span>
-            <div className="min-w-0 flex-1 text-xs text-amber-300">
+            <div className="min-w-0 flex-1 text-xs text-amber-800">
               This recording is password-protected.
             </div>
             <button
               type="button"
               onClick={() => onOpenPasswordPrompt(download.id)}
-              className="shrink-0 rounded-md border border-amber-800/70 bg-amber-950/40 px-2 py-0.5 text-xs font-medium text-amber-300 transition hover:bg-amber-900/40 focus:outline-none focus-visible:bg-amber-900/40"
+              className="shrink-0 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 focus:outline-none focus-visible:bg-amber-100"
             >
               Enter password
             </button>
@@ -236,13 +236,13 @@ export const DownloadRow = ({
 
         {/* Failed-state error block; always shown regardless of debug mode. */}
         {download.status === 'failed' && download.error ? (
-          <div className="mt-3 flex gap-2 rounded-md border border-red-900/70 bg-red-950/40 p-2.5">
-            <span aria-hidden="true" className="select-none text-sm leading-none text-red-400">
+          <div className="mt-3 flex gap-2 rounded-md border border-red-300 bg-red-50 p-2.5">
+            <span aria-hidden="true" className="select-none text-sm leading-none text-red-700">
               ⚠
             </span>
             <div className="min-w-0 flex-1">
-              <div className="text-xs font-medium text-red-300">Download failed</div>
-              <div className="mt-0.5 break-words text-xs text-red-300/90">{download.error}</div>
+              <div className="text-xs font-medium text-red-700">Download failed</div>
+              <div className="mt-0.5 break-words text-xs text-red-700">{download.error}</div>
             </div>
             <RetryButton id={download.id} />
           </div>
@@ -253,10 +253,10 @@ export const DownloadRow = ({
 };
 
 // Shared classes for the thumbnail's visible box. h-12 w-20 keeps a 16:9
-// aspect ratio at small size; bg-neutral-800 is the placeholder colour that
+// aspect ratio at small size; bg-neutral-100 is the placeholder colour that
 // shows while loading and again if the image fails. Pulled out so the <img>
 // and its fallback placeholder can't drift apart.
-const THUMBNAIL_BOX_CLASS = 'h-12 w-20 shrink-0 rounded bg-neutral-800';
+const THUMBNAIL_BOX_CLASS = 'h-12 w-20 shrink-0 rounded bg-neutral-100';
 
 /** Preview thumbnail rendered to the left of the row body. Fixed 16:9 box so
  * rows stay vertically aligned regardless of which thumbnails happen to load.
@@ -296,7 +296,7 @@ const SourceSiteBadge = ({ siteKey, url }: { siteKey: string; url: string }): Re
       type="button"
       onClick={handleOpen}
       title={`Open on ${tooltipLabel} in your browser`}
-      className="mt-0.5 inline-flex items-center gap-1.5 rounded text-xs text-neutral-500 transition hover:text-neutral-300 focus:outline-none focus-visible:text-neutral-300"
+      className="mt-0.5 inline-flex items-center gap-1.5 rounded text-xs text-neutral-700 transition hover:text-neutral-800 focus:outline-none focus-visible:text-neutral-800"
     >
       <SourceSiteIcon siteKey={siteKey} />
       <span>{siteKey}</span>
@@ -319,7 +319,7 @@ const DebugTempFolderButton = ({ id }: { id: string }): React.JSX.Element => {
       onClick={handleClick}
       title="Open temp folder (debug)"
       aria-label="Open temp folder"
-      className="rounded p-1 text-neutral-500 transition hover:bg-neutral-800 hover:text-neutral-200"
+      className="rounded p-1 text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-900"
     >
       <FolderIcon />
     </button>
@@ -341,7 +341,7 @@ const RetryButton = ({ id }: { id: string }): React.JSX.Element => {
       onClick={handleRetry}
       title="Retry download"
       aria-label="Retry download"
-      className="shrink-0 self-start rounded-md border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-300 transition hover:bg-red-900/50 hover:text-red-200 focus:outline-none focus-visible:bg-red-900/50"
+      className="shrink-0 self-start rounded-md border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100 hover:text-red-800 focus:outline-none focus-visible:bg-red-100"
     >
       Retry
     </button>
@@ -381,7 +381,7 @@ const TranscribeButton = ({ id }: { id: string }): React.JSX.Element => {
       onClick={handleTranscribe}
       title="Transcribe to .srt via ElevenLabs"
       aria-label="Transcribe to .srt via ElevenLabs"
-      className="rounded-md border border-sky-900/70 bg-sky-950/40 px-2 py-0.5 text-xs font-medium text-sky-300 transition hover:bg-sky-900/50 hover:text-sky-200 focus:outline-none focus-visible:bg-sky-900/50"
+      className="rounded-md border border-sky-300 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 transition hover:bg-sky-100 hover:text-sky-800 focus:outline-none focus-visible:bg-sky-100"
     >
       Transcribe
     </button>
@@ -417,18 +417,18 @@ const TranscriptionStatusRow = ({
   }
   if (status.state === 'error') {
     return (
-      <div className="mt-3 rounded-md border border-red-900/70 bg-red-950/30 px-3 py-2 text-xs text-red-300">
+      <div className="mt-3 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-xs text-red-700">
         <span className="font-medium">Transcription failed.</span>{' '}
-        <span className="text-red-300/80 break-words">{status.message}</span>
+        <span className="text-red-700 break-words">{status.message}</span>
       </div>
     );
   }
   return (
     <div className="mt-3 space-y-1.5">
-      <div className="relative h-1 overflow-hidden rounded-full bg-neutral-800">
-        <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-sky-400" />
+      <div className="relative h-1 overflow-hidden rounded-full bg-neutral-200">
+        <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-sky-600" />
       </div>
-      <div className="text-xs text-neutral-500">{TRANSCRIPTION_LABEL[status.state]}</div>
+      <div className="text-xs text-neutral-700">{TRANSCRIPTION_LABEL[status.state]}</div>
     </div>
   );
 };
@@ -445,7 +445,7 @@ const CancelButton = ({ id }: { id: string }): React.JSX.Element => {
       onClick={handleCancel}
       title="Cancel download"
       aria-label="Cancel download"
-      className="rounded-md border border-red-900/70 bg-red-950/40 px-2 py-0.5 text-xs font-medium text-red-300 transition hover:bg-red-900/50 hover:text-red-200 focus:outline-none focus-visible:bg-red-900/50"
+      className="rounded-md border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100 hover:text-red-800 focus:outline-none focus-visible:bg-red-100"
     >
       Cancel
     </button>
@@ -507,10 +507,10 @@ const CompletedFooter = ({
   return (
     <div className="mt-2 flex items-start gap-2">
       <div
-        className={`min-w-0 flex-1 break-words text-xs ${isMissing ? 'text-neutral-500 line-through' : 'text-emerald-400'}`}
+        className={`min-w-0 flex-1 break-words text-xs ${isMissing ? 'text-neutral-700 line-through' : 'text-emerald-700'}`}
       >
         Saved to {stem}
-        {dotExt ? <span className={isMissing ? '' : 'text-sky-400'}>{dotExt}</span> : null}
+        {dotExt ? <span className={isMissing ? '' : 'text-sky-700'}>{dotExt}</span> : null}
       </div>
       <button
         type="button"
@@ -518,7 +518,7 @@ const CompletedFooter = ({
         disabled={isMissing}
         title={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
         aria-label={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
-        className="shrink-0 rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100 disabled:cursor-not-allowed disabled:text-neutral-700 disabled:hover:bg-transparent disabled:hover:text-neutral-700"
+        className="shrink-0 rounded p-1 text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:text-neutral-400 disabled:hover:bg-transparent disabled:hover:text-neutral-400"
       >
         <FolderIcon />
       </button>
@@ -541,16 +541,16 @@ const SrtRow = ({ transcriptPath }: { transcriptPath: string }): React.JSX.Eleme
   const filename = transcriptPath.split('/').pop() ?? transcriptPath;
   return (
     <div className="mt-2 flex w-full items-center gap-2">
-      <span className="shrink-0 rounded border border-neutral-700 bg-neutral-800 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-300">
+      <span className="shrink-0 rounded border border-neutral-300 bg-neutral-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-800">
         SRT
       </span>
-      <span className="min-w-0 flex-1 truncate text-xs text-neutral-400">{filename}</span>
+      <span className="min-w-0 flex-1 truncate text-xs text-neutral-700">{filename}</span>
       <button
         type="button"
         onClick={handleReveal}
         title="Show transcript in Finder"
         aria-label="Show transcript in Finder"
-        className="shrink-0 rounded p-1 text-neutral-400 transition hover:bg-neutral-800 hover:text-neutral-100"
+        className="shrink-0 rounded p-1 text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-900"
       >
         <FolderIcon />
       </button>
@@ -575,7 +575,7 @@ const DebugSizeDuration = ({
     parts.push(formatBytes(sizeBytes));
   }
   parts.push(formatDuration(endMs - startMs));
-  return <div className="mt-2 text-xs text-neutral-500">{parts.join(' · ')}</div>;
+  return <div className="mt-2 text-xs text-neutral-700">{parts.join(' · ')}</div>;
 };
 
 /** Debug-only monospace block: the exact yt-dlp argv this row used.
@@ -583,7 +583,7 @@ const DebugSizeDuration = ({
  * long command break across lines without horizontal scrolling. The
  * block is selectable, so the user can copy and paste into Terminal. */
 const InvocationPreview = ({ text }: { text: string }): React.JSX.Element => (
-  <pre className="mt-2 whitespace-pre-wrap break-all rounded-md border border-neutral-800 bg-neutral-950 p-2 font-mono text-[11px] leading-snug text-neutral-400">
+  <pre className="mt-2 whitespace-pre-wrap break-all rounded-md border border-neutral-200 bg-white p-2 font-mono text-[11px] leading-snug text-neutral-700">
     {text}
   </pre>
 );

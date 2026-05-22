@@ -102,6 +102,11 @@ export type IpcDeps = {
   enumeratePlaylist: (
     url: string,
   ) => Promise<{ entries: PlaylistEntry[]; context: PlaylistContext | undefined }>;
+  /** Fan-out for the LibraryCleared event. Wired in main/index.ts to
+   * send to every live BrowserWindow so the renderer can wipe its
+   * mirrored downloads Map. Kept as a callback so this module stays
+   * unaware of Electron's BrowserWindow type. */
+  broadcastLibraryCleared: () => void;
 };
 
 /** Wire all renderer→main and main→renderer IPC. Pure delegation to the
@@ -537,6 +542,10 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
       return installUpdate();
     },
   );
+  ipcMain.handle(IpcChannels.ClearLibrary, async (): Promise<void> => {
+    deps.queue.clearAll();
+    deps.broadcastLibraryCleared();
+  });
   ipcMain.handle(
     IpcChannels.TranscribeDownload,
     async (_event, id: unknown): Promise<{ ok: true } | { ok: false; error: string }> => {

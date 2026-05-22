@@ -59,7 +59,7 @@ export const DownloadQueue = ({
   debugLogs,
 }: Props): React.JSX.Element => {
   if (rows.length === 0 && pendingEnumerations.length === 0) {
-    return <p className="text-sm text-neutral-500">Paste a video URL above to start a download.</p>;
+    return <p className="text-sm text-neutral-700">Paste a video URL above to start a download.</p>;
   }
 
   const renderRow = (download: Download): React.JSX.Element => (
@@ -96,8 +96,8 @@ export const DownloadQueue = ({
         </div>
       ) : null}
       {historyItems.length > 0 ? (
-        <section className="mt-10 space-y-3 border-t border-neutral-800 pt-6">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        <section className="mt-10 space-y-3 border-t border-neutral-200 pt-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-700">
             History
           </h2>
           <div className="space-y-2">{historyItems.map((item) => renderItem(item, renderRow))}</div>

@@ -150,6 +150,16 @@ export const IpcChannels = {
    * the current session keeps using its already-spawned binary
    * (the new copy takes effect on next app launch). */
   InstallYtDlpUpdate: 'pluck:install-yt-dlp-update',
+  /** Renderer -> main, invoke. Cancels every active download and
+   * wipes the library (in-memory queue + persisted history.json).
+   * Already-downloaded files on disk are NOT deleted — this only
+   * clears Pluck's view of the library. */
+  ClearLibrary: 'pluck:clear-library',
+  /** Main -> renderer, send. Broadcast after a ClearLibrary call so
+   * every renderer view drops its mirrored downloads Map. Fired
+   * unconditionally on clear (even if the library was already empty)
+   * so the renderer's wipe is idempotent. */
+  LibraryCleared: 'pluck:library-cleared',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

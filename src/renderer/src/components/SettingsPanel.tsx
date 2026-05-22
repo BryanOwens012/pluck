@@ -87,7 +87,7 @@ export const SettingsPanel = ({
   }, [onBack]);
 
   return (
-    <div className="min-h-screen bg-neutral-950">
+    <div className="min-h-screen bg-white">
       <div className="mx-auto max-w-2xl space-y-6 p-6">
         <header className="flex items-center gap-3">
           <button
@@ -95,30 +95,30 @@ export const SettingsPanel = ({
             onClick={onBack}
             aria-label="Back to downloads"
             title="Back"
-            className="rounded p-1.5 text-neutral-400 transition hover:bg-neutral-900 hover:text-neutral-100"
+            className="rounded p-1.5 text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-900"
           >
             <BackIcon />
           </button>
-          <h1 className="text-2xl font-semibold tracking-tight text-neutral-100">Settings</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">Settings</h1>
         </header>
         <section className="space-y-2">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-700">
             Default output folder
           </h3>
           <OutputFolderPicker outputFolder={outputFolder} onChange={onOutputFolderChange} />
         </section>
         <section className="space-y-2">
-          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+          <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-700">
             Browser cookies
           </h3>
           <CookiesSection overrideExtracted={overrideExtracted} />
         </section>
         {ANY_AI_PROVIDER_ENABLED ? (
           <section className="space-y-2">
-            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-700">
               API keys
             </h3>
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-neutral-700">
               Optional. Pluck will prompt you the first time a feature needs a key.
             </p>
             {ELEVENLABS_ENABLED ? (
@@ -224,12 +224,12 @@ const DeveloperSection = ({
         type="button"
         onClick={toggle}
         aria-expanded={open}
-        className="flex w-full items-center gap-2 rounded-md py-1 text-left transition hover:bg-neutral-900"
+        className="flex w-full items-center gap-2 rounded-md py-1 text-left transition hover:bg-neutral-100"
       >
         <ChevronRightIcon
-          className={`h-3 w-3 text-neutral-500 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
+          className={`h-3 w-3 text-neutral-700 transition-transform duration-150 ${open ? 'rotate-90' : ''}`}
         />
-        <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">Developer</h3>
+        <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-700">Developer</h3>
       </button>
       {/* Inner rows are conditionally rendered — when closed, their
           useEffects don't fire (no IPC traffic for users who never
@@ -242,6 +242,7 @@ const DeveloperSection = ({
           <ConcurrentFragmentsRow overrideExtracted={overrideExtracted} />
           <YtDlpCommandOverrideRow onExtractedChange={onOverrideExtractedChange} />
           <ClearTempFoldersRow />
+          <ClearLibraryRow />
         </div>
       ) : null}
     </section>
@@ -292,18 +293,18 @@ const TranscriptionToggleRow = ({
   };
 
   return (
-    <label className="flex items-start gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+    <label className="flex items-start gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2">
       <input
         type="checkbox"
         checked={transcriptionEnabled}
         onChange={handleToggle}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-100"
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-900"
       />
       <span className="min-w-0 flex-1 text-xs">
-        <span className="block font-medium text-neutral-200">Enable transcription</span>
-        <span className="block text-neutral-500">
+        <span className="block font-medium text-neutral-900">Enable transcription</span>
+        <span className="block text-neutral-700">
           Show a Transcribe button on completed downloads. Click to extract audio, send it to
-          ElevenLabs, and write an <code className="text-neutral-400">.srt</code> next to the video.
+          ElevenLabs, and write an <code className="text-neutral-700">.srt</code> next to the video.
           Requires the ElevenLabs key above.
         </span>
       </span>
@@ -332,16 +333,16 @@ const DebugModeRow = ({
   };
 
   return (
-    <label className="flex items-start gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+    <label className="flex items-start gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2">
       <input
         type="checkbox"
         checked={debugMode}
         onChange={handleToggle}
-        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-100"
+        className="mt-0.5 h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-900"
       />
       <span className="min-w-0 flex-1 text-xs">
-        <span className="block font-medium text-neutral-200">Debug mode</span>
-        <span className="block text-neutral-500">
+        <span className="block font-medium text-neutral-900">Debug mode</span>
+        <span className="block text-neutral-700">
           Show a live log of yt-dlp activity under each download, plus a folder button to inspect
           its temp directory. Failed downloads in debug mode keep their temp folder for inspection.
         </span>
@@ -431,17 +432,17 @@ const ConcurrencyRow = ({
   const displayValue = overrideForThisRow ?? (loaded ? value : initialDefault);
 
   return (
-    <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+    <div className="space-y-1.5 rounded-md border border-neutral-200 bg-white px-3 py-2">
       <div className="flex items-center justify-between gap-2">
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-neutral-200">{label}</div>
-          <div className="text-xs text-neutral-500">{description}</div>
+          <div className="text-xs font-medium text-neutral-900">{label}</div>
+          <div className="text-xs text-neutral-700">{description}</div>
         </div>
         <select
           value={displayValue}
           onChange={handleChange}
           disabled={!loaded || overridden}
-          className="shrink-0 rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1 text-xs text-neutral-100 focus:border-neutral-600 focus:outline-none disabled:opacity-50"
+          className="shrink-0 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500 disabled:opacity-50"
         >
           {options.map((n) => (
             <option key={n} value={n}>
@@ -451,11 +452,11 @@ const ConcurrencyRow = ({
         </select>
       </div>
       {overridden ? (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-neutral-700">
           Locked by yt-dlp command override in Developer settings.
         </p>
       ) : null}
-      {error ? <p className="text-xs text-red-400">{error}</p> : null}
+      {error ? <p className="text-xs text-red-700">{error}</p> : null}
     </div>
   );
 };
@@ -596,12 +597,12 @@ const YtDlpCommandOverrideRow = ({ onExtractedChange }: OverrideRowProps): React
   const isEmpty = text.trim().length === 0;
 
   return (
-    <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
-      <div className="text-xs font-medium text-neutral-200">yt-dlp command</div>
-      <div className="text-xs text-neutral-500">
+    <div className="space-y-1.5 rounded-md border border-neutral-200 bg-white px-3 py-2">
+      <div className="text-xs font-medium text-neutral-900">yt-dlp command</div>
+      <div className="text-xs text-neutral-700">
         Leave empty to let Pluck build the command from your other settings. Type a complete command
-        (starting with <code className="rounded bg-neutral-800 px-1 py-px">yt-dlp</code>) to
-        override it. Use <code className="rounded bg-neutral-800 px-1 py-px">&lt;URL&gt;</code> as a
+        (starting with <code className="rounded bg-neutral-100 px-1 py-px">yt-dlp</code>) to
+        override it. Use <code className="rounded bg-neutral-100 px-1 py-px">&lt;URL&gt;</code> as a
         placeholder for the video URL; otherwise it's appended at the end.
       </div>
       <textarea
@@ -613,12 +614,12 @@ const YtDlpCommandOverrideRow = ({ onExtractedChange }: OverrideRowProps): React
         autoCorrect="off"
         placeholder={isEmpty ? autoPreview || 'yt-dlp <flags> <URL>' : undefined}
         rows={4}
-        className="w-full resize-y rounded-md border border-neutral-800 bg-neutral-900 px-2 py-1.5 font-mono text-[11px] leading-snug text-neutral-100 placeholder:text-neutral-600 focus:border-neutral-600 focus:outline-none"
+        className="w-full resize-y rounded-md border border-neutral-200 bg-white px-2 py-1.5 font-mono text-[11px] leading-snug text-neutral-900 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
       />
-      {parseError ? <p className="text-xs text-red-400">{parseError}</p> : null}
-      {saveError ? <p className="text-xs text-red-400">{saveError}</p> : null}
+      {parseError ? <p className="text-xs text-red-700">{parseError}</p> : null}
+      {saveError ? <p className="text-xs text-red-700">{saveError}</p> : null}
       {isEmpty && !parseError ? (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-neutral-700">
           {saving ? 'Saving…' : `Auto mode — Pluck will run: ${autoPreview}`}
         </p>
       ) : null}
@@ -785,11 +786,11 @@ const YtDlpUpdaterRow = (): React.JSX.Element => {
   };
 
   return (
-    <div className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+    <div className="rounded-md border border-neutral-200 bg-white px-3 py-2">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-neutral-200">yt-dlp</div>
-          <div className="mt-0.5 break-words text-xs text-neutral-500">
+          <div className="text-xs font-medium text-neutral-900">yt-dlp</div>
+          <div className="mt-0.5 break-words text-xs text-neutral-700">
             <YtDlpStatusLine state={state} />
           </div>
         </div>
@@ -800,7 +801,7 @@ const YtDlpUpdaterRow = (): React.JSX.Element => {
               onClick={() => {
                 void handleInstall();
               }}
-              className="rounded-md border border-sky-900/70 bg-sky-950/40 px-2 py-0.5 text-xs font-medium text-sky-300 transition hover:bg-sky-900/50 hover:text-sky-200"
+              className="rounded-md border border-sky-300 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700 transition hover:bg-sky-100 hover:text-sky-800"
             >
               Install update
             </button>
@@ -811,7 +812,7 @@ const YtDlpUpdaterRow = (): React.JSX.Element => {
               void handleCheck();
             }}
             disabled={state.phase === 'checking' || state.phase === 'installing'}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-900"
+            className="rounded-md border border-neutral-300 bg-white px-2 py-0.5 text-xs font-medium text-neutral-900 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
           >
             {state.phase === 'checking' ? 'Checking…' : 'Check now'}
           </button>
@@ -822,9 +823,9 @@ const YtDlpUpdaterRow = (): React.JSX.Element => {
           type="checkbox"
           checked={autoUpdate}
           onChange={handleAutoUpdateToggle}
-          className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-100"
+          className="h-3.5 w-3.5 shrink-0 cursor-pointer accent-neutral-900"
         />
-        <span className="text-xs text-neutral-400">
+        <span className="text-xs text-neutral-700">
           Auto-update on launch — checks GitHub for a newer yt-dlp release each time the app starts.
           New versions take effect on the next launch.
         </span>
@@ -861,29 +862,29 @@ const YtDlpStatusLine = ({ state }: { state: YtDlpUpdaterState }): React.JSX.Ele
     return (
       <span>
         <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} /> ·{' '}
-        <span className="text-sky-400">Update available — {state.latestVersion}</span>
+        <span className="text-sky-700">Update available — {state.latestVersion}</span>
         {state.checkError ? (
-          <span className="block text-red-400">Last check failed: {state.checkError}</span>
+          <span className="block text-red-700">Last check failed: {state.checkError}</span>
         ) : null}
       </span>
     );
   }
   if (state.phase === 'installed') {
     return (
-      <span className="text-emerald-400">
+      <span className="text-emerald-700">
         Installed {state.newVersion}. Restart Pluck to use the new version.
       </span>
     );
   }
   if (state.phase === 'install-failed') {
-    return <span className="text-red-400">Install failed: {state.error}</span>;
+    return <span className="text-red-700">Install failed: {state.error}</span>;
   }
   // phase === 'loaded'
   return (
     <span>
       <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} />
       {state.checkError ? (
-        <span className="block text-red-400">Last check failed: {state.checkError}</span>
+        <span className="block text-red-700">Last check failed: {state.checkError}</span>
       ) : null}
     </span>
   );
@@ -908,7 +909,7 @@ const YtDlpRepoLink = ({ children }: { children: React.ReactNode }): React.JSX.E
     <a
       href={YT_DLP_REPO_URL}
       onClick={handleClick}
-      className="underline decoration-neutral-700 underline-offset-2 transition hover:text-neutral-300 hover:decoration-neutral-500"
+      className="underline decoration-neutral-400 underline-offset-2 transition hover:text-neutral-800 hover:decoration-neutral-400"
     >
       {children}
     </a>
@@ -924,7 +925,7 @@ const CurrentVersionLabel = ({
 }): React.JSX.Element => (
   <>
     Current: {installedVersion ?? 'unknown'}{' '}
-    <span className="text-neutral-600">({source === 'bundled' ? 'bundled' : 'auto-updated'})</span>
+    <span className="text-neutral-700">({source === 'bundled' ? 'bundled' : 'auto-updated'})</span>
   </>
 );
 
@@ -949,32 +950,116 @@ const ClearTempFoldersRow = (): React.JSX.Element => {
   };
 
   return (
-    <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+    <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2">
       <div className="min-w-0 flex-1">
-        <div className="text-xs font-medium text-neutral-200">Clear debug temp folders</div>
-        <div className="text-xs text-neutral-500">
+        <div className="text-xs font-medium text-neutral-900">Clear debug temp folders</div>
+        <div className="text-xs text-neutral-700">
           Removes every per-download workspace under the cache directory. Active downloads are
           skipped so their files aren't yanked mid-write.
         </div>
         {state.phase === 'done' ? (
-          <div className="mt-0.5 text-xs text-emerald-400">
+          <div className="mt-0.5 text-xs text-emerald-700">
             Cleared {state.cleared} folder{state.cleared === 1 ? '' : 's'}.
             {state.skippedActive > 0
               ? ` Skipped ${state.skippedActive} active download${state.skippedActive === 1 ? '' : 's'}.`
               : ''}
           </div>
         ) : state.phase === 'error' ? (
-          <div className="mt-0.5 text-xs text-red-400">{state.message}</div>
+          <div className="mt-0.5 text-xs text-red-700">{state.message}</div>
         ) : null}
       </div>
       <button
         type="button"
         onClick={() => void handleClick()}
         disabled={state.phase === 'clearing'}
-        className="shrink-0 rounded border border-neutral-800 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+        className="shrink-0 rounded border border-neutral-200 px-2 py-0.5 text-xs text-neutral-800 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {state.phase === 'clearing' ? 'Clearing…' : 'Clear'}
       </button>
+    </div>
+  );
+};
+
+/** Discriminated state for the destructive two-step "Clear library"
+ * affordance. Idle is the default; clicking flips to `confirming`
+ * which shows explicit Clear / Cancel buttons. `clearing` covers the
+ * single IPC round-trip, after which the row lands in `done` (success
+ * banner) or `error` (failure message + retry path). Starting a new
+ * confirm from `done` / `error` collapses the prior banner — at most
+ * one outcome banner is visible at a time. */
+type ClearLibraryState =
+  | { phase: 'idle' }
+  | { phase: 'confirming' }
+  | { phase: 'clearing' }
+  | { phase: 'done' }
+  | { phase: 'error'; message: string };
+
+const ClearLibraryRow = (): React.JSX.Element => {
+  const [state, setState] = useState<ClearLibraryState>({ phase: 'idle' });
+
+  const handleConfirm = async (): Promise<void> => {
+    setState({ phase: 'clearing' });
+    try {
+      await api.clearLibrary();
+      setState({ phase: 'done' });
+    } catch (err) {
+      setState({
+        phase: 'error',
+        message: err instanceof Error ? err.message : 'Failed to clear library.',
+      });
+    }
+  };
+
+  const isConfirming = state.phase === 'confirming';
+  const isClearing = state.phase === 'clearing';
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2">
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-medium text-neutral-900">Clear library</div>
+        <div className="text-xs text-neutral-700">
+          Removes every row from the Pluck library (active downloads are cancelled, history is
+          wiped). Files already saved to your Downloads folder are left untouched.
+        </div>
+        {state.phase === 'done' ? (
+          <div className="mt-0.5 text-xs text-emerald-700">
+            Library cleared. Files on disk were not removed.
+          </div>
+        ) : null}
+        {state.phase === 'error' ? (
+          <div className="mt-0.5 text-xs text-red-700">{state.message}</div>
+        ) : null}
+      </div>
+      {isConfirming || isClearing ? (
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => {
+              void handleConfirm();
+            }}
+            disabled={isClearing}
+            className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-red-50"
+          >
+            {isClearing ? 'Clearing…' : 'Clear'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setState({ phase: 'idle' })}
+            disabled={isClearing}
+            className="rounded border border-neutral-200 bg-white px-2 py-0.5 text-xs text-neutral-800 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setState({ phase: 'confirming' })}
+          className="shrink-0 rounded border border-neutral-200 px-2 py-0.5 text-xs text-neutral-800 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900"
+        >
+          Clear
+        </button>
+      )}
     </div>
   );
 };
@@ -1048,7 +1133,7 @@ const CookiesSection = ({
     return (
       <select
         disabled
-        className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-500"
+        className="w-full rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-700"
       />
     );
   }
@@ -1083,7 +1168,7 @@ const CookiesSection = ({
         value={displayValue}
         onChange={handleChange}
         disabled={overridden}
-        className="w-full rounded-md border border-neutral-800 bg-neutral-950 px-3 py-1.5 text-sm text-neutral-100 focus:border-neutral-600 focus:outline-none disabled:opacity-60"
+        className="w-full rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500 disabled:opacity-60"
       >
         <option value="">None (don't use browser cookies)</option>
         {options.map((opt) => (
@@ -1093,18 +1178,18 @@ const CookiesSection = ({
         ))}
       </select>
       {overridden ? (
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-neutral-700">
           Locked by yt-dlp command override in Developer settings.
         </p>
       ) : null}
-      <p className="text-xs text-neutral-500">
+      <p className="text-xs text-neutral-700">
         {noBrowsersDetected
           ? 'No supported browser cookies found on this Mac.'
           : value === ''
             ? COOKIES_NONE_HELP
             : BROWSER_HELP[value]}
       </p>
-      {state.phase === 'error' ? <p className="text-xs text-red-400">{state.message}</p> : null}
+      {state.phase === 'error' ? <p className="text-xs text-red-700">{state.message}</p> : null}
     </div>
   );
 };
@@ -1223,7 +1308,7 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
 
   if (state.phase === 'loading') {
     return (
-      <div className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs text-neutral-500">
+      <div className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-xs text-neutral-700">
         {label}: loading…
       </div>
     );
@@ -1231,22 +1316,22 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
 
   if (state.phase === 'saved') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2">
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-neutral-200">{label}</div>
-          <div className="text-xs text-emerald-400">Saved.</div>
+          <div className="text-xs font-medium text-neutral-900">{label}</div>
+          <div className="text-xs text-emerald-700">Saved.</div>
         </div>
         <button
           type="button"
           onClick={startEdit}
-          className="rounded border border-neutral-800 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-100"
+          className="rounded border border-neutral-200 px-2 py-0.5 text-xs text-neutral-800 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900"
         >
           Replace
         </button>
         <button
           type="button"
           onClick={() => void handleDelete()}
-          className="rounded border border-neutral-800 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-red-900/70 hover:bg-red-950/40 hover:text-red-300"
+          className="rounded border border-neutral-200 px-2 py-0.5 text-xs text-neutral-800 transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
         >
           Delete
         </button>
@@ -1256,15 +1341,15 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
 
   if (state.phase === 'empty') {
     return (
-      <div className="flex items-center gap-2 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
+      <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2">
         <div className="min-w-0 flex-1">
-          <div className="text-xs font-medium text-neutral-200">{label}</div>
-          <div className="text-xs text-neutral-500">{help}</div>
+          <div className="text-xs font-medium text-neutral-900">{label}</div>
+          <div className="text-xs text-neutral-700">{help}</div>
         </div>
         <button
           type="button"
           onClick={startEdit}
-          className="rounded border border-neutral-800 px-2 py-0.5 text-xs text-neutral-300 transition hover:border-neutral-700 hover:bg-neutral-900 hover:text-neutral-100"
+          className="rounded border border-neutral-200 px-2 py-0.5 text-xs text-neutral-800 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900"
         >
           Add
         </button>
@@ -1277,8 +1362,8 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
   const busy = state.phase === 'saving' || state.phase === 'testing';
 
   return (
-    <div className="space-y-1.5 rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2">
-      <div className="text-xs font-medium text-neutral-200">{label}</div>
+    <div className="space-y-1.5 rounded-md border border-neutral-200 bg-white px-3 py-2">
+      <div className="text-xs font-medium text-neutral-900">{label}</div>
       <div className="flex gap-2">
         <input
           type="password"
@@ -1286,13 +1371,13 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
           onChange={(event) => setState({ phase: 'editing', value: event.target.value })}
           placeholder="sk-…"
           autoComplete="off"
-          className="min-w-0 flex-1 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-100 focus:border-neutral-600 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
         />
         <button
           type="button"
           onClick={() => void handleTest(editingValue)}
           disabled={busy || editingValue.trim().length === 0}
-          className="shrink-0 rounded-md border border-neutral-800 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-neutral-300 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-800 transition hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {state.phase === 'testing' ? 'Testing…' : 'Test'}
         </button>
@@ -1300,23 +1385,23 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
           type="button"
           onClick={() => void handleSave(editingValue)}
           disabled={busy || editingValue.trim().length === 0}
-          className="shrink-0 rounded-md border border-neutral-600 bg-neutral-100 px-3 py-1.5 text-xs font-medium text-neutral-900 transition hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:bg-neutral-300 disabled:text-neutral-700"
         >
           {state.phase === 'saving' ? 'Saving…' : 'Save'}
         </button>
       </div>
       <div className="flex items-center justify-between gap-2 text-xs">
         {state.phase === 'tested-ok' ? (
-          <span className="text-emerald-400">Key works.</span>
+          <span className="text-emerald-700">Key works.</span>
         ) : state.phase === 'tested-fail' ? (
-          <span className="text-red-400">{state.message}</span>
+          <span className="text-red-700">{state.message}</span>
         ) : (
-          <span className="text-neutral-500">{help}</span>
+          <span className="text-neutral-700">{help}</span>
         )}
         <button
           type="button"
           onClick={cancelEdit}
-          className="shrink-0 text-neutral-500 transition hover:text-neutral-300"
+          className="shrink-0 text-neutral-700 transition hover:text-neutral-800"
         >
           Cancel
         </button>
@@ -1340,7 +1425,7 @@ const VersionFooter = (): React.JSX.Element => {
   }, []);
 
   return (
-    <footer className="border-t border-neutral-800 px-4 py-2 text-xs text-neutral-500">
+    <footer className="border-t border-neutral-200 px-4 py-2 text-xs text-neutral-700">
       Pluck {version ?? '—'}
     </footer>
   );
