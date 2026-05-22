@@ -23,6 +23,15 @@ files:
   - '!{biome.json,.prettierignore,dev-app-update.yml,CHANGELOG.md,README.md}'
   - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,yarn.lock}'
   - '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
+  # Local-only tooling dirs that have no business in a packaged build.
+  # `.entire/` and `.claude/` host per-session logs that other processes
+  # write to *concurrently* with the build, which trips an ENOENT race
+  # in electron-builder's "list then open" file walk if we don't
+  # exclude them. They're already in .gitignore but electron-builder
+  # walks the working tree, not git.
+  - '!.entire/**'
+  - '!.claude/**'
+  - '!electron-builder.{prod,local}.yml'
 extraResources:
   - from: resources/binaries
     to: binaries
