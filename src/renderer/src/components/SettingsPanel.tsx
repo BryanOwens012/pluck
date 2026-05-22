@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { SecretName } from '../../../main/secrets';
 import type { Settings } from '../../../main/settings';
-import { AI_FEATURES_ENABLED } from '../../../shared/flags';
+import {
+  ANTHROPIC_ENABLED,
+  ANY_AI_PROVIDER_ENABLED,
+  ELEVENLABS_ENABLED,
+} from '../../../shared/flags';
 import { BROWSER_NAMES, type BrowserName, type ExtractedFlags } from '../../../shared/types';
 import { api } from '../lib/api';
 import { OutputFolderPicker } from './OutputFolderPicker';
@@ -109,7 +113,7 @@ export const SettingsPanel = ({
           </h3>
           <CookiesSection overrideExtracted={overrideExtracted} />
         </section>
-        {AI_FEATURES_ENABLED ? (
+        {ANY_AI_PROVIDER_ENABLED ? (
           <section className="space-y-2">
             <h3 className="text-xs font-medium uppercase tracking-wide text-neutral-500">
               API keys
@@ -117,20 +121,26 @@ export const SettingsPanel = ({
             <p className="text-xs text-neutral-500">
               Optional. Pluck will prompt you the first time a feature needs a key.
             </p>
-            <ApiKeyRow
-              provider="elevenlabs"
-              label="ElevenLabs"
-              help="Powers transcription (Transcribe button on completed downloads)."
-            />
-            <TranscriptionToggleRow
-              transcriptionEnabled={transcriptionEnabled}
-              onChange={onTranscriptionEnabledChange}
-            />
-            <ApiKeyRow
-              provider="anthropic"
-              label="Anthropic"
-              help="Powers AI prompt suggestions (coming soon)."
-            />
+            {ELEVENLABS_ENABLED ? (
+              <>
+                <ApiKeyRow
+                  provider="elevenlabs"
+                  label="ElevenLabs"
+                  help="Powers transcription (Transcribe button on completed downloads)."
+                />
+                <TranscriptionToggleRow
+                  transcriptionEnabled={transcriptionEnabled}
+                  onChange={onTranscriptionEnabledChange}
+                />
+              </>
+            ) : null}
+            {ANTHROPIC_ENABLED ? (
+              <ApiKeyRow
+                provider="anthropic"
+                label="Anthropic"
+                help="Powers AI prompt suggestions (coming soon)."
+              />
+            ) : null}
           </section>
         ) : null}
         <DeveloperSection
@@ -626,7 +636,16 @@ const YtDlpCommandOverrideRow = ({ onExtractedChange }: OverrideRowProps): React
  * union pattern) because each phase carries different payload. */
 type YtDlpUpdaterState =
   | { phase: 'idle' }
-  | { phase: 'loaded'; installedVersion: string | undefined; source: 'bundled' | 'auto-updated' }
+  | {
+      phase: 'loaded';
+      installedVersion: string | undefined;
+      source: 'bundled' | 'auto-updated';
+      /** Set when the most recent `checkForUpdate` call returned an
+       * `error` string (network down, GitHub 5xx). The status line
+       * appends "Last check failed: …" so the user can tell a
+       * checked-OK-no-update from a couldn't-check-at-all. */
+      checkError?: string;
+    }
   | {
       phase: 'checking';
       installedVersion: string | undefined;
@@ -707,13 +726,22 @@ const YtDlpUpdaterRow = (): React.JSX.Element => {
   };
 
   const handleCheck = async (): Promise<void> => {
-    if (state.phase !== 'loaded' && state.phase !== 'install-prompt') {
+    // The button is disabled during 'checking' / 'installing', so
+    // those phases shouldn't reach here; defend just in case React
+    // batches a stale onClick. From 'installed' / 'install-failed'
+    // we DO want to allow re-checking — the user may want to
+    // verify before / after the restart they've been prompted to
+    // do — so we transition straight back into 'checking'
+    // carrying whatever installed version we last knew about.
+    if (state.phase === 'checking' || state.phase === 'installing') {
       return;
     }
+    const carriedVersion = 'installedVersion' in state ? state.installedVersion : undefined;
+    const carriedSource = 'source' in state ? state.source : 'bundled';
     setState({
       phase: 'checking',
-      installedVersion: state.installedVersion,
-      source: state.source,
+      installedVersion: carriedVersion,
+      source: carriedSource,
     });
     const result = await api.checkYtDlpUpdate();
     if (result.updateAvailable && result.latestVersion !== undefined) {
@@ -733,6 +761,7 @@ const YtDlpUpdaterRow = (): React.JSX.Element => {
         phase: 'loaded',
         installedVersion: result.current.version,
         source: result.current.source,
+        checkError: result.error,
       });
     }
   };
@@ -782,9 +811,9 @@ const YtDlpUpdaterRow = (): React.JSX.Element => {
               void handleCheck();
             }}
             disabled={state.phase === 'checking' || state.phase === 'installing'}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:text-neutral-600"
+            className="rounded-md border border-neutral-700 bg-neutral-900 px-2 py-0.5 text-xs font-medium text-neutral-200 transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-neutral-900"
           >
-            Check now
+            {state.phase === 'checking' ? 'Checking…' : 'Check now'}
           </button>
         </div>
       </div>
@@ -816,7 +845,7 @@ const YtDlpStatusLine = ({ state }: { state: YtDlpUpdaterState }): React.JSX.Ele
     return (
       <span>
         <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} /> ·
-        Checking GitHub…
+        Checking <YtDlpRepoLink>GitHub</YtDlpRepoLink>…
       </span>
     );
   }
@@ -850,7 +879,40 @@ const YtDlpStatusLine = ({ state }: { state: YtDlpUpdaterState }): React.JSX.Ele
     return <span className="text-red-400">Install failed: {state.error}</span>;
   }
   // phase === 'loaded'
-  return <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} />;
+  return (
+    <span>
+      <CurrentVersionLabel installedVersion={state.installedVersion} source={state.source} />
+      {state.checkError ? (
+        <span className="block text-red-400">Last check failed: {state.checkError}</span>
+      ) : null}
+    </span>
+  );
+};
+
+/** Inline link that opens the yt-dlp GitHub repo in the user's
+ * default browser via the existing `openExternal` IPC (which
+ * gates on http(s) schemes — defense in depth for any future
+ * misuse). Mounts inside the YtDlpStatusLine wherever the
+ * narrative references "GitHub", so the user has a one-click
+ * path to the source of the version we're talking about. */
+const YT_DLP_REPO_URL = 'https://github.com/yt-dlp/yt-dlp';
+
+const YtDlpRepoLink = ({ children }: { children: React.ReactNode }): React.JSX.Element => {
+  const handleClick = (event: React.MouseEvent): void => {
+    event.preventDefault();
+    api.openExternal(YT_DLP_REPO_URL).catch((err: unknown) => {
+      console.error('openExternal rejected:', err);
+    });
+  };
+  return (
+    <a
+      href={YT_DLP_REPO_URL}
+      onClick={handleClick}
+      className="underline decoration-neutral-700 underline-offset-2 transition hover:text-neutral-300 hover:decoration-neutral-500"
+    >
+      {children}
+    </a>
+  );
 };
 
 const CurrentVersionLabel = ({

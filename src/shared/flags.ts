@@ -5,14 +5,26 @@
  *
  * Re-enabling a flag is a one-line edit here. To find every gated
  * surface, grep for the flag name across the repo.
+ *
+ * **Both AI provider flags default to `false`** so the shippable alpha
+ * binary doesn't surface any paid-API onboarding noise. Flip on a
+ * per-provider basis when the corresponding feature is ready to ship.
  */
 
-/** AI surfaces (transcription, AI prompt UI, the Anthropic +
- * ElevenLabs Settings rows, the API-key Welcome screen). Flipping
- * this to `true` exposes the API keys section in Settings so the
- * user can save their ElevenLabs / Anthropic keys; the per-feature
- * runtime toggles in `Settings.transcriptionEnabled` (and a future
- * `aiPromptEnabled`) decide which features actually surface in the
- * UI. Anthropic / AI prompt is still "coming soon" copy until the
- * tool-use loop + prompt UI ship. */
-export const AI_FEATURES_ENABLED = true;
+/** Enables the ElevenLabs API-key row in Settings and the user-facing
+ * `Settings.transcriptionEnabled` toggle that gates the per-row
+ * Transcribe button. With this off, transcription is invisible to
+ * the user even if they had a key saved from a previous build. */
+export const ELEVENLABS_ENABLED = false;
+
+/** Enables the Anthropic API-key row in Settings. The AI-prompt UI
+ * the key powers is still "coming soon" — the row exists today only
+ * so a user with the flag on can save their key ahead of the
+ * feature shipping. */
+export const ANTHROPIC_ENABLED = false;
+
+/** The "API keys" section in Settings is visible iff at least one
+ * provider is enabled. Both off → the whole section is hidden
+ * (no header, no help text). Derived so call sites don't have to
+ * repeat the OR. */
+export const ANY_AI_PROVIDER_ENABLED = ELEVENLABS_ENABLED || ANTHROPIC_ENABLED;
