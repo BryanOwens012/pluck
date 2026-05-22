@@ -5,6 +5,7 @@ import {
   type FormatChoice,
   type PlaylistContext,
   type PlaylistOrder,
+  QUALITY_FIRST_BEST_CHOICE,
   STATIC_FORMAT_CHOICES,
   STATIC_FORMAT_CHOICES_ORDERED,
 } from '../../shared/types';
@@ -43,7 +44,7 @@ const FORMAT_PROBE_DEBOUNCE_MS = 0;
  * before the probe lands still produces the right file. The dropdown
  * swaps in enriched + deduplicated choices when the probe resolves. */
 const PROBING_PLACEHOLDER_CHOICES: readonly FormatChoice[] = [
-  STATIC_FORMAT_CHOICES.best,
+  QUALITY_FIRST_BEST_CHOICE,
   STATIC_FORMAT_CHOICES['1080p'],
   STATIC_FORMAT_CHOICES['720p'],
   STATIC_FORMAT_CHOICES['480p'],
@@ -276,9 +277,19 @@ const App = (): React.JSX.Element => {
           return;
         }
         setFormatChoices(result.choices);
-        setFormat(
-          (prev) => result.choices.find((c) => c.id === prev.id) ?? result.choices[0] ?? prev,
-        );
+        setFormat((prev) => {
+          // If the user is on the quality-first "Best" placeholder AND
+          // the probe found a best_alt (higher-res non-mp4, e.g. 4K
+          // WebM), auto-promote to best_alt — consistent with the
+          // quality-first intent of the pre-probe selector. If they
+          // explicitly picked a tier (1080p, 720p, …) before the probe
+          // landed, we honour that choice instead.
+          const bestAlt = result.choices.find((c) => c.id === 'best_alt');
+          if (bestAlt !== undefined && prev.id === 'best') {
+            return bestAlt;
+          }
+          return result.choices.find((c) => c.id === prev.id) ?? result.choices[0] ?? prev;
+        });
       })
       .catch((err: unknown) => {
         console.error('getFormatChoices rejected:', err);

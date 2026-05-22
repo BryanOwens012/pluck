@@ -102,6 +102,35 @@ const mp4VideoSelector = (maxHeight?: number): string => {
   ].join('/');
 };
 
+/** Quality-first "Best" for the pre-probe placeholder. Differs from
+ * the post-probe mp4-biased `best` in one key way: no container
+ * restriction. The `-S res,vcodec:h264,fps` sort still prefers h264
+ * (so 1080p YouTube stays mp4), but at 4K YouTube only has VP9/WebM
+ * available — no mp4 — so h264 preference is moot and the user gets
+ * the actual highest quality (4K WebM) instead of silently capping
+ * at 1080p mp4.
+ *
+ * AV1 is still excluded: M1 Macs can't hardware-decode it, and
+ * QuickTime playback is unreliable. On YouTube, VP9 WebM is always
+ * available alongside AV1 at every resolution, so the exclusion
+ * doesn't forfeit 4K.
+ *
+ * Used in PROBING_PLACEHOLDER_CHOICES (pre-probe state) and as the
+ * initial format selection before any URL is pasted. When the probe
+ * lands and best_alt exists (meaning a higher-res non-mp4 option was
+ * found), the probe effect auto-promotes the selection to best_alt —
+ * consistent with this quality-first intent. */
+export const QUALITY_FIRST_BEST_CHOICE: FormatChoice = {
+  id: 'best',
+  label: 'Best',
+  ytDlpFormatArgs: [
+    '-f',
+    'bv*[vcodec!*=av01]+ba/b[vcodec!*=av01]/b',
+    ...VIDEO_SORT_FLAGS,
+    ...VIDEO_EMBED_FLAGS,
+  ],
+};
+
 /** Static fallback table — used by the renderer before a URL probe
  * runs. Labels are generic ("Best") because we don't know per-URL
  * dimensions until format-selector runs on a fetched metadata pass. */
