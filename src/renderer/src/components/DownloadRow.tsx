@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { ELEVENLABS_ENABLED } from '../../../shared/flags';
 import type { DebugLogEvent, Download } from '../../../shared/types';
 import { api } from '../lib/api';
 import { LogBox } from './LogBox';
@@ -131,8 +132,13 @@ export const DownloadRow = ({
                 ElevenLabs key saved — main bails the IPC with a
                 useful error if either is missing). Hidden while
                 transcription is in flight; the status text below
-                takes over visually. */}
-            {transcriptionEnabled &&
+                takes over visually. Also build-time gated on
+                ELEVENLABS_ENABLED so a stale `transcriptionEnabled:
+                true` in a user's settings.json (from a previous
+                build where the provider was enabled) can't surface
+                the button in a disabled-feature build. */}
+            {ELEVENLABS_ENABLED &&
+            transcriptionEnabled &&
             download.status === 'completed' &&
             shouldShowTranscribeButton(download.transcriptionStatus) ? (
               <TranscribeButton id={download.id} />

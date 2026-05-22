@@ -133,6 +133,23 @@ export const IpcChannels = {
    * Returns immediately with `{ ok }` — the actual work is async +
    * monitored via the DownloadUpdate stream. */
   TranscribeDownload: 'pluck:transcribe-download',
+  /** Renderer -> main, invoke. Returns the currently-installed
+   * yt-dlp version + which copy is in use (bundled vs. auto-
+   * updated). Cheap (runs `yt-dlp --version` + an fs.access);
+   * called by the Developer accordion on open. */
+  GetYtDlpStatus: 'pluck:get-yt-dlp-status',
+  /** Renderer -> main, invoke. Hit GitHub's releases API to learn
+   * the latest available yt-dlp version. Returns the installed
+   * version + latest + a derived `updateAvailable` flag. Failure
+   * (network down, GitHub 5xx) surfaces as `error` in the result
+   * so the UI can render a "couldn't check" message rather than
+   * pretending we're up to date. */
+  CheckYtDlpUpdate: 'pluck:check-yt-dlp-update',
+  /** Renderer -> main, invoke. Download the latest yt-dlp into the
+   * user-data dir. The install completes before the IPC resolves;
+   * the current session keeps using its already-spawned binary
+   * (the new copy takes effect on next app launch). */
+  InstallYtDlpUpdate: 'pluck:install-yt-dlp-update',
 } as const;
 
 export type IpcChannel = (typeof IpcChannels)[keyof typeof IpcChannels];

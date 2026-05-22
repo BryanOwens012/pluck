@@ -14,6 +14,8 @@ import { createMetadataCache } from './metadata-cache';
 import { binPath } from './paths';
 import { createSecretsStore, type Encryptor } from './secrets';
 import { createSettingsStore } from './settings';
+import { checkForUpdate, installUpdate } from './yt-dlp-updater/updater';
+import { readCurrentYtDlpInstallation } from './yt-dlp-updater/version';
 import { fetchMetadata, runDownload } from './ytdlp/runner';
 
 const createWindow = (): void => {
@@ -128,7 +130,14 @@ app.whenReady().then(async () => {
   const history = createHistoryStore(userDataDir);
   const persistedDownloads = await history.load();
 
-  const runnerDeps = { ytDlpPath: binPath('yt-dlp'), ffmpegPath: binPath('ffmpeg') };
+  // Resolve which yt-dlp copy to use BEFORE any spawn happens. The
+  // userData copy (written by the auto-updater on previous launches)
+  // takes precedence over the bundled binary; first-run users fall
+  // through to bundled. The path is captured into runnerDeps and
+  // reused for every spawn this session — a freshly-downloaded
+  // update during THIS session takes effect on the next launch.
+  const ytDlpInstallation = await readCurrentYtDlpInstallation();
+  const runnerDeps = { ytDlpPath: ytDlpInstallation.path, ffmpegPath: binPath('ffmpeg') };
   // Live-read cookies from settings at fetch time so a change takes
   // effect on the next prefetch / metadata fetch without rebuilding
   // the cache. Already-cached entries stay (per the cache's no-TTL
@@ -195,6 +204,29 @@ app.whenReady().then(async () => {
   });
   prewarmYtDlp();
   createWindow();
+
+  // Background auto-update for yt-dlp. yt-dlp ships roughly weekly
+  // — a stale binary breaks on YouTube as the player JS evolves.
+  // Runs after createWindow() so the user sees the UI before any
+  // network call. Silent on success (the updated binary takes
+  // effect on next launch); failures are logged but don't crash.
+  // The Settings → Developer accordion surfaces the same info
+  // (version, last check, update available) so the user can also
+  // trigger checks / installs manually.
+  if (settings.get().ytDlpAutoUpdate) {
+    void (async () => {
+      try {
+        const result = await checkForUpdate();
+        if (result.updateAvailable) {
+          await installUpdate();
+        }
+      } catch (err) {
+        // checkForUpdate / installUpdate both return error-shape
+        // results rather than throwing, but defense in depth.
+        console.error('yt-dlp auto-update failed', err);
+      }
+    })();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
