@@ -66,14 +66,40 @@ export const VIDEO_EMBED_FLAGS = AUDIO_EMBED_FLAGS;
  * otherwise pick on the fps tiebreaker. */
 const VIDEO_SORT_FLAGS = ['-S', 'res,vcodec:h264,fps'] as const;
 
-/** Selector for the best mp4 stream at or below `maxHeight` — pinned
- * to mp4 container, AV1 codec excluded (M1/M2 can't hardware-decode
- * AV1 well, and QuickTime treats some AV1-in-mp4 files as corrupt).
- * Falls back to a single-file mp4 if the bv*+ba merge isn't
- * available. Omit `maxHeight` for "unrestricted" (the Best preset). */
+/** Selector for the best stream at or below `maxHeight`. Ordered
+ * preference cascade — yt-dlp processes left-to-right and stops at
+ * the first matching format:
+ *
+ *  1. **`bv*[ext=mp4][vcodec!*=av01]<h>+ba[ext=m4a]`** — ideal for
+ *     sites that expose separate video+audio formats (YouTube,
+ *     Vimeo). Pinned to mp4 + m4a so the merge yields a native
+ *     QuickTime-playable file. AV1 excluded because M1/M2 can't
+ *     hardware-decode AV1 well and QuickTime treats some AV1-in-mp4
+ *     files as corrupt.
+ *  2. **`b[ext=mp4][vcodec!*=av01]<h>`** — single muxed mp4. Hits
+ *     for sites that pre-merge their streams (Zoom recordings,
+ *     direct CDN links).
+ *  3. **`b[ext=mp4]<h>`** — relax the AV1 filter. If the only
+ *     available mp4 is AV1, take it; QuickTime usually plays it,
+ *     just without hardware decode.
+ *  4. **`b<h>`** — any container at the chosen height (webm, mkv,
+ *     mov). Last-resort tier-respecting fallback.
+ *  5. **`b`** — truly anything. Fires only when the chosen height
+ *     tier has zero matches (e.g. a 360p selector on a stream that
+ *     only offers 720p). Better to give the user a higher-resolution
+ *     file than to error out with "Requested format is not available".
+ *
+ * Omit `maxHeight` for "unrestricted" (the Best preset) — steps 4
+ * and 5 collapse into the same selector but the dup is harmless. */
 const mp4VideoSelector = (maxHeight?: number): string => {
-  const heightClause = maxHeight === undefined ? '' : `[height<=${maxHeight}]`;
-  return `bv*[ext=mp4][vcodec!*=av01]${heightClause}+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]${heightClause}`;
+  const h = maxHeight === undefined ? '' : `[height<=${maxHeight}]`;
+  return [
+    `bv*[ext=mp4][vcodec!*=av01]${h}+ba[ext=m4a]`,
+    `b[ext=mp4][vcodec!*=av01]${h}`,
+    `b[ext=mp4]${h}`,
+    `b${h}`,
+    'b',
+  ].join('/');
 };
 
 /** Static fallback table — used by the renderer before a URL probe
