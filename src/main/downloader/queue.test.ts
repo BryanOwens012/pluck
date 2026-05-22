@@ -394,6 +394,39 @@ describe('DownloadQueue', () => {
     expect(persisted.at(-1)).toEqual([]);
   });
 
+  it('clearAll preserves the concurrency cap for the next batch', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    // Enqueue 4 against the default cap of 3, then clearAll. The 3
+    // in-flight runners' finally blocks must wind activeCount back
+    // down to 0 — so a fresh batch can promote up to the cap again.
+    // If clearAll resets activeCount to 0 prematurely, the orphaned
+    // finally blocks will push it negative and the next enqueue will
+    // over-promote.
+    for (let i = 0; i < 4; i++) {
+      queue.enqueue(makeRequest(`https://example.com/${i}`));
+    }
+    await waitFor(() => fakeRuns.length === 3);
+    const orphanedRuns = [...fakeRuns];
+
+    queue.clearAll();
+    // Drain the aborted runs so the orphaned finally blocks
+    // decrement activeCount.
+    const { YtDlpCancelledError } = await import('../ytdlp/types');
+    for (const run of orphanedRuns) {
+      run.reject(new YtDlpCancelledError());
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Fresh batch: enqueue 3 more. All three should promote.
+    fakeRuns.length = 0;
+    for (let i = 0; i < 3; i++) {
+      queue.enqueue(makeRequest(`https://example.com/new-${i}`));
+    }
+    await waitFor(() => fakeRuns.length === 3);
+
+    expect(queue.getAll().filter((d) => d.status === 'downloading')).toHaveLength(3);
+  });
+
   it('clearAll aborts in-flight runners and their post-abort emit is a no-op', async () => {
     const updates: Download[] = [];
     const queue = createDownloadQueue(buildQueueDeps((d) => updates.push(d)));

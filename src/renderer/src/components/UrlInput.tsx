@@ -57,7 +57,7 @@ export const UrlInput = ({ value, onChange }: Props): React.JSX.Element => {
       spellCheck={false}
       autoCapitalize="off"
       autoCorrect="off"
-      className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-700 focus:border-neutral-600 focus:outline-none"
+      className="w-full rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
     />
   );
 };

@@ -518,7 +518,7 @@ const CompletedFooter = ({
         disabled={isMissing}
         title={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
         aria-label={isMissing ? MISSING_FILE_TOOLTIP : 'Show in Finder'}
-        className="shrink-0 rounded p-1 text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:text-neutral-700 disabled:hover:bg-transparent disabled:hover:text-neutral-700"
+        className="shrink-0 rounded p-1 text-neutral-700 transition hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:text-neutral-400 disabled:hover:bg-transparent disabled:hover:text-neutral-400"
       >
         <FolderIcon />
       </button>

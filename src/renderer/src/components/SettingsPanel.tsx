@@ -442,7 +442,7 @@ const ConcurrencyRow = ({
           value={displayValue}
           onChange={handleChange}
           disabled={!loaded || overridden}
-          className="shrink-0 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-900 focus:border-neutral-600 focus:outline-none disabled:opacity-50"
+          className="shrink-0 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500 disabled:opacity-50"
         >
           {options.map((n) => (
             <option key={n} value={n}>
@@ -614,7 +614,7 @@ const YtDlpCommandOverrideRow = ({ onExtractedChange }: OverrideRowProps): React
         autoCorrect="off"
         placeholder={isEmpty ? autoPreview || 'yt-dlp <flags> <URL>' : undefined}
         rows={4}
-        className="w-full resize-y rounded-md border border-neutral-200 bg-white px-2 py-1.5 font-mono text-[11px] leading-snug text-neutral-900 placeholder:text-neutral-700 focus:border-neutral-600 focus:outline-none"
+        className="w-full resize-y rounded-md border border-neutral-200 bg-white px-2 py-1.5 font-mono text-[11px] leading-snug text-neutral-900 placeholder:text-neutral-500 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
       />
       {parseError ? <p className="text-xs text-red-700">{parseError}</p> : null}
       {saveError ? <p className="text-xs text-red-700">{saveError}</p> : null}
@@ -982,30 +982,36 @@ const ClearTempFoldersRow = (): React.JSX.Element => {
 
 /** Discriminated state for the destructive two-step "Clear library"
  * affordance. Idle is the default; clicking flips to `confirming`
- * which shows explicit Clear / Cancel buttons. The actual IPC happens
- * synchronously in the click handler — the row is fast, so we don't
- * bother with a `clearing` phase. After clear we briefly show `done`
- * so the user gets feedback that something happened (the rows
- * disappear from the main view in the same tick). */
+ * which shows explicit Clear / Cancel buttons. `clearing` covers the
+ * single IPC round-trip, after which the row lands in `done` (success
+ * banner) or `error` (failure message + retry path). Starting a new
+ * confirm from `done` / `error` collapses the prior banner — at most
+ * one outcome banner is visible at a time. */
 type ClearLibraryState =
   | { phase: 'idle' }
   | { phase: 'confirming' }
-  | { phase: 'done'; cleared: number };
+  | { phase: 'clearing' }
+  | { phase: 'done' }
+  | { phase: 'error'; message: string };
 
 const ClearLibraryRow = (): React.JSX.Element => {
   const [state, setState] = useState<ClearLibraryState>({ phase: 'idle' });
 
   const handleConfirm = async (): Promise<void> => {
-    // Read the row count from main *before* the wipe so we can show
-    // "Cleared N items." The renderer's own store mirrors this and
-    // wipes itself on the next downloads-changed broadcast — well,
-    // there is no such broadcast, so the user sees the empty state
-    // on next return to the main view. For the count, we lean on
-    // getInitialState which returns the live snapshot.
-    const before = await api.getInitialState();
-    await api.clearLibrary();
-    setState({ phase: 'done', cleared: before.length });
+    setState({ phase: 'clearing' });
+    try {
+      await api.clearLibrary();
+      setState({ phase: 'done' });
+    } catch (err) {
+      setState({
+        phase: 'error',
+        message: err instanceof Error ? err.message : 'Failed to clear library.',
+      });
+    }
   };
+
+  const isConfirming = state.phase === 'confirming';
+  const isClearing = state.phase === 'clearing';
 
   return (
     <div className="flex items-center gap-2 rounded-md border border-neutral-200 bg-white px-3 py-2">
@@ -1017,25 +1023,30 @@ const ClearLibraryRow = (): React.JSX.Element => {
         </div>
         {state.phase === 'done' ? (
           <div className="mt-0.5 text-xs text-emerald-700">
-            Cleared {state.cleared} item{state.cleared === 1 ? '' : 's'}.
+            Library cleared. Files on disk were not removed.
           </div>
         ) : null}
+        {state.phase === 'error' ? (
+          <div className="mt-0.5 text-xs text-red-700">{state.message}</div>
+        ) : null}
       </div>
-      {state.phase === 'confirming' ? (
+      {isConfirming || isClearing ? (
         <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={() => {
               void handleConfirm();
             }}
-            className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100"
+            disabled={isClearing}
+            className="rounded border border-red-300 bg-red-50 px-2 py-0.5 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-red-50"
           >
-            Clear
+            {isClearing ? 'Clearing…' : 'Clear'}
           </button>
           <button
             type="button"
             onClick={() => setState({ phase: 'idle' })}
-            className="rounded border border-neutral-200 bg-white px-2 py-0.5 text-xs text-neutral-800 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900"
+            disabled={isClearing}
+            className="rounded border border-neutral-200 bg-white px-2 py-0.5 text-xs text-neutral-800 transition hover:border-neutral-300 hover:bg-neutral-100 hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             Cancel
           </button>
@@ -1157,7 +1168,7 @@ const CookiesSection = ({
         value={displayValue}
         onChange={handleChange}
         disabled={overridden}
-        className="w-full rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none disabled:opacity-60"
+        className="w-full rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500 disabled:opacity-60"
       >
         <option value="">None (don't use browser cookies)</option>
         {options.map((opt) => (
@@ -1360,7 +1371,7 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
           onChange={(event) => setState({ phase: 'editing', value: event.target.value })}
           placeholder="sk-…"
           autoComplete="off"
-          className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none"
+          className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-3 py-1.5 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
         />
         <button
           type="button"
@@ -1374,7 +1385,7 @@ const ApiKeyRow = ({ provider, label, help }: KeyRowProps): React.JSX.Element =>
           type="button"
           onClick={() => void handleSave(editingValue)}
           disabled={busy || editingValue.trim().length === 0}
-          className="shrink-0 rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="shrink-0 rounded-md border border-neutral-900 bg-neutral-900 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:bg-neutral-300 disabled:text-neutral-700"
         >
           {state.phase === 'saving' ? 'Saving…' : 'Save'}
         </button>
