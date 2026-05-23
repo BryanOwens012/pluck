@@ -12,6 +12,7 @@ import {
   METADATA_MAX_BUFFER,
 } from './args';
 import {
+  isAuthRequiredError,
   isCookieAccessDeniedError,
   isPasswordRequiredError,
   parseMetadata,
@@ -25,6 +26,7 @@ import {
   type RunDownloadResult,
   type RunnerDeps,
   type VideoMetadata,
+  YtDlpAuthRequiredError,
   YtDlpCancelledError,
   YtDlpCookieAccessDeniedError,
   YtDlpError,
@@ -58,6 +60,9 @@ export const fetchMetadata = async (
       // cause; surfacing that is more actionable.
       if (options.cookiesFromBrowser && isCookieAccessDeniedError(err.stderr)) {
         throw new YtDlpCookieAccessDeniedError(options.cookiesFromBrowser, err.stderr);
+      }
+      if (isAuthRequiredError(err.stderr)) {
+        throw new YtDlpAuthRequiredError(err.stderr);
       }
       if (isPasswordRequiredError(err.stderr)) {
         throw new YtDlpPasswordRequiredError(err.stderr);
@@ -96,6 +101,9 @@ export const fetchPlaylistEntries = async (
     if (err instanceof Error && 'stderr' in err && typeof err.stderr === 'string') {
       if (options.cookiesFromBrowser && isCookieAccessDeniedError(err.stderr)) {
         throw new YtDlpCookieAccessDeniedError(options.cookiesFromBrowser, err.stderr);
+      }
+      if (isAuthRequiredError(err.stderr)) {
+        throw new YtDlpAuthRequiredError(err.stderr);
       }
       if (isPasswordRequiredError(err.stderr)) {
         throw new YtDlpPasswordRequiredError(err.stderr);
@@ -211,6 +219,10 @@ export const runDownload = (
         if (code !== 0) {
           if (opts.cookiesFromBrowser && isCookieAccessDeniedError(stderr)) {
             reject(new YtDlpCookieAccessDeniedError(opts.cookiesFromBrowser, stderr));
+            return;
+          }
+          if (isAuthRequiredError(stderr)) {
+            reject(new YtDlpAuthRequiredError(stderr));
             return;
           }
           if (isPasswordRequiredError(stderr)) {

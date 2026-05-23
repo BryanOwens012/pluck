@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isAuthRequiredError,
   isCookieAccessDeniedError,
   isPasswordRequiredError,
   parseMetadata,
@@ -242,6 +243,107 @@ describe('isPasswordRequiredError', () => {
   it('handles empty / whitespace input', () => {
     expect(isPasswordRequiredError('')).toBe(false);
     expect(isPasswordRequiredError('   \n  ')).toBe(false);
+  });
+});
+
+describe('isAuthRequiredError', () => {
+  it('matches YouTube age-gate phrasing', () => {
+    expect(
+      isAuthRequiredError(
+        'ERROR: [youtube] abc123: Sign in to confirm your age. This video may be inappropriate for some users.',
+      ),
+    ).toBe(true);
+    expect(isAuthRequiredError('ERROR: [youtube] xyz: This video is age-restricted')).toBe(true);
+    expect(isAuthRequiredError('ERROR: [youtube] foo: This video may be inappropriate')).toBe(true);
+  });
+
+  it("matches YouTube's anti-bot phrasing with both ASCII and Unicode apostrophes", () => {
+    // ASCII apostrophe (most common in CLI output).
+    expect(isAuthRequiredError("ERROR: [youtube] xyz: Sign in to confirm you're not a bot")).toBe(
+      true,
+    );
+    // Unicode U+2019 (sometimes copy-pasted from YouTube's player UI).
+    expect(isAuthRequiredError('ERROR: [youtube] xyz: Sign in to confirm you’re not a bot')).toBe(
+      true,
+    );
+    // Missing apostrophe entirely (defensive).
+    expect(isAuthRequiredError('ERROR: [youtube] xyz: Sign in to confirm youre not a bot')).toBe(
+      true,
+    );
+  });
+
+  it('matches the universal --cookies-from-browser hint emitted by every login-required extractor', () => {
+    expect(
+      isAuthRequiredError(
+        'ERROR: [SomeExtractor] xyz: Login required. Use --cookies-from-browser or --cookies for the authentication.',
+      ),
+    ).toBe(true);
+    // Even without "Login required", the explicit --cookies-from-browser
+    // hint alone is enough.
+    expect(isAuthRequiredError('ERROR: Use --cookies-from-browser or similar')).toBe(true);
+  });
+
+  it('does NOT match warnings that merely mention --cookies but are not auth failures', () => {
+    // The catch-all is intentionally narrow to "--cookies-from-browser"
+    // so generic mentions of "Use --cookies" (in unrelated warnings,
+    // deprecation notices, debug lines) don't trigger a false positive
+    // that would land an unrelated network error into the
+    // needs_cookies UI.
+    expect(isAuthRequiredError('WARNING: --cookies is deprecated, use a config file')).toBe(false);
+    expect(isAuthRequiredError('[debug] Using --cookies arg from environment')).toBe(false);
+  });
+
+  it('matches Twitter / X protected-tweet wording', () => {
+    expect(isAuthRequiredError('ERROR: [twitter] 123: NSFW tweet requires authentication')).toBe(
+      true,
+    );
+    expect(
+      isAuthRequiredError(
+        'ERROR: [twitter] 123: You are not authorized to view this protected tweet',
+      ),
+    ).toBe(true);
+  });
+
+  it('matches Instagram private / login-required wording', () => {
+    expect(
+      isAuthRequiredError(
+        'ERROR: [instagram] xyz: This content is only available for registered users who follow this account',
+      ),
+    ).toBe(true);
+    expect(
+      isAuthRequiredError('ERROR: [instagram] abc: You need to log in to access this content'),
+    ).toBe(true);
+  });
+
+  it('matches Vimeo private / login-required wording', () => {
+    expect(
+      isAuthRequiredError(
+        'ERROR: [vimeo] 123: Because of its privacy settings, this video cannot be played here',
+      ),
+    ).toBe(true);
+    expect(isAuthRequiredError('ERROR: [vimeo] 123: This client only works when logged-in')).toBe(
+      true,
+    );
+    expect(isAuthRequiredError('ERROR: [vimeo] 123: This client only works when logged in')).toBe(
+      true,
+    );
+  });
+
+  it('matches the generic "Login required" phrasing used by many extractors', () => {
+    expect(isAuthRequiredError('ERROR: [tiktok] xyz: Login required to view this content')).toBe(
+      true,
+    );
+  });
+
+  it('does not match generic non-auth failures', () => {
+    expect(isAuthRequiredError('ERROR: [youtube] xyz: Video unavailable')).toBe(false);
+    expect(isAuthRequiredError('ERROR: HTTP Error 404: Not Found')).toBe(false);
+    expect(isAuthRequiredError('WARNING: ffmpeg not found')).toBe(false);
+  });
+
+  it('handles empty / whitespace input', () => {
+    expect(isAuthRequiredError('')).toBe(false);
+    expect(isAuthRequiredError('   \n  ')).toBe(false);
   });
 });
 

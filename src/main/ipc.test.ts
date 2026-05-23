@@ -129,6 +129,7 @@ const buildFakeDeps = (): Parameters<typeof registerIpcHandlers>[0] => {
       },
       cancel: vi.fn(),
       submitPassword: vi.fn(),
+      retryWithCookies: vi.fn(),
       getAll: (): never[] => [],
       rehydrate: vi.fn(),
       patchTranscription: vi.fn(),

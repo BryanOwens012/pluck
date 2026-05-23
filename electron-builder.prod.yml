@@ -38,6 +38,10 @@ extraResources:
     filter:
       - yt-dlp
       - ffmpeg
+      # yt-dlp's post-processing (stream merge, metadata embed, thumbnail
+      # embed) invokes ffprobe internally. yt-dlp resolves ffprobe from
+      # the --ffmpeg-location directory, so the two must sit side by side.
+      - ffprobe
 mac:
   category: public.app-category.utilities
   # Hardened runtime is required for notarization. The disable-library-

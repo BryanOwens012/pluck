@@ -233,6 +233,61 @@ export const isPasswordRequiredError = (stderr: string): boolean => {
 };
 
 /**
+ * Detect "needs authenticated cookies" errors from stderr across every
+ * site we support. yt-dlp's wording varies per extractor; common signals:
+ *
+ * - **YouTube** age gate: "Sign in to confirm your age" / "age-restricted"
+ *   / "this video may be inappropriate"
+ * - **YouTube** anti-bot: "Sign in to confirm you're not a bot" (cookies
+ *   solve this too — yt-dlp's anonymous quota was tripped)
+ * - **Twitter / X**: "NSFW tweet requires authentication" / "this tweet
+ *   is from an account whose tweets are protected" / "Login required"
+ * - **Instagram**: "Login required" / "This post is from a private account"
+ * - **Vimeo**: "is private" / "the content of this video could not be
+ *   detected, possibly because it is private"
+ * - **Generic**: "Use --cookies-from-browser" suggestion in the stderr is
+ *   yt-dlp's universal hint that cookies would unblock the fetch.
+ *
+ * Deliberately distinct from `isCookieAccessDeniedError` — that one fires
+ * when a browser IS configured but macOS blocked the read; this one fires
+ * when no cookies are set OR the configured browser's session isn't
+ * authenticated. The remediation differs (pick a browser vs grant
+ * permission), so the two routes through the queue diverge too.
+ *
+ * Pinned against yt-dlp 2026.03.17 — re-verify on every yt-dlp bump.
+ */
+export const isAuthRequiredError = (stderr: string): boolean => {
+  // Patterns verified against yt-dlp 2026.03.17 extractor source.
+  // The universal hint `raise_login_required` appends to every login-
+  // required error is "Use --cookies-from-browser …" — we match the
+  // full flag (not just "--cookies") so warnings or debug lines that
+  // merely mention "Using cookies" can't trigger a false positive.
+  return (
+    // Universal hint — yt-dlp's `raise_login_required` always appends
+    // this across YouTube / Twitter / Instagram / Vimeo / Twitch /
+    // Reddit / Facebook / TikTok / etc.
+    /use --cookies-from-browser/i.test(stderr) ||
+    // YouTube: age gate + anti-bot. Apostrophe is sometimes the Unicode
+    // U+2019 (’) rather than ASCII (').
+    /sign in to confirm your age/i.test(stderr) ||
+    /sign in to confirm you[’']?re not a bot/i.test(stderr) ||
+    /age[- ]restrict/i.test(stderr) ||
+    /this video may be inappropriate/i.test(stderr) ||
+    // Generic phrasing emitted by Instagram / TikTok / others.
+    /login required/i.test(stderr) ||
+    // Twitter / X.
+    /nsfw tweet requires authentication/i.test(stderr) ||
+    /protected tweet/i.test(stderr) ||
+    // Instagram.
+    /only available for registered users/i.test(stderr) ||
+    /need to log in to access/i.test(stderr) ||
+    // Vimeo.
+    /only works when logged[- ]?in/i.test(stderr) ||
+    /because of its privacy settings/i.test(stderr)
+  );
+};
+
+/**
  * Detect cookie-extraction failures from stderr — the user picked a browser
  * in Settings → Browser cookies, but macOS blocked yt-dlp from reading it.
  * Two scenarios:

@@ -33,7 +33,7 @@ describe('runDownload cancellation', () => {
           url: 'https://example.com/x',
           ytDlpFormatArgs: [
             '-f',
-            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
             '-S',
             'res,vcodec:h264,fps',
           ],
@@ -62,7 +62,7 @@ describe('runDownload cancellation', () => {
           url: 'https://example.com/x',
           ytDlpFormatArgs: [
             '-f',
-            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
             '-S',
             'res,vcodec:h264,fps',
           ],
@@ -109,7 +109,7 @@ describe('runDownload --cookies-from-browser pass-through', () => {
           url: 'https://example.com/x',
           ytDlpFormatArgs: [
             '-f',
-            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
             '-S',
             'res,vcodec:h264,fps',
           ],
@@ -137,7 +137,7 @@ describe('runDownload --cookies-from-browser pass-through', () => {
           url: 'https://example.com/x',
           ytDlpFormatArgs: [
             '-f',
-            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
             '-S',
             'res,vcodec:h264,fps',
           ],
@@ -165,7 +165,7 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
           url: 'https://example.com/x',
           ytDlpFormatArgs: [
             '-f',
-            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
             '-S',
             'res,vcodec:h264,fps',
           ],
@@ -191,7 +191,7 @@ describe('runDownload -N (concurrent fragments) pass-through', () => {
           url: 'https://example.com/x',
           ytDlpFormatArgs: [
             '-f',
-            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
             '-S',
             'res,vcodec:h264,fps',
           ],
@@ -236,7 +236,7 @@ describe('runDownload format-flags (mp4-preferring presets)', () => {
   it('best: -f filters to mp4 video + m4a audio, falls back to single mp4', async () => {
     const argv = await runAndReadArgv('best');
     expect(argv).toContain(
-      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+      'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
     );
     expect(argv).toMatch(/-S res,vcodec:h264,fps/);
   });
@@ -244,7 +244,7 @@ describe('runDownload format-flags (mp4-preferring presets)', () => {
   it('1080p: caps height inside the mp4 filter', async () => {
     const argv = await runAndReadArgv('1080p');
     expect(argv).toContain(
-      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]/b[ext=mp4][height<=1080]/b[height<=1080]/b',
+      'bv*[ext=mp4][vcodec!*=av01][height<=1080]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=1080]',
     );
     expect(argv).toMatch(/-S res,vcodec:h264,fps/);
   });
@@ -252,7 +252,7 @@ describe('runDownload format-flags (mp4-preferring presets)', () => {
   it('720p: caps height inside the mp4 filter', async () => {
     const argv = await runAndReadArgv('720p');
     expect(argv).toContain(
-      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]/b[ext=mp4][height<=720]/b[height<=720]/b',
+      'bv*[ext=mp4][vcodec!*=av01][height<=720]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01][height<=720]',
     );
     expect(argv).toMatch(/-S res,vcodec:h264,fps/);
   });
@@ -305,7 +305,7 @@ exit 1
           url: 'https://example.com/x',
           ytDlpFormatArgs: [
             '-f',
-            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b/b',
+            'bv*[ext=mp4][vcodec!*=av01]+ba[ext=m4a]/b[ext=mp4][vcodec!*=av01]/b[ext=mp4]/b',
             '-S',
             'res,vcodec:h264,fps',
           ],

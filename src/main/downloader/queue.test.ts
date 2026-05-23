@@ -699,6 +699,79 @@ describe('DownloadQueue', () => {
     expect(queue.getAll().find((d) => d.id === id)?.status).toBe('cancelled');
   });
 
+  it('runner throwing YtDlpAuthRequiredError lands the row in needs_cookies', async () => {
+    const { YtDlpAuthRequiredError } = await import('../ytdlp/types');
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpAuthRequiredError());
+
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'needs_cookies');
+    const row = queue.getAll().find((d) => d.id === id);
+    expect(row?.status).toBe('needs_cookies');
+    // Progress fields should be cleared so the row reads as paused, not stalled.
+    expect(row?.speed).toBeUndefined();
+    expect(row?.eta).toBeUndefined();
+  });
+
+  it('retryWithCookies on a needs_cookies row flips it to queued and re-runs', async () => {
+    const { YtDlpAuthRequiredError } = await import('../ytdlp/types');
+    let cookiesAtRun: string | undefined;
+    const queue = createDownloadQueue({
+      ...buildQueueDeps(() => {}),
+      // Live-read pattern: the second call (after retryWithCookies) sees
+      // the updated value, simulating the IPC handler's settings.update
+      // before queue.retryWithCookies.
+      getCookiesFromBrowser: () => cookiesAtRun,
+    });
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpAuthRequiredError());
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'needs_cookies');
+
+    // Simulate the IPC handler: persist the global setting, then nudge.
+    cookiesAtRun = 'chrome';
+    queue.retryWithCookies(id);
+
+    await waitFor(() => fakeRuns.length === 2);
+    // The new run picked up the updated cookies value via the live-read.
+    expect(fakeRuns[1]?.opts.cookiesFromBrowser).toBe('chrome');
+    expect(queue.getAll().find((d) => d.id === id)?.status).toBe('downloading');
+
+    queue.cancel(id);
+  });
+
+  it('retryWithCookies on a non-needs_cookies row is a no-op', async () => {
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+    await waitFor(() => fakeRuns.length === 1);
+
+    // Row is currently 'downloading'. retryWithCookies should NOT
+    // restart it or affect anything.
+    const beforeRunsCount = fakeRuns.length;
+    queue.retryWithCookies(id);
+    queue.retryWithCookies('unknown-id');
+    expect(fakeRuns.length).toBe(beforeRunsCount);
+    expect(queue.getAll().find((d) => d.id === id)?.status).toBe('downloading');
+
+    queue.cancel(id);
+  });
+
+  it('cancel on a needs_cookies row flips to cancelled (no process to kill)', async () => {
+    const { YtDlpAuthRequiredError } = await import('../ytdlp/types');
+    const queue = createDownloadQueue(buildQueueDeps(() => {}));
+    const id = queue.enqueue(makeRequest());
+
+    await waitFor(() => fakeRuns.length === 1);
+    fakeRuns[0]?.reject(new YtDlpAuthRequiredError());
+    await waitFor(() => queue.getAll().find((d) => d.id === id)?.status === 'needs_cookies');
+
+    queue.cancel(id);
+    expect(queue.getAll().find((d) => d.id === id)?.status).toBe('cancelled');
+  });
+
   it('enqueue copies playlist fields from the request onto the Download', () => {
     const queue = createDownloadQueue(buildQueueDeps(() => {}));
     const id = queue.enqueue({

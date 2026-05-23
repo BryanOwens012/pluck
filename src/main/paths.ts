@@ -1,7 +1,7 @@
 import { join } from 'node:path';
 import { app } from 'electron';
 
-export const BUNDLED_BINARIES = ['yt-dlp', 'ffmpeg'] as const;
+export const BUNDLED_BINARIES = ['yt-dlp', 'ffmpeg', 'ffprobe'] as const;
 export type BundledBinary = (typeof BUNDLED_BINARIES)[number];
 
 /**
