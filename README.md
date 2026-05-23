@@ -50,7 +50,7 @@ See [Development](#development) below.
 ## Requirements
 
 - **macOS Tahoe 26 or later** — tested on macOS 26.1
-- **Apple Silicon** (M1, M2, M3, M4). Intel Macs are not supported.
+- **Apple Silicon** (M1, M2, M3, etc.). Intel Macs are not supported.
 
 ---
 
@@ -106,7 +106,7 @@ Click the gear icon top-right. Sections:
 
 ### Prerequisites
 
-- macOS 13 or later (apple silicon strongly recommended)
+- macOS Tahoe 26 or later, on Apple Silicon (M1, M2, M3, etc.) — Intel Macs are not supported
 - Node.js 20+ (24 is the test target)
 - npm 10+
 
