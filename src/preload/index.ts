@@ -144,6 +144,14 @@ const api = {
   submitPassword: (id: string, password: string): Promise<void> =>
     ipcRenderer.invoke(IpcChannels.SubmitPassword, id, password),
 
+  /** Submit a browser pick for a row that's waiting in 'needs_cookies'.
+   * Main updates the global `cookiesFromBrowser` setting AND flips the
+   * row back to 'queued' so a fresh yt-dlp invocation picks up the
+   * new --cookies-from-browser arg. Browser must be one of the
+   * BROWSER_NAMES (chrome / firefox / safari / brave / edge). */
+  submitCookiesBrowser: (id: string, browser: BrowserName): Promise<void> =>
+    ipcRenderer.invoke(IpcChannels.SubmitCookiesBrowser, id, browser),
+
   /** Which API keys are currently saved. Used to gate the Welcome
    * screen on boot and to disable features whose key is missing. */
   hasApiKeys: (): Promise<HasApiKeys> => ipcRenderer.invoke(IpcChannels.HasApiKeys),

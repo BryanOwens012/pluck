@@ -7,6 +7,7 @@ import { createTempFolder, moveFile, removeTempFolder, resolveAvailablePath } fr
 import { buildDownloadArgs, formatInvocationForDisplay } from '../ytdlp/args';
 import type { RunDownloadOptions, RunDownloadResult, RunnerDeps } from '../ytdlp/types';
 import {
+  YtDlpAuthRequiredError,
   YtDlpCancelledError,
   YtDlpCookieAccessDeniedError,
   YtDlpPasswordRequiredError,
@@ -61,6 +62,14 @@ export const friendlyErrorMessage = (err: unknown): string => {
     // it reaches this branch (e.g. a non-queue caller), at least
     // produce a useful message rather than the generic one.
     return 'This recording requires a password.';
+  }
+  if (err instanceof YtDlpAuthRequiredError) {
+    // Defense in depth: the queue catches this error and routes it
+    // through the 'needs_cookies' status path so the row can show
+    // its inline browser picker. If something bypasses the queue,
+    // surface a user-actionable string instead of the generic
+    // "site may be unsupported" copy.
+    return 'This content requires sign-in cookies. Pick a browser from the row to use its session.';
   }
   if (err instanceof YtDlpCookieAccessDeniedError) {
     // Per-browser tailored message: Safari needs Full Disk Access in
@@ -180,6 +189,13 @@ export type DownloadQueue = {
    * instead of asking again. No-op if the id isn't currently in
    * 'needs_password' (renderer / IPC race). */
   submitPassword(id: string, password: string): void;
+  /** Retry a row that's waiting in 'needs_cookies' now that the global
+   * `cookiesFromBrowser` setting has been updated. The caller (IPC
+   * handler) is responsible for persisting the new browser choice via
+   * the settings store before invoking this — the queue's
+   * getCookiesFromBrowser() callable will pick it up on the next run.
+   * No-op if the row isn't in 'needs_cookies'. */
+  retryWithCookies(id: string): void;
   /** All known downloads, oldest-first by createdAt. */
   getAll(): Download[];
   /** Boot path: seed the queue with persisted history. Does NOT start any
@@ -492,6 +508,13 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
         } else {
           emit(id, { status: 'needs_password', speed: undefined, eta: undefined });
         }
+      } else if (err instanceof YtDlpAuthRequiredError) {
+        // Row waits in 'needs_cookies' until the renderer submits a
+        // browser. The renderer's inline picker (DownloadRow) calls
+        // submitCookiesBrowser, which both persists the choice as the
+        // global setting AND flips the row back to 'queued' for a
+        // fresh attempt with --cookies-from-browser set.
+        emit(id, { status: 'needs_cookies', speed: undefined, eta: undefined });
       } else {
         const message = friendlyErrorMessage(err);
         emitDebug(id, 'error', message);
@@ -570,9 +593,10 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     if (!download || isTerminal(download.status) || download.status === 'canceling') {
       return;
     }
-    if (download.status === 'needs_password') {
+    if (download.status === 'needs_password' || download.status === 'needs_cookies') {
       // Waiting on the user; no process to kill, just terminate. The
       // password (if any was set) gets dropped along with the row.
+      // needs_cookies has no per-row secret to clean up.
       secrets.delete(id);
       emit(id, { status: 'cancelled', completedAt: Date.now() });
       return;
@@ -609,6 +633,19 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
       status: 'queued',
       passwordAttempts: (download.passwordAttempts ?? 0) + 1,
     });
+    tryStartNext();
+  };
+
+  const retryWithCookies = (id: string): void => {
+    const download = state.get(id);
+    // Only a row in 'needs_cookies' is waiting on us. The cookies
+    // setting is global (not per-row) so the new value is picked up
+    // by every subsequent run via getCookiesFromBrowser() — no
+    // per-row stash needed.
+    if (!download || download.status !== 'needs_cookies') {
+      return;
+    }
+    emit(id, { status: 'queued', error: undefined });
     tryStartNext();
   };
 
@@ -663,5 +700,14 @@ export const createDownloadQueue = (opts: QueueOptions): DownloadQueue => {
     persist();
   };
 
-  return { enqueue, cancel, submitPassword, getAll, rehydrate, patchTranscription, clearAll };
+  return {
+    enqueue,
+    cancel,
+    submitPassword,
+    retryWithCookies,
+    getAll,
+    rehydrate,
+    patchTranscription,
+    clearAll,
+  };
 };

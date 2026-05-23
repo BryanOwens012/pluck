@@ -1,9 +1,21 @@
 import { useEffect, useState } from 'react';
 import { ELEVENLABS_ENABLED } from '../../../shared/flags';
-import type { DebugLogEvent, Download } from '../../../shared/types';
+import type { BrowserName, DebugLogEvent, Download } from '../../../shared/types';
 import { api } from '../lib/api';
 import { LogBox } from './LogBox';
 import { resolveSiteGlyph, SourceSiteIcon } from './SourceSiteIcon';
+
+/** Display labels for the BrowserName values. Shown in the inline
+ * picker so the user sees "Chrome" / "Brave" rather than the lowercase
+ * IPC slugs. Order in the picker comes from `detectInstalledBrowsers`
+ * (which returns the BROWSER_NAMES subset present on disk). */
+const BROWSER_DISPLAY: Record<BrowserName, string> = {
+  chrome: 'Chrome',
+  firefox: 'Firefox',
+  safari: 'Safari',
+  brave: 'Brave',
+  edge: 'Edge',
+};
 
 const MISSING_FILE_TOOLTIP = 'The video cannot be found, as it might have been moved or deleted.';
 
@@ -65,6 +77,7 @@ const STATUS_LABEL: Record<Download['status'], string> = {
   downloading: 'Downloading',
   canceling: 'Canceling…',
   needs_password: 'Needs password',
+  needs_cookies: 'Needs sign-in cookies',
   completed: 'Completed',
   failed: 'Failed',
   cancelled: 'Cancelled',
@@ -74,13 +87,14 @@ const STATUS_LABEL: Record<Download['status'], string> = {
 // Tailwind classes for the small status badge in the row header. Failed gets
 // red so the row reads as broken at a glance even before the user reads the
 // error message below. Canceling/cancelled stay neutral — both are the
-// user's choice, not an error. Needs-password uses amber to read as
+// user's choice, not an error. Needs-{password, cookies} use amber to read as
 // "action required" without claiming the row has actually failed.
 const STATUS_BADGE_CLASS: Record<Download['status'], string> = {
   queued: 'text-neutral-700',
   downloading: 'text-neutral-700',
   canceling: 'text-neutral-700',
   needs_password: 'text-amber-800',
+  needs_cookies: 'text-amber-800',
   completed: 'text-neutral-700',
   failed: 'text-red-700',
   cancelled: 'text-neutral-700',
@@ -208,6 +222,14 @@ export const DownloadRow = ({
             </button>
           </div>
         ) : null}
+
+        {/* needs_cookies footer: inline browser picker for the auth-
+            required case (YouTube age gate, Twitter / X protected
+            tweets, Instagram private, etc.). Picking a browser sets
+            it as the global cookies-from-browser setting AND retries
+            this row. The list filters to browsers actually present on
+            this Mac via api.detectInstalledBrowsers. */}
+        {download.status === 'needs_cookies' ? <NeedsCookiesRow id={download.id} /> : null}
 
         {/* Debug-only: per-row size + duration line for completed rows.
             Reads off Download.fileSizeBytes (captured at move time)
@@ -429,6 +451,88 @@ const TranscriptionStatusRow = ({
         <div className="pluck-progress-indeterminate absolute inset-y-0 left-0 w-1/3 bg-sky-600" />
       </div>
       <div className="text-xs text-neutral-700">{TRANSCRIPTION_LABEL[status.state]}</div>
+    </div>
+  );
+};
+
+/** Inline browser picker shown beneath a row whose status is
+ * 'needs_cookies'. Asks main which browsers have cookies on this Mac
+ * via api.detectInstalledBrowsers, renders one button per browser,
+ * dispatches submitCookiesBrowser on click. The IPC handler persists
+ * the choice globally AND flips this row back to 'queued'.
+ *
+ * Empty installed list is rare (would mean no supported browser on
+ * the Mac) but possible — we fall back to showing every BROWSER_NAMES
+ * entry so the user still has an actionable surface; if a guessed
+ * browser turns out to have no cookies, the next attempt fails with
+ * YtDlpCookieAccessDeniedError which surfaces its own friendly
+ * message. */
+const NeedsCookiesRow = ({ id }: { id: string }): React.JSX.Element => {
+  const [installed, setInstalled] = useState<readonly BrowserName[] | undefined>(undefined);
+  const [submitting, setSubmitting] = useState<BrowserName | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .detectInstalledBrowsers()
+      .then((browsers) => {
+        if (!cancelled) {
+          setInstalled(browsers);
+        }
+      })
+      .catch((err: unknown) => {
+        console.error('detectInstalledBrowsers rejected:', err);
+        // Leave `installed` undefined — the render branch below shows
+        // a quiet message rather than guessing.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handlePick = (browser: BrowserName): void => {
+    setSubmitting(browser);
+    api.submitCookiesBrowser(id, browser).catch((err: unknown) => {
+      console.error('submitCookiesBrowser rejected:', err);
+      setSubmitting(undefined);
+    });
+  };
+
+  return (
+    <div className="mt-3 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5">
+      <div className="flex items-start gap-2">
+        <span aria-hidden="true" className="select-none text-sm leading-none text-amber-800">
+          🔐
+        </span>
+        <div className="min-w-0 flex-1 text-xs text-amber-800">
+          This content requires sign-in cookies. Pick a browser whose session is signed in to the
+          source site (and age-verified, if applicable).
+        </div>
+      </div>
+      {installed === undefined ? (
+        <div className="text-xs text-amber-800">Loading available browsers…</div>
+      ) : installed.length === 0 ? (
+        <div className="text-xs text-amber-800">
+          No supported browsers detected on this Mac. Open Chrome, Firefox, Safari, Brave, or Edge,
+          sign in to the source site, and retry.
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {installed.map((browser) => (
+            <button
+              key={browser}
+              type="button"
+              onClick={() => handlePick(browser)}
+              disabled={submitting !== undefined}
+              className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 focus:outline-none focus-visible:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting === browser
+                ? `Using ${BROWSER_DISPLAY[browser]}…`
+                : BROWSER_DISPLAY[browser]}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

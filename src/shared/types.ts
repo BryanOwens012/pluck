@@ -298,6 +298,7 @@ export const DOWNLOAD_STATUSES = [
   'downloading',
   'canceling',
   'needs_password',
+  'needs_cookies',
   'completed',
   'failed',
   'cancelled',

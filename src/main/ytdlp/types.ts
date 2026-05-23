@@ -180,6 +180,24 @@ export class YtDlpCancelledError extends YtDlpError {
   }
 }
 
+/** Thrown when the source URL requires authenticated cookies that the
+ * current --cookies-from-browser setting can't satisfy — YouTube age
+ * gate, Twitter / X private or sensitive media, Instagram private
+ * profile, Vimeo password-protected viewer, etc. Either no browser is
+ * set, or the configured browser's session isn't signed in / verified
+ * for the source site.
+ *
+ * Distinct from YtDlpCookieAccessDeniedError, which is the macOS
+ * permission case (Keychain denied / no Full Disk Access). The fix
+ * path here is "pick a browser whose session is authenticated for
+ * this site", surfaced via the row's `needs_cookies` status. */
+export class YtDlpAuthRequiredError extends YtDlpError {
+  constructor(stderr?: string) {
+    super('yt-dlp requires sign-in cookies for this URL', stderr);
+    this.name = 'YtDlpAuthRequiredError';
+  }
+}
+
 /** Thrown when yt-dlp couldn't read cookies for the configured browser —
  * Keychain access denied (Chromium-family) or no Full Disk Access (Safari).
  * The `browser` field carries the name so the renderer can craft a

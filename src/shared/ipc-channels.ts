@@ -48,6 +48,13 @@ export const IpcChannels = {
    * password as `--video-password`. After MAX_PASSWORD_ATTEMPTS wrong
    * submissions the row terminates as 'failed'. */
   SubmitPassword: 'pluck:submit-password',
+  /** Renderer -> main, invoke. Set the global `cookiesFromBrowser`
+   * setting AND retry a specific row that's waiting in
+   * 'needs_cookies'. Fired by the inline browser picker on the row
+   * when the user selects a browser whose session is authenticated
+   * for the source site (YouTube age gate, Twitter / X protected
+   * tweet, Instagram private profile, etc.). */
+  SubmitCookiesBrowser: 'pluck:submit-cookies-browser',
   /** Renderer -> main, invoke. Returns { anthropic: boolean,
    * elevenlabs: boolean } so the renderer can decide which features
    * are enabled and whether Welcome should appear on boot. */

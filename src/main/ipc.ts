@@ -18,6 +18,7 @@ import type { DownloadQueue } from './downloader/queue';
 import { resolveFormatChoices } from './downloader/video/format-selector';
 import {
   ApiKeyCredentialsSchema,
+  BrowserNameSchema,
   DownloadRequestSchema,
   HttpUrlSchema,
   NonEmptyStringSchema,
@@ -274,6 +275,23 @@ export const registerIpcHandlers = (deps: IpcDeps): void => {
     }
     deps.queue.submitPassword(parsedId.data, parsedPassword.data);
   });
+  ipcMain.handle(
+    IpcChannels.SubmitCookiesBrowser,
+    async (_event, id: unknown, browser: unknown): Promise<void> => {
+      // Two-step: persist the new browser choice as a global setting
+      // (so subsequent unrelated downloads pick it up too), then nudge
+      // the specific row that's waiting in 'needs_cookies' back to
+      // 'queued'. Unknown id or invalid browser silently no-ops to
+      // match the race-tolerance of submitPassword.
+      const parsedId = NonEmptyStringSchema.safeParse(id);
+      const parsedBrowser = BrowserNameSchema.safeParse(browser);
+      if (!parsedId.success || !parsedBrowser.success) {
+        return;
+      }
+      await deps.settings.update({ cookiesFromBrowser: parsedBrowser.data });
+      deps.queue.retryWithCookies(parsedId.data);
+    },
+  );
   ipcMain.handle(IpcChannels.HasApiKeys, () => ({
     anthropic: deps.secrets.hasKey('anthropic'),
     elevenlabs: deps.secrets.hasKey('elevenlabs'),
