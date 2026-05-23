@@ -15,7 +15,7 @@ import { binPath } from './paths';
 import { createSecretsStore, type Encryptor } from './secrets';
 import { createSettingsStore } from './settings';
 import { checkForUpdate, installUpdate } from './yt-dlp-updater/updater';
-import { readCurrentYtDlpInstallation } from './yt-dlp-updater/version';
+import { resolveYtDlpPath } from './yt-dlp-updater/version';
 import { fetchMetadata, runDownload } from './ytdlp/runner';
 
 const createWindow = (): void => {
@@ -136,7 +136,11 @@ app.whenReady().then(async () => {
   // through to bundled. The path is captured into runnerDeps and
   // reused for every spawn this session — a freshly-downloaded
   // update during THIS session takes effect on the next launch.
-  const ytDlpInstallation = await readCurrentYtDlpInstallation();
+  // Path-only — the version probe spawns yt-dlp, which on a freshly
+  // installed/notarized .app stalls for seconds while macOS verifies
+  // the PyInstaller bundle's code signatures. We defer that to the
+  // GetYtDlpStatus IPC the Settings panel calls lazily.
+  const ytDlpInstallation = await resolveYtDlpPath();
   const runnerDeps = { ytDlpPath: ytDlpInstallation.path, ffmpegPath: binPath('ffmpeg') };
   // Live-read cookies from settings at fetch time so a change takes
   // effect on the next prefetch / metadata fetch without rebuilding

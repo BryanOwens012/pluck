@@ -22,16 +22,28 @@ export type YtDlpInstallation = {
   path: string;
 };
 
-/** Resolve the yt-dlp path the app should currently use + read its
- * version. Prefers the auto-updater's userData copy when it exists
- * (newer); falls back to the bundled binary on first run / when
- * the userData copy was deleted by the user. */
-export const readCurrentYtDlpInstallation = async (): Promise<YtDlpInstallation> => {
+/** Cheap path-only resolution — no spawn. Prefers the
+ * auto-updater's userData copy when it exists (newer); falls back
+ * to the bundled binary on first run / when the userData copy was
+ * deleted. Used at startup where blocking on `yt-dlp --version`
+ * would delay window creation (PyInstaller unpack + macOS
+ * Gatekeeper code-signature check on first launch can run into
+ * multiple seconds). */
+export const resolveYtDlpPath = async (): Promise<Pick<YtDlpInstallation, 'path' | 'source'>> => {
   const userDataPath = getUserDataYtDlpPath();
   const bundledPath = getBundledYtDlpPath();
   const userDataExists = await fileExists(userDataPath);
-  const path = userDataExists ? userDataPath : bundledPath;
-  const source: YtDlpSource = userDataExists ? 'auto-updated' : 'bundled';
+  return {
+    path: userDataExists ? userDataPath : bundledPath,
+    source: userDataExists ? 'auto-updated' : 'bundled',
+  };
+};
+
+/** Resolve the yt-dlp path the app should currently use + read its
+ * version. Used by the Settings panel and the update checker —
+ * NOT on the startup hot path; see `resolveYtDlpPath` for that. */
+export const readCurrentYtDlpInstallation = async (): Promise<YtDlpInstallation> => {
+  const { path, source } = await resolveYtDlpPath();
   const version = await readYtDlpVersion(path);
   return { version, source, path };
 };
