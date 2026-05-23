@@ -20,6 +20,11 @@ type Props = {
    * label is shown regardless — the post-probe Best already carries
    * its resolution + container in `detail`, which is sufficient. */
   debugMode: boolean;
+  /** True while the per-URL format probe is in flight. The select
+   * gets `aria-busy` for assistive tech and a small inline spinner
+   * overlays the right edge (inside the select's reserved padding) so
+   * sighted users see the choices are still being refined. */
+  isProbing?: boolean;
 };
 
 /** Quality / format dropdown. Pure presentational — App owns the
@@ -30,6 +35,7 @@ export const FormatSelector = ({
   onChange,
   choices,
   debugMode,
+  isProbing,
 }: Props): React.JSX.Element => {
   const handleChange = (event: React.ChangeEvent<HTMLSelectElement>): void => {
     const nextId = event.target.value;
@@ -39,19 +45,55 @@ export const FormatSelector = ({
     }
   };
   return (
-    <select
-      value={value.id}
-      onChange={handleChange}
-      className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500"
-    >
-      {choices.map((choice) => (
-        <option key={choice.id} value={choice.id}>
-          {formatLabel(choice, debugMode)}
-        </option>
-      ))}
-    </select>
+    <span className="relative inline-flex items-center">
+      <select
+        value={value.id}
+        onChange={handleChange}
+        aria-busy={isProbing === true}
+        // pr-9 reserves space for the spinner so it sits next to the
+        // native chevron rather than overlapping the option text.
+        className={`rounded-md border border-neutral-200 bg-white py-2 pl-3 text-sm text-neutral-900 focus:border-neutral-600 focus:outline-none focus:ring-2 focus:ring-neutral-500 ${
+          isProbing ? 'pr-9' : 'pr-3'
+        }`}
+      >
+        {choices.map((choice) => (
+          <option key={choice.id} value={choice.id}>
+            {formatLabel(choice, debugMode)}
+          </option>
+        ))}
+      </select>
+      {isProbing ? (
+        <span
+          aria-hidden="true"
+          title="Detecting available formats…"
+          className="pointer-events-none absolute right-2 text-neutral-500"
+        >
+          <ProbeSpinner />
+        </span>
+      ) : null}
+    </span>
   );
 };
+
+/** Animated spinner shown inside the format dropdown while the yt-dlp
+ * metadata probe is in flight. Pure CSS animation — no JS timer, no
+ * re-render per frame. Hidden from assistive tech (the parent select's
+ * aria-busy carries the message instead of a polite-live-region
+ * announcement that re-fires on every URL edit). */
+const ProbeSpinner = (): React.JSX.Element => (
+  <svg
+    xmlns="http://www.w3.org/2000/svg"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    aria-hidden="true"
+    className="h-3 w-3 animate-spin"
+  >
+    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+  </svg>
+);
 
 const formatLabel = (choice: FormatChoice, debugMode: boolean): string => {
   const suffix = pickSuffix(choice, debugMode);

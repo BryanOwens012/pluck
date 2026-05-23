@@ -473,29 +473,38 @@ const NeedsCookiesRow = ({ id }: { id: string }): React.JSX.Element => {
 
   useEffect(() => {
     let cancelled = false;
-    api
-      .detectInstalledBrowsers()
-      .then((browsers) => {
+    const detect = async (): Promise<void> => {
+      try {
+        const browsers = await api.detectInstalledBrowsers();
         if (!cancelled) {
           setInstalled(browsers);
         }
-      })
-      .catch((err: unknown) => {
+      } catch (err) {
         console.error('detectInstalledBrowsers rejected:', err);
         // Leave `installed` undefined — the render branch below shows
         // a quiet message rather than guessing.
-      });
+      }
+    };
+    void detect();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const handlePick = (browser: BrowserName): void => {
+  const handlePick = async (browser: BrowserName): Promise<void> => {
     setSubmitting(browser);
-    api.submitCookiesBrowser(id, browser).catch((err: unknown) => {
+    try {
+      await api.submitCookiesBrowser(id, browser);
+      // Clear `submitting` even on success so the buttons aren't
+      // stuck disabled if the parent row's status update from the
+      // queue's `retryWithCookies → emit('queued')` is racing this
+      // promise resolution. The row will unmount the picker on the
+      // next render anyway, but defense in depth.
+      setSubmitting(undefined);
+    } catch (err) {
       console.error('submitCookiesBrowser rejected:', err);
       setSubmitting(undefined);
-    });
+    }
   };
 
   return (
@@ -522,12 +531,14 @@ const NeedsCookiesRow = ({ id }: { id: string }): React.JSX.Element => {
             <button
               key={browser}
               type="button"
-              onClick={() => handlePick(browser)}
+              onClick={() => {
+                void handlePick(browser);
+              }}
               disabled={submitting !== undefined}
               className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 transition hover:bg-amber-100 focus:outline-none focus-visible:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting === browser
-                ? `Using ${BROWSER_DISPLAY[browser]}…`
+                ? `Loading ${BROWSER_DISPLAY[browser]} cookies…`
                 : BROWSER_DISPLAY[browser]}
             </button>
           ))}

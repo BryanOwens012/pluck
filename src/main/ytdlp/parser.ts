@@ -257,15 +257,16 @@ export const isPasswordRequiredError = (stderr: string): boolean => {
  * Pinned against yt-dlp 2026.03.17 — re-verify on every yt-dlp bump.
  */
 export const isAuthRequiredError = (stderr: string): boolean => {
-  // Patterns verified against yt-dlp 2026.03.17 extractor source. The
-  // most reliable catch-all is the universal --cookies-from-browser
-  // hint that yt-dlp's `raise_login_required` appends to every login-
-  // required error message (across YouTube / Twitter / Instagram /
-  // Vimeo / Twitch / Reddit / Facebook / TikTok). The narrower
-  // platform-specific patterns are kept so we can still classify the
-  // error before the hint reaches the stderr buffer.
+  // Patterns verified against yt-dlp 2026.03.17 extractor source.
+  // The universal hint `raise_login_required` appends to every login-
+  // required error is "Use --cookies-from-browser …" — we match the
+  // full flag (not just "--cookies") so warnings or debug lines that
+  // merely mention "Using cookies" can't trigger a false positive.
   return (
-    /use --cookies/i.test(stderr) ||
+    // Universal hint — yt-dlp's `raise_login_required` always appends
+    // this across YouTube / Twitter / Instagram / Vimeo / Twitch /
+    // Reddit / Facebook / TikTok / etc.
+    /use --cookies-from-browser/i.test(stderr) ||
     // YouTube: age gate + anti-bot. Apostrophe is sometimes the Unicode
     // U+2019 (’) rather than ASCII (').
     /sign in to confirm your age/i.test(stderr) ||

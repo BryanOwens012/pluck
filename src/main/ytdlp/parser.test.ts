@@ -278,10 +278,19 @@ describe('isAuthRequiredError', () => {
         'ERROR: [SomeExtractor] xyz: Login required. Use --cookies-from-browser or --cookies for the authentication.',
       ),
     ).toBe(true);
-    // Even without "Login required", the hint alone is enough.
-    expect(isAuthRequiredError('ERROR: Use --cookies, --cookies-from-browser, or similar')).toBe(
-      true,
-    );
+    // Even without "Login required", the explicit --cookies-from-browser
+    // hint alone is enough.
+    expect(isAuthRequiredError('ERROR: Use --cookies-from-browser or similar')).toBe(true);
+  });
+
+  it('does NOT match warnings that merely mention --cookies but are not auth failures', () => {
+    // The catch-all is intentionally narrow to "--cookies-from-browser"
+    // so generic mentions of "Use --cookies" (in unrelated warnings,
+    // deprecation notices, debug lines) don't trigger a false positive
+    // that would land an unrelated network error into the
+    // needs_cookies UI.
+    expect(isAuthRequiredError('WARNING: --cookies is deprecated, use a config file')).toBe(false);
+    expect(isAuthRequiredError('[debug] Using --cookies arg from environment')).toBe(false);
   });
 
   it('matches Twitter / X protected-tweet wording', () => {

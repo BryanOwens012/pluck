@@ -266,9 +266,9 @@ const App = (): React.JSX.Element => {
       return;
     }
     let cancelled = false;
-    api
-      .getFormatChoices(debouncedUrl)
-      .then((result) => {
+    const probe = async (): Promise<void> => {
+      try {
+        const result = await api.getFormatChoices(debouncedUrl);
         if (cancelled) {
           return;
         }
@@ -281,13 +281,14 @@ const App = (): React.JSX.Element => {
         setFormat(
           (prev) => result.choices.find((c) => c.id === prev.id) ?? result.choices[0] ?? prev,
         );
-      })
-      .catch((err: unknown) => {
+      } catch (err) {
         console.error('getFormatChoices rejected:', err);
         if (!cancelled) {
           setIsProbing(false);
         }
-      });
+      }
+    };
+    void probe();
     return () => {
       cancelled = true;
     };
@@ -487,24 +488,13 @@ const App = (): React.JSX.Element => {
             <UrlInput value={url} onChange={setUrl} />
             {urlIsValid ? (
               <div className="flex gap-2">
-                <div className="relative flex items-center">
-                  <FormatSelector
-                    value={format}
-                    onChange={setFormat}
-                    choices={formatChoices}
-                    debugMode={debugMode}
-                  />
-                  {isProbing ? (
-                    <span
-                      role="status"
-                      aria-label="Detecting available formats…"
-                      title="Detecting available formats…"
-                      className="pointer-events-none absolute right-7 text-neutral-400"
-                    >
-                      <ProbeSpinner />
-                    </span>
-                  ) : null}
-                </div>
+                <FormatSelector
+                  value={format}
+                  onChange={setFormat}
+                  choices={formatChoices}
+                  debugMode={debugMode}
+                  isProbing={isProbing}
+                />
                 <button
                   type="submit"
                   className="flex-1 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-neutral-800"
@@ -561,25 +551,6 @@ const GearIcon = (): React.JSX.Element => (
   >
     <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" />
     <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-  </svg>
-);
-
-/** Animated spinner shown inside the format dropdown while the yt-dlp
- * metadata probe is in flight. Pure CSS animation — no JS timer, no
- * re-render per frame. The aria-label on the wrapper span handles
- * screen-reader announcement. */
-const ProbeSpinner = (): React.JSX.Element => (
-  <svg
-    xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    aria-hidden="true"
-    className="h-3 w-3 animate-spin"
-  >
-    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
   </svg>
 );
 
