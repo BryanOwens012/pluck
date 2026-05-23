@@ -1,6 +1,6 @@
 {
   "name": "pluck",
-  "version": "0.1.0",
+  "version": "0.1.0-alpha.2",
   "description": "A minimalist Mac video downloader with AI-assisted prompting and transcription",
   "main": "./out/main/index.js",
   "author": "Bryan Owens",
