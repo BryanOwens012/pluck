@@ -107,7 +107,7 @@ Click the gear icon top-right. Sections:
 ### Prerequisites
 
 - macOS Tahoe 26 or later, on Apple Silicon (M1, M2, M3, etc.) — Intel Macs are not supported
-- Node.js 20+ (24 is the test target)
+- Node.js 24+ (pinned via `engines.node` / `.nvmrc`)
 - npm 10+
 
 ### Setup
