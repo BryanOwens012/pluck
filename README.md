@@ -63,7 +63,7 @@ Pluck ships all dependencies internally — no Homebrew or system Python require
 | yt-dlp   | 2026.03.17 (auto-updates) | Video extraction + download                          |
 | ffmpeg   | N-124449 (arm64)          | Stream merge, audio extraction, container conversion |
 | ffprobe  | N-124449 (same build)     | Post-download metadata read for tagging              |
-| Electron | 42.2.0                    | App shell                                            |
+| Electron | 42                        | App shell                                            |
 | React    | 19                        | Renderer UI                                          |
 | Vite     | 7                         | Build tooling                                        |
 
@@ -107,7 +107,7 @@ Click the gear icon top-right. Sections:
 ### Prerequisites
 
 - macOS Tahoe 26 or later, on Apple Silicon (M1, M2, M3, etc.) — Intel Macs are not supported
-- Node.js 20+ (24 is the test target)
+- Node.js 24+ (declared in `engines.node` and `.nvmrc`)
 - npm 10+
 
 ### Setup
